@@ -152,7 +152,7 @@
 | P0 | 실제 규격 프레임 | 흰 배경 위 실제 width:height ratio의 검은 윤곽선만 표시하고 내부는 흰색 유지 |
 | P0 | 공통 바닥선 | 윤곽선 프레임의 아랫변을 모든 방향·동작·상태의 접점 기준으로 사용 |
 | P0 | 캐릭터/오브젝트 점유 | 윤곽선 안을 생성 대상이 자연스럽게 채우도록 크기와 위치 통일 |
-| P0 | 방향 포즈 | front/back/left/right 관절점과 발 접점 |
+| P0 | 방향 포즈 | 공통 rect·발 접점 안에서 front/back은 넓은 점유, left/right는 좁은 측면 점유를 쓰는 방향별 관절점·실루엣·safe margin |
 | P0 | 동작 포즈 | 7개 동작의 frame별 관절점, 장비 anchor, motion path |
 | P0 | 공통 점유 | 1×1, 1×2, 2×1, 2×2, 3×2 cell, 바닥선/중심선/safe margin |
 | P0 | 오브젝트 상태 | door/chest open, machine process, crop growth, tree fall |
