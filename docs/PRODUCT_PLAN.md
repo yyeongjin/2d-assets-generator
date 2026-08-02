@@ -1,454 +1,416 @@
-# 2D Assets Generator 제품 기획서
+# 2D Assets Generator 기능 기획서
 
-- 문서 상태: Draft v0.1
-- 작성일: 2026-08-02
-- 기준 모델: `Qwen/Qwen-Image`, `Qwen/Qwen-Image-Edit-2509`
-- 우선 실행 환경: RunPod GPU Pod
+## 1. 목표
 
-## 1. 제품 정의
+타일, 오브젝트, 캐릭터처럼 게임에 필요한 대량의 2D 에셋을 일정한 규격으로 생성하고, 방향·상태·동작 변형과 스프라이트 시트까지 만드는 생성 도구를 구현한다.
 
-### 1.1 한 문장 정의
+생성 도구는 로컬에서 실행한다. 이미지 생성은 RunPod Endpoint로 요청하며, 웹으로 제공해야 할 경우 Vercel에 배포한다. 생성된 에셋은 로컬 Unity 프로젝트에서 바로 확인한다.
 
-2D 게임 제작에 필요한 대량의 타일·오브젝트·캐릭터 에셋을 카탈로그에 따라 생성하고, 방향/상태/애니메이션 변형을 확장하며, Unity 투입 전까지 품질과 재현성을 추적하는 제작 도구다.
+```mermaid
+flowchart LR
+    A["로컬 생성 도구"] -->|"T2I / I2I 요청"| B["RunPod Endpoint"]
+    B -->|"생성 결과"| A
+    A --> C["로컬 에셋 저장소"]
+    A --> D["로컬 Unity 디버깅"]
+    E["선택적 Vercel 배포"] --> B
+```
 
-### 1.2 해결하려는 문제
+### 1.1 Unity 규격을 정하는 방식
 
-농장 생활 RPG 같은 게임은 한 가지 화풍 안에서 수천 개의 에셋을 요구한다. 일반 이미지 생성 UI는 좋은 이미지 한 장에는 적합하지만 다음 문제를 해결하지 못한다.
+Unity는 캐릭터나 오브젝트에 하나의 고정 pixel 크기를 권장하지 않는다. 대신 [Unity 6 Pixel Perfect Camera 문서](https://docs.unity3d.com/kr/current/Manual/urp/2d-pixelperfect.html)는 씬의 모든 Sprite `Pixels Per Unit`을 Pixel Perfect Camera의 `Asset Pixels Per Unit`과 동일하게 맞추고, 픽셀 아트 Sprite에 Point filter, 무압축, 픽셀 단위 pivot을 사용하도록 안내한다. `Reference Resolution`은 에셋이 설계된 원본 화면 해상도다.
 
-- 어떤 에셋과 변형이 필요한지 전체 수량을 관리하기 어렵다.
-- 프롬프트를 매번 손으로 작성해 스타일과 규격이 흔들린다.
-- 동일 캐릭터의 정면/후면/측면 및 동작 사이 정체성이 깨진다.
-- 타일 연결, pivot, 프레임 정렬, 투명도처럼 게임 엔진에 필요한 조건을 검증하지 않는다.
-- 생성 당시의 모델과 seed를 잃어버려 결과를 재현하기 어렵다.
+따라서 생성기에서 임의의 숫자를 Unity 권장 크기로 표시하지 않는다. 먼저 프로젝트의 Unity 규격을 한 번 설정하고, 캐릭터와 모든 오브젝트의 규격 체크박스가 이 값으로 실제 출력 크기를 계산하도록 한다.
 
-### 1.3 제품 원칙
-
-1. 생성의 단위는 이미지 한 장이 아니라 `asset + variant + provenance`다.
-2. 에셋 카탈로그가 생성 큐와 진행률의 단일 기준점이 된다.
-3. 모델이 잘하는 원화 생성과 코드가 잘하는 정렬/패킹/검증을 분리한다.
-4. 모든 생성 결과는 원본 입력과 설정으로 추적 가능해야 한다.
-5. 최종 합격 기준은 Unity 테스트 씬에서의 동작이다.
-
-## 2. 사용자와 핵심 시나리오
-
-### 2.1 주 사용자
-
-- 소규모 게임 개발자 또는 테크니컬 아티스트
-- RunPod에서 생성 모델을 운용하고 로컬 Unity 프로젝트에서 결과를 검증하는 사용자
-
-### 2.2 핵심 시나리오
-
-1. 새 프로젝트를 만들고 타일 크기, 출력 크기, 팔레트, 시점, 광원, 외곽선 규칙을 스타일 프리셋으로 저장한다.
-2. 카탈로그에서 `character.npc.blacksmith`를 선택하고 속성 폼으로 기준 캐릭터 후보를 만든다.
-3. 후보 하나를 승인한 뒤 방향과 동작을 선택하고 포즈 가이드와 함께 I2I 배치를 실행한다.
-4. 프레임 정렬과 시트 패킹 결과를 미리보기에서 확인하고 Unity로 내보낸다.
-5. Unity 테스트 씬에서 scale, pivot, animation, sorting 문제를 기록하고 해당 generation으로 돌아와 다시 생성한다.
-6. 대시보드에서 카탈로그의 완료/검수/실패/미생성 수량을 확인한다.
-
-## 3. 제품 범위
-
-상세 제작 대상은 문서 역할에 따라 분리한다.
-
-- `ASSET_CATALOG.md`: 전체 분류와 P0 플레이 가능 뼈대
-- `TILE_CATALOG.md`: 지형, 전이, 길, 구조물, 실내 타일 표
-- `OBJECT_CATALOG.md`: 자연물, 농장, 설비, 건물, 마을, 실내, 광산 오브젝트 표
-
-### 3.1 MVP 포함
-
-- 단일 사용자, 단일 GPU worker
-- 프로젝트와 스타일 프리셋 생성
-- T2I 기준 에셋 후보 생성 및 승인
-- 캐릭터 기준 이미지 + 레이아웃 가이드 기반 I2I 생성
-- 4방향과 핵심 동작 프리셋
-- 이미지 후처리와 스프라이트 시트 패킹
-- 생성 이력, 비교, 승인/반려
-- PNG + JSON manifest Unity 내보내기
-- 에셋 카탈로그 진행률
-
-### 3.2 MVP 제외
-
-- 모델 학습과 LoRA 학습 UI
-- 여러 사용자의 동시 편집 및 권한 관리
-- 결제/과금 시스템
-- 완전 자동 품질 승인
-- 게임 코드나 밸런스 데이터 생성
-- 특정 상용 게임의 화풍 또는 원본 에셋 복제
-
-## 4. 도구 1 — 기준 에셋 생성기(T2I)
-
-### 4.1 목적
-
-타일 소재, 오브젝트 디자인, 캐릭터 기준 턴어라운드의 출발점 등 각 asset family의 대표 이미지를 만든다.
-
-### 4.2 화면 구성
-
-1. **프로젝트/프리셋 바**: 프로젝트, 모델, 스타일, 팔레트, 캔버스 규격 선택
-2. **에셋 유형 패널**: 대분류와 세부 유형 선택
-3. **조건 패널**: 유형에 따라 필요한 필드만 동적으로 표시
-4. **프롬프트 패널**: 자동 조립 결과, 사용자 추가 지시, negative prompt
-5. **생성 설정**: seed, 후보 수, steps, true CFG, 크기
-6. **결과 보드**: 후보 비교, 즐겨찾기, 승인, 반려, 재생성
-
-### 4.3 공통 입력 필드
-
-| 그룹 | 필드 |
+| 프로젝트 Unity 규격 | 설명 |
 |---|---|
-| 식별 | asset ID, 표시 이름, 카테고리, 태그 |
-| 스타일 | 시점, 투영 방식, 픽셀 밀도, 팔레트, 외곽선, 음영 단계, 광원 방향 |
-| 배치 | 캔버스 비율, 차지 비율, 여백, 바닥 접점, 그림자 정책 |
-| 생성 | prompt 보충문, negative prompt, seed, steps, true CFG, 후보 수 |
-| 출력 | 기준 셀 크기, 출력 배율, 배경/알파 정책, 파일 이름 |
+| `asset_ppu` | Pixel Perfect Camera와 모든 Sprite에 공통으로 적용할 PPU |
+| `reference_resolution_x/y` | 에셋이 설계되는 원본 화면 해상도 |
+| `pixels_per_cell` | Tilemap 한 cell에 대응하는 pixel 수 |
+| `filter_mode` | 픽셀 아트일 때 `Point` |
+| `compression` | 픽셀 아트일 때 `None` |
+| `pivot_unit` | 픽셀 단위 |
 
-### 4.4 유형별 조건
+### 1.2 규격 프리셋 체크박스
 
-#### 캐릭터
+| 대상 | 체크박스 예시 | 자동으로 정해지는 값 |
+|---|---|---|
+| 캐릭터 | `character.standard`, `character.small`, `character.tall`, 프로젝트가 추가한 규격 | sprite width/height, ratio, PPU, pivot, 바닥선, guide frame |
+| 단일 셀 오브젝트 | `object.1x1` | 1×1 visual canvas와 footprint, ratio |
+| 세로 오브젝트 | `object.1x2`, `object.1x3` | visual canvas width/height와 바닥 footprint |
+| 가로 오브젝트 | `object.2x1`, `object.3x1` | visual canvas width/height와 sorting point |
+| 대형 오브젝트 | `object.2x2`, `object.3x2` 등 | multi-cell visual canvas, pivot, collision footprint |
+| 건물 | 해당 building footprint 프리셋 | 외형 rect, entrance cell, pivot, sorting point |
+| 직접 규격 | `custom` | 사용자가 입력한 width/height를 검증 후 저장 |
 
-서로 배타적인 값은 체크박스가 아니라 단일 선택(chip/radio/select), 함께 적용 가능한 특징은 다중 선택을 사용한다.
+프리셋을 클릭하면 다음 관계로 실제 pixel 규격을 결정한다.
 
-- 역할: 플레이어, NPC, 상인, 농부, 대장장이, 의사, 모험가 등
-- 성별 표현, 연령대, 키/체형, 피부색
-- 얼굴형, 눈, 머리 모양/색, 수염
-- 상의, 하의, 신발, 겉옷, 모자, 액세서리
-- 직업 소품, 기본 표정, 성격 키워드
-- 인간형/비인간형, 종족 특징
-- 좌우 비대칭 요소와 반드시 유지할 identity key
+```text
+target_width_px = visual_cells_x × pixels_per_cell
+target_height_px = visual_cells_y × pixels_per_cell
+target_ratio = target_width_px / target_height_px
+```
 
-#### 타일
+`visual_cells`는 그림 canvas 크기이고 `footprint_cells`는 바닥 충돌/배치 크기다. 나무처럼 그림은 3×5T지만 바닥은 1×1 cell인 경우 두 값을 분리한다. 선택된 규격은 T2I 출력, I2I 레이아웃 가이드, 후처리, Unity import에 동일하게 적용한다.
 
-- 환경/바이옴, 소재, 계절, 건조/젖음, 손상 상태
-- seamless 여부, autotile 규칙, 가장자리와 코너 요구
-- 반복 허용 정도, 장식 밀도, 애니메이션 여부
-- 보행 가능/불가, 높이 레벨, 그림자 수신 정책
+## 2. 도구 1 — 기준 에셋 생성기(T2I)
 
-#### 오브젝트
+### 2.1 동작
 
-- 기능, 소재, 크기(cell 단위), 배치 환경
-- 상태 목록, 상호작용, 방향 수, 애니메이션 여부
-- pivot, 바닥 접점, 충돌 영역, 그림자 분리 여부
+1. 에셋 종류를 선택한다.
+2. 선택한 종류에 맞는 옵션만 화면에 활성화한다.
+3. 옵션 값을 조합해 prompt를 자동 작성한다.
+4. 자동 작성된 prompt를 사용자가 직접 확인하고 수정할 수 있다.
+5. 로컬 도구가 RunPod Endpoint에 T2I 요청을 보낸다.
+6. 생성 후보를 비교하고 사용할 기준 에셋을 선택한다.
+7. 선택한 기준 에셋과 생성 설정을 함께 저장한다.
 
-### 4.5 프롬프트 조립 순서
+### 2.2 공통 옵션
 
-`프로젝트 스타일 고정문 → 에셋 정체성 → 시점/구도 → 재질/색 → 상태/동작 → 게임 규격 → 배경/금지 조건 → 사용자 지시`
+| 분류 | 옵션 |
+|---|---|
+| 에셋 | category, asset ID, 이름, 태그 |
+| 규격 | Unity 규격 프리셋 체크박스, 실제 width/height, ratio, tile cell 수, 출력 배율 |
+| 스타일 | 시점, 팔레트, 외곽선, 명암 단계, 광원 방향 |
+| 배치 | 캔버스 크기, 점유율, 여백, 바닥 접점, 그림자 |
+| 랜덤 | 개별 옵션 랜덤, 그룹 랜덤, 전체 랜덤, 옵션 잠금, option seed |
+| 생성 | prompt 추가문, negative prompt, generation seed, steps, CFG, 후보 수 |
 
-자동 프롬프트는 숨기지 않는다. 사용자가 각 fragment의 활성 여부와 최종 문장을 확인하고 편집할 수 있어야 한다.
+### 2.3 캐릭터 선택 시 활성화할 옵션
 
-### 4.6 출력
+| 분류 | 옵션 |
+|---|---|
+| Unity 규격 | character 규격 프리셋 체크박스, PPU, pivot, visual overflow |
+| 기본 | 성별 표현, 연령대, 키, 체형, 피부색 |
+| 얼굴 | 얼굴형, 눈, 눈썹, 기본 표정 |
+| 머리 | 머리 모양, 길이, 색, 수염 |
+| 의상 | 상의, 하의, 신발, 겉옷, 모자 |
+| 특징 | 액세서리, 직업 소품, 좌우 비대칭 요소 |
+| 역할 | 플레이어, NPC, 상인, 농부, 대장장이 등 |
 
-- 원본 모델 출력
-- 후처리 미리보기
-- 사용한 prompt/settings JSON
-- 썸네일
-- 승인 시 immutable 기준 asset revision
+서로 배타적인 값은 단일 선택, 함께 적용할 수 있는 특징은 다중 선택으로 제공한다.
 
-## 5. 도구 2 — 방향·동작·스프라이트 생성기(I2I)
+### 2.4 랜덤 선택
 
-### 5.1 입력 슬롯
+| 기능 | 동작 |
+|---|---|
+| 개별 랜덤 | 한 옵션 옆의 랜덤 버튼을 눌러 해당 값만 다시 선택 |
+| 그룹 랜덤 | 얼굴, 머리, 의상, 특징 등 선택한 그룹만 다시 선택 |
+| 캐릭터 전체 랜덤 | 잠기지 않은 캐릭터 옵션 전체를 한 번에 선택 |
+| 유형별 랜덤 | tile/object를 선택했을 때 해당 유형에 맞는 조건만 랜덤 선택 |
+| 옵션 잠금 | 현재 값을 유지하고 이후 랜덤 선택에서 제외 |
+| 제외 목록 | 사용하지 않을 값이나 조합을 랜덤 후보에서 제외 |
+| `option_seed` | 같은 옵션 조합을 다시 만들기 위한 seed |
+| `generation_seed` | 같은 옵션에서도 이미지 생성 결과를 바꾸기 위한 별도 seed |
 
-`Qwen-Image-Edit-2509`는 다중 이미지 편집을 지원하고 1~3개 입력에서 최적 성능을 안내한다. 이를 다음 역할로 고정한다.
+랜덤 값은 자유 텍스트를 임의 생성하지 않고 각 유형의 옵션 목록에서 선택한다. 랜덤 결과도 prompt를 만들기 전에 화면에 표시하며 사용자가 수정할 수 있다.
 
-| 슬롯 | 필수 | 역할 |
+### 2.5 타일 선택 시 활성화할 옵션
+
+| 분류 | 옵션 |
+|---|---|
+| 환경 | 바이옴, 실내/실외, 계절, 날씨 |
+| 소재 | 잔디, 흙, 모래, 물, 돌, 목재 등 |
+| 연결 | seamless, autotile 종류, edge, corner, transition |
+| 상태 | 건조/젖음, 정상/손상, 정적/애니메이션 |
+| 물리 | walkable, farmable, fishable, collision, 높이 |
+
+### 2.6 오브젝트 선택 시 활성화할 옵션
+
+| 분류 | 옵션 |
+|---|---|
+| 기본 | object family, 소재, 기능, 배치 환경 |
+| 규격 | object/building 규격 프리셋 체크박스, 실제 width/height, ratio, cell footprint, visual overflow |
+| 상태 | 열림/닫힘, 켜짐/꺼짐, 비어 있음/가득 참, 작동 전/중/완료 |
+| 방향 | 고정 방향, 2방향, 4방향 |
+| 배치 | pivot, 바닥 접점, sorting point, collision, interaction anchor |
+
+### 2.7 저장 항목
+
+| 항목 | 저장 내용 |
+|---|---|
+| 기준 이미지 | 선택된 T2I 결과 원본 |
+| 생성 설정 | model ID/revision, prompt, negative prompt, seed, steps, CFG |
+| 실제 규격 | width, height, ratio, cell footprint |
+| 프로젝트 규칙 | palette, 시점, 외곽선, 광원 |
+| 옵션 스냅샷 | 직접/랜덤 선택 결과, 잠긴 옵션, option seed |
+| 추적 정보 | generation ID, 생성 시각, 입력/출력 파일 hash |
+
+## 3. 도구 2 — 방향·상태·동작 생성기(I2I)
+
+### 3.1 옵션 활성화
+
+| 현재 입력 | 활성화되는 옵션 |
+|---|---|
+| 기준 이미지 없음 | 방향·동작·상태 옵션 비활성화 |
+| 기준 캐릭터 입력 | 저장된 Unity 규격으로 바깥 프레임을 다시 그리고 정면, 후면, 좌측, 우측과 캐릭터 동작 옵션 활성화 |
+| 기준 오브젝트 입력 | 선택한 object family의 scale/layout profile로 바깥 프레임 크기·ratio·바닥선을 즉시 다시 그림 |
+| 캐릭터 방향/동작 선택 | 바깥 프레임은 유지하고 프레임 안의 포즈 표시를 선택한 방향·동작으로 교체 |
+| 기준 타일 입력 | edge, corner, transition, 계절, 젖음 옵션 활성화 |
+
+### 3.2 입력 이미지
+
+`Qwen/Qwen-Image-Edit-2509`를 사용하는 I2I 요청은 다음 입력을 사용한다.
+
+| 입력 | 필수 | 내용 |
 |---|---:|---|
-| Reference A | 예 | 승인된 캐릭터/오브젝트의 정체성, 색, 재질 |
-| Reference B | 예 | 레이아웃, 방향, 포즈 또는 keypoint/실루엣 가이드 |
-| Reference C | 아니요 | 무기, 도구, 의상, 제품 또는 추가 스타일 참조 |
+| Reference A | 예 | 도구 1에서 생성한 기준 캐릭터/오브젝트 이미지 |
+| Reference B | 예 | 실제 출력 규격 ratio의 검은 사각형 윤곽선 + 선택한 방향·동작의 내부 포즈 표시 |
+| Reference C | 선택 | 무기, 도구, 의상 또는 추가 오브젝트 참조 이미지 |
 
-레이아웃 가이드는 흰 배경 위 검은 도형으로 만든다. 정사각형/직사각형은 목표 점유 영역과 바닥면을 나타내고, 캐릭터 가이드는 머리·몸통·손·발의 위치 및 장비 궤적을 추가할 수 있다.
+Reference B의 바깥 사각형은 생성 대상이 들어갈 크기와 위치를 고정한다. 캐릭터 동작을 구분할 때는 같은 사각형 안에 별도의 포즈 표시를 넣는다. 규격 프레임과 포즈 표시는 서로 다른 역할이며 독립적으로 변경된다.
 
-### 5.2 입력에 따른 옵션 활성화
+### 3.3 레이아웃 가이드 규칙
 
-- 캐릭터 입력: 방향, 동작, 장비 손, 표정, 프레임 수, loop 옵션 활성화
-- 오브젝트 입력: 상태, 방향, 열림 정도, 내용물, 작동 프레임 활성화
-- 타일 입력: 가장자리/코너, 계절, 젖음, 연결 규칙 활성화
-- building 입력: 업그레이드 단계, 문/창문 상태, 계절 장식 활성화
+- 배경은 흰색이다.
+- 프레임은 검은색 윤곽선만 사용한다.
+- 윤곽선 내부를 검은색으로 채우지 않는다.
+- 윤곽선의 가로:세로 비율은 실제 출력 에셋의 width:height와 정확히 같아야 한다.
+- 실제 출력 규격이 1:1이면 정사각형, 2:3이면 2:3 직사각형으로 만든다.
+- 프레임의 아랫변을 생성 대상의 공통 바닥선으로 사용한다.
+- 생성 대상은 윤곽선 안을 자연스럽게 채워야 한다.
+- 같은 에셋의 방향·상태·동작 변형은 같은 ratio와 바닥선을 재사용한다.
+- 에셋을 선택할 때마다 해당 scale/layout profile로 윤곽선 크기와 ratio를 즉시 다시 그린다.
+- 방향·동작을 선택하면 바깥 윤곽선 안에 해당 포즈 template을 표시한다.
+- 동작이 바뀌어도 바깥 윤곽선과 바닥선은 바꾸지 않고 내부 포즈만 바꾼다.
 
-### 5.3 캐릭터 방향
+### 3.4 레이아웃 프로필
 
-- front / north-facing camera 기준 정면 표현
-- back
-- left
-- right
+캐릭터와 모든 object family는 다음 값을 저장한다.
 
-좌우가 대칭인 캐릭터는 한쪽을 생성해 mirror할 수 있으나, 가방·흉터·무기 손처럼 비대칭 특징이 있으면 좌우를 각각 생성한다. 이 정책은 asset 단위로 기록한다.
-
-### 5.4 캐릭터 동작 프리셋
-
-| ID | 동작 | 핵심 제약 |
-|---|---|---|
-| `idle` | 대기 | 발 접점과 몸 중심 고정 |
-| `walk_empty` | 빈손 걷기 | 좌우 발 교차, loop 가능 |
-| `weapon_1h` | 한손 무기 들기/공격 | 손잡이 위치와 주 사용 손 고정 |
-| `weapon_2h` | 양손 무기 들기/공격 | 두 손 간 거리와 무기 축 유지 |
-| `tool_swing` | 도구 휘두르기 | 준비-타격-회수, 궤적 일관성 |
-| `bow_shoot` | 활 쏘기 | 당기기-릴리스, 활/화살 방향 |
-| `carry_front` | 물건을 앞에 들기 | 물체가 양손 앞, 얼굴 비가림 제한 |
-| `carry_overhead` | 물건을 머리 위에 들기 | 팔과 물체 높이, 실루엣 여백 확보 |
-
-프레임 수는 프리셋 기본값을 제공하되 프로젝트에서 변경할 수 있게 한다. 프레임별 이미지를 무관하게 한 번씩 생성하지 않고, 동일 generation group과 가이드 세트로 묶어 정체성 검수를 수행한다.
-
-### 5.5 결정론적 후처리
-
-모델 출력 이후 다음 단계는 같은 입력에 항상 같은 결과를 내야 한다.
-
-1. 배경 제거 또는 배경색 키잉
-2. 빈 영역 crop과 기준 캔버스 배치
-3. 바닥 접점/중심선 정렬
-4. 투명 여백과 alpha edge 정리
-5. 목표 해상도로 nearest-neighbor 축소
-6. 선택적 팔레트 quantization 및 dithering
-7. 프레임별 bbox 검사
-8. 고정 순서로 sprite sheet pack
-9. rect, pivot, duration, event를 manifest에 기록
-
-AI 출력에 정확한 픽셀 격자, 타일 이음새, 프레임 위치를 전적으로 맡기지 않는다.
-
-## 6. 생성 디버거
-
-### 6.1 비교 화면
-
-- Reference A/B/C, 원본 출력, 후처리 출력 동시 표시
-- checkerboard/흰색/검은색/게임 배경 전환
-- nearest-neighbor 1x/2x/4x/8x 확대
-- onion skin 및 animation loop 재생
-- 두 세대 간 slider/깜박임 비교
-- 프레임 중심선, 바닥선, bbox, pivot, collision overlay
-
-### 6.2 기록 항목
-
-| 구분 | 기록 |
+| 필드 | 설명 |
 |---|---|
-| 모델 | model ID, revision, pipeline class, dtype |
-| 생성 | seed, steps, true CFG, width/height, prompt, negative prompt |
-| 입력 | 각 이미지 경로, SHA-256, 역할, 전처리 정보 |
-| 출력 | 파일 해시, 크기, alpha, palette, 후처리 버전 |
-| 실행 | job ID, 시작/종료 시각, GPU, VRAM peak, 소요 시간, 오류 |
-| 검수 | 자동 검사 결과, 승인 상태, 사유, 사용자 메모 |
+| `layout_profile_id` | 에셋과 연결되는 레이아웃 규격 ID |
+| `target_width` | 실제 출력 에셋 너비 |
+| `target_height` | 실제 출력 에셋 높이 |
+| `target_ratio` | `target_width:target_height`에서 계산한 비율 |
+| `guide_canvas_width` | 흰 배경 가이드 전체 너비 |
+| `guide_canvas_height` | 흰 배경 가이드 전체 높이 |
+| `frame_width` | 검은 윤곽선 프레임 너비 |
+| `frame_height` | 검은 윤곽선 프레임 높이 |
+| `frame_x` | 가이드 안 프레임 X 위치 |
+| `frame_y` | 가이드 안 프레임 Y 위치 |
+| `baseline_y` | 프레임 아랫변의 Y 좌표 |
+| `stroke_width` | 검은 윤곽선 두께 |
+| `outer_margin` | 프레임 바깥 안전 여백 |
+| `direction_overrides` | 방향에 따라 위치 조정이 필요할 때의 예외값 |
+| `state_overrides` | 열림/닫힘 등 상태에 따라 크기가 달라질 때의 예외값 |
+| `revision` | 레이아웃 설정 변경 이력 |
 
-### 6.3 자동 검사
-
-- 파일 크기/색상 모드/알파 채널
-- sprite rect와 canvas 경계 초과
-- 바닥 접점, pivot, 프레임 bbox 편차
-- 방향별 크기와 대표 색상 분포 편차
-- animation loop 첫/마지막 프레임 급변
-- 타일 가장자리 픽셀 불일치와 반복 시 seam
-- 파일 누락, 중복 ID, manifest 불일치
-
-자동 검사는 합격을 보장하지 않는다. 의심 결과를 빠르게 찾는 필터로 사용한다.
-
-## 7. Unity 연동
-
-### 7.1 1차 내보내기 계약
+필수 관계식:
 
 ```text
-export/<project>/<asset_id>/<revision>/
-├── source.png
-├── spritesheet.png
-├── manifest.json
-└── preview.gif
+target_ratio = target_width / target_height
+frame_width / frame_height = target_ratio
+baseline_y = frame_y + frame_height
 ```
 
-manifest 필수 항목:
+에셋을 선택하면 저장된 레이아웃 프로필을 자동으로 불러온다. width, height, 위치, 여백을 바꾸면 Reference B 미리보기를 즉시 다시 만든다. 승인된 프로필은 같은 에셋의 모든 I2I 생성에서 재사용한다.
 
-- asset ID, revision, category, tags
-- texture width/height, filter mode, compression, pixels per unit
-- 각 frame의 name, rect, pivot, duration, direction, action
-- sorting point, shadow anchor, collision shapes
-- source generation ID와 input hashes
+### 3.5 포즈 가이드
 
-### 7.2 Unity Editor importer 목표
-
-- manifest를 읽어 TextureImporter 설정 적용
-- Sprite Editor rect/pivot 자동 생성
-- 방향/동작별 AnimationClip 및 AnimatorOverrideController 생성
-- Tile/RuleTile과 prefab 초안 생성
-- 테스트 씬에 선택 asset을 배치하고 배경/조명/배율 전환
-- 문제 프레임과 generation ID를 복사해 생성기로 되돌아갈 수 있게 함
-
-## 8. 정보 구조와 데이터 모델
-
-### 8.1 핵심 엔티티
-
-- `Project`: 해상도, 팔레트, 시점, Unity 설정
-- `StylePreset`: 모든 asset에 반복 적용할 시각 규칙과 prompt fragments
-- `CatalogEntry`: 만들어야 할 asset family와 variant 요구
-- `Asset`: 승인된 논리적 게임 자산
-- `AssetRevision`: 기준 이미지/시트의 불변 버전
-- `GenerationJob`: 입력, 설정, 상태, 로그
-- `GenerationResult`: 원본/후처리 파일과 측정값
-- `Guide`: layout/pose/autotile template
-- `Review`: 승인/반려와 사유
-- `Export`: Unity 전달 묶음
-
-### 8.2 ID 규칙 예시
-
-```text
-tile.terrain.grass.spring
-tile.water.shore.outer_corner.ne
-object.nature.tree.oak.mature.summer
-object.farm.chest.wood.closed
-character.npc.blacksmith.walk.front.frame_00
-item.tool.watering_can.copper
-vfx.harvest.leaf.frame_03
-```
-
-표시 이름은 바뀔 수 있지만 ID는 한번 배포한 뒤 바꾸지 않는다.
-
-### 8.3 상태 흐름
-
-`planned → queued → generating → generated → review_needed → approved/rejected → exported → unity_verified`
-
-## 9. 시스템 구조
-
-### 9.1 MVP 구성
-
-- **Gradio UI**: 폼, 큐, 결과 비교, 카탈로그 진행률
-- **Application service**: prompt 조립, job 상태, 승인, export
-- **GPU worker**: T2I/I2I pipeline을 프로세스 시작 시 1회 load
-- **Post-processor**: crop, alpha, scale, palette, sheet pack, 검사
-- **Storage**: 프로젝트 디렉터리 + SQLite
-- **Unity importer**: 별도 Unity package
-
-UI 코드가 Diffusers를 직접 호출하지 않게 하여 이후 FastAPI/웹 UI 또는 RunPod Endpoint로 교체할 수 있게 한다.
-
-### 9.2 RunPod 디렉터리 권장안
-
-```text
-/workspace/models/       # Hugging Face cache, persistent volume
-/workspace/projects/     # source, result, manifests, database
-/workspace/app/          # repository checkout
-```
-
-- 모델은 worker 시작 시 load하고 job마다 다시 읽지 않는다.
-- `bfloat16`을 기본으로 시작하며 실제 GPU별 VRAM/시간을 benchmark한다.
-- OOM 시 CPU offload, quantization, attention backend는 별도 프로필로 제공한다.
-- 라이브러리와 모델 revision을 lock해 재현성을 유지한다.
-
-### 9.3 논리 API
-
-| 메서드 | 경로 | 역할 |
-|---|---|---|
-| POST | `/projects` | 프로젝트 생성 |
-| GET | `/catalog` | 필터된 카탈로그/진행률 |
-| POST | `/prompts/preview` | 폼 입력으로 prompt 미리보기 |
-| POST | `/jobs/t2i` | 기준 에셋 생성 job |
-| POST | `/jobs/i2i` | 방향/상태/동작 생성 job |
-| GET | `/jobs/{id}` | 상태, 로그, 결과 |
-| POST | `/results/{id}/review` | 승인/반려 |
-| POST | `/assets/{id}/pack` | 시트와 manifest 생성 |
-| POST | `/exports/unity` | Unity export 생성 |
-
-MVP에서는 함수 경계로 먼저 구현하고, 원격 분리가 필요할 때 HTTP API로 노출한다.
-
-## 10. 품질 기준
-
-### 10.1 공통
-
-- 프로젝트 스타일/팔레트/광원 규칙 준수
-- 지정 캔버스와 바닥 접점 준수
-- 깨진 실루엣, 잘린 부분, 불필요한 텍스트 없음
-- 투명 배경과 깨끗한 alpha edge
-- generation provenance 100% 기록
-
-### 10.2 캐릭터
-
-- 방향·동작 전체에서 얼굴, 머리, 의상, 체형, 대표 색 유지
-- 발 위치가 기준선에서 허용 오차 이내
-- 장비가 손에서 분리되거나 프레임마다 형태가 바뀌지 않음
-- loop에서 명백한 위치 점프 없음
-
-### 10.3 타일
-
-- 동일 tile을 반복해도 경계선이 보이지 않음
-- 모든 autotile 인접 조합에서 빈 픽셀/잘못된 전이 없음
-- 계절 variant 사이 형태가 대응됨
-- collision 및 walkability metadata 존재
-
-### 10.4 오브젝트
-
-- 모든 상태에서 크기, pivot, 바닥 접점 유지
-- 실제 상호작용 영역과 collision shape가 일치
-- 뒤로 지나갈 수 있는 큰 오브젝트는 sorting point 정의
-
-## 11. 마일스톤과 완료 조건
-
-### M0 — 생성 실험대
-
-- RunPod에서 T2I와 2509 I2I 각각 성공
-- 입력/설정/결과를 한 job 폴더에 저장
-- 고정 seed 재실행 절차 문서화
-
-### M1 — 기준 에셋 생성기
-
-- character/tile/object 세 유형의 동적 폼
-- prompt preview 및 수동 편집
-- 후보 4장 생성, 승인/반려, 기준 asset 등록
-- 카탈로그 상태 반영
-
-### M2 — 캐릭터 스프라이트 vertical slice
-
-- 동일 캐릭터 4방향 idle + walk 완성
-- `tool_swing`, `carry_overhead` 각각 한 동작 완성
-- 프레임 정렬, 시트 패킹, 미리보기
-- identity/foot alignment 수동 QA 통과
-
-### M3 — 월드 vertical slice
-
-- 풀/흙/경작지/물/해안/길 autotile 세트
-- 나무/바위/상자/문/제작 설비 상태 variant
-- 계절 2종 이상과 물 애니메이션
-- tile seam 자동 테스트 통과
-
-### M4 — Unity 검증
-
-- manifest import와 sprite slicing 자동화
-- AnimationClip/RuleTile 생성
-- 테스트 씬에서 이동, 타일링, 정렬, 충돌 확인
-- Unity에서 발견한 문제를 generation ID로 추적
-
-### M5 — 대량 생산
-
-- 카탈로그 batch queue, 우선순위, 재시도
-- 중단 후 재개와 실패 격리
-- 에셋별 비용/시간/성공률 리포트
-- P0 카탈로그 100%가 `unity_verified` 상태
-
-## 12. 주요 리스크와 대응
-
-| 리스크 | 대응 |
+| 필드 | 설명 |
 |---|---|
-| 방향/프레임마다 캐릭터 정체성 변화 | 기준 asset 고정, pose guide, identity key prompt, 그룹 QA, 필요 시 LoRA 연구 |
-| AI가 정확한 tile seam을 만들지 못함 | 모델은 소재 원본을 만들고 autotile mask와 경계 합성은 코드로 처리 |
-| 고해상도 출력의 축소 결과가 흐림 | nearest-neighbor 축소, 제한 팔레트, outline/alpha 후처리, 실제 해상도 미리보기 |
-| RunPod OOM과 느린 cold start | persistent model cache, worker 상주, GPU 프로필 benchmark, offload/quantization 선택지 |
-| 모델/라이브러리 업데이트로 결과 변화 | dependency lock, model revision 및 pipeline class 기록 |
-| 수천 개 결과의 검수 병목 | 카탈로그 우선순위, contact sheet, 자동 이상 탐지, generation group 승인 |
-| 라이선스/유사성 문제 | 모델 라이선스와 출력 정책 확인, 독창적 스타일 프리셋, 참조 이미지 출처 기록 |
+| `pose_template_id` | 방향·동작에 연결된 포즈 template ID |
+| `pose_frame_id` | 여러 animation frame 중 현재 포즈 frame |
+| `direction` | front/back/left/right |
+| `action` | 선택한 7개 동작 중 하나 |
+| `joint_points` | 머리, 어깨, 팔꿈치, 손, 골반, 무릎, 발의 기준점 |
+| `equipment_anchor` | 무기, 도구, 운반 물체의 위치 |
+| `motion_path` | 도구 swing이나 활 동작의 진행 방향 |
+| `revision` | 포즈 template 변경 이력 |
 
-## 13. 제품 지표
+Reference B는 다음 순서로 자동 생성한다.
 
-- 카탈로그 완료율: planned 대비 approved/exported/unity_verified 비율
-- 첫 승인까지의 평균 generation 수
-- direction/action 세트 identity QA 통과율
-- tile seam 자동 검사 통과율
-- Unity import 후 수동 수정이 필요 없는 asset 비율
-- asset당 GPU 시간 및 재생성률
-- 동일 설정 재실행 시 provenance 누락률(목표 0%)
+1. 선택한 캐릭터/오브젝트의 scale profile로 실제 ratio를 계산한다.
+2. layout profile로 바깥 사각형 윤곽선과 바닥선을 그린다.
+3. 캐릭터 방향·동작이 선택됐다면 해당 pose template을 사각형 안에 그린다.
+4. 오브젝트가 바뀌면 1~2단계를 다시 실행해 윤곽선 크기를 바꾼다.
+5. 동작만 바뀌면 바깥 윤곽선은 유지하고 3단계의 포즈만 바꾼다.
 
-## 14. 구현 전 결정할 항목
+### 3.6 캐릭터 방향
 
-아래 값은 첫 vertical slice 전에 프로젝트 설정으로 확정한다.
+| ID | 방향 |
+|---|---|
+| `front` | 정면 |
+| `back` | 후면 |
+| `left` | 좌측 |
+| `right` | 우측 |
 
-- 기준 tile 크기와 캐릭터 canvas 크기(예: 16/32/48/64 px 중 선택)
-- orthographic/top-down/3-quarter 시점과 카메라 각도
-- 제한 팔레트 사용 여부와 색상 수
-- 좌우 방향 mirror 정책
-- 캐릭터 동작별 frame 수와 FPS
-- Unity PPU, pivot, sorting 기준, Tilemap/RuleTile 버전
-- 배경 제거 방식과 그림자 분리 정책
-- RunPod 목표 GPU와 허용 가능한 job당 시간/비용
+캐릭터를 입력하기 전에는 위 옵션을 보여주지 않거나 비활성화한다.
 
-## 15. 참고 자료
+### 3.7 캐릭터 동작
 
-- [Hugging Face Diffusers — QwenImage pipelines](https://huggingface.co/docs/diffusers/api/pipelines/qwenimage)
-- [Qwen/Qwen-Image-Edit-2509 model card](https://huggingface.co/Qwen/Qwen-Image-Edit-2509)
-- [QwenLM/Qwen-Image](https://github.com/QwenLM/Qwen-Image)
+| ID | 화면 옵션 | 생성 내용 | 사각형 안 포즈 표시 |
+|---|---|---|---|
+| `walk_empty` | 빈손 걷기 | 장비 없이 걷는 반복 프레임 | contact/pass 자세와 발 위치 |
+| `weapon_1h` | 한손 무기 들기 | 한 손으로 무기를 든 상태/동작 | 한 손과 무기 anchor |
+| `weapon_2h` | 양손 무기 들기 | 두 손으로 무기를 든 상태/동작 | 두 손 위치와 무기 축 |
+| `tool_swing` | 도구 휘두르기 | 준비, 휘두름, 타격, 회수 프레임 | frame별 관절점과 swing path |
+| `bow_shoot` | 활 쏘기 | 활 들기, 당기기, 발사 프레임 | 활/당기는 손/화살 방향 |
+| `carry_front` | 물건을 앞에 들기 | 물건을 몸 앞에서 드는 프레임 | 양손과 앞쪽 물체 영역 |
+| `carry_overhead` | 물건을 머리 위에 들기 | 물건을 머리 위로 드는 프레임 | 올린 양팔과 머리 위 물체 영역 |
+
+캐릭터를 넣는 순간 이 7개 옵션을 활성화한다. 선택한 방향과 동작은 I2I prompt와 생성 job에 자동으로 들어간다.
+
+### 3.8 오브젝트 상태 생성
+
+| 오브젝트 유형 | 상태 예시 |
+|---|---|
+| 문 | 닫힘, 열리는 중, 열림, 잠김, 파손 |
+| 상자 | 닫힘, 열림, 비어 있음, 가득 참 |
+| 제작 설비 | 대기, 재료 투입, 작동 중, 완료, 수거, 고장 |
+| 광원 | 꺼짐, 켜지는 중, 켜짐, 꺼지는 중 |
+| 작물 | 성장 단계, 수확 가능, 수확 후, 고사 |
+| 파괴물 | 정상, 타격, 파괴, 잔해 |
+| 건물 | 건설 중, 완성, 업그레이드, 손상 |
+
+상태가 달라져도 기본 레이아웃 프로필의 ratio, 위치, 바닥선을 유지한다. 문이 열리거나 기계 부품이 움직여 프레임을 넘겨야 하는 경우에만 `state_overrides`를 사용한다.
+
+### 3.9 결과 처리
+
+1. RunPod Endpoint에서 생성 결과를 받는다.
+2. 실제 규격 ratio와 바닥선에 맞는지 비교한다.
+3. 배경 제거와 alpha 정리를 수행한다.
+4. 프레임을 동일한 바닥선과 pivot으로 정렬한다.
+5. 실제 출력 width/height로 변환한다.
+6. 방향·동작·상태 순서대로 스프라이트 시트를 만든다.
+7. rect, pivot, duration, direction, action/state를 metadata에 저장한다.
+
+## 4. RunPod Endpoint 연결
+
+### 4.1 T2I 요청
+
+| 입력 | 내용 |
+|---|---|
+| model | `Qwen/Qwen-Image` |
+| prompt | 옵션으로 조립한 최종 prompt |
+| generation | seed, steps, CFG, width, height, 후보 수 |
+| project | style preset, palette, 시점 |
+
+### 4.2 I2I 요청
+
+| 입력 | 내용 |
+|---|---|
+| model | `Qwen/Qwen-Image-Edit-2509` |
+| Reference A | 기준 에셋 이미지 |
+| Reference B | scale/layout profile과 선택한 pose template에서 자동 생성한 규격·포즈 가이드 |
+| Reference C | 선택한 무기/도구/의상/추가 참조 |
+| option | direction, character action 또는 object state |
+| generation | seed, steps, CFG, 출력 규격 |
+
+### 4.3 응답 처리
+
+| 값 | 사용처 |
+|---|---|
+| job ID/status | 생성 진행률과 재시도 |
+| result image | 원본 결과 저장과 후처리 |
+| model revision | 결과 재현 |
+| seed/settings | 재생성 및 비교 |
+| error | 실패 사유 표시 |
+
+RunPod API key는 로컬 환경 변수 또는 Vercel의 서버 측 환경 변수에 저장하며 저장소와 브라우저 응답에 노출하지 않는다.
+
+## 5. 로컬 화면
+
+| 화면 | 기능 |
+|---|---|
+| 기준 에셋 생성 | category 선택, 세부 옵션, prompt 확인, T2I 실행 |
+| 방향·동작 생성 | 기준 캐릭터 입력, 4방향/7개 동작 선택, I2I 실행 |
+| 오브젝트 상태 생성 | 기준 오브젝트 입력, 레이아웃 규격, 상태/방향 선택 |
+| 레이아웃 편집 | 에셋 선택 시 바뀌는 width/height, ratio, frame 위치, 바닥선, 여백 미리보기 |
+| 포즈 편집 | 방향·동작별로 사각형 안의 joint, 장비 anchor, motion path 확인 |
+| 결과 비교 | 입력 A/B/C, 원본 결과, 후처리 결과 비교 |
+| 스프라이트 확인 | 실제 크기 확대, 프레임 반복 재생, 바닥선/pivot overlay |
+| 카탈로그 | 필요한 에셋 목록, 생성/검수 상태, 파일 연결 |
+| 히스토리 | 이전 옵션·prompt·입력·결과 확인, 비교, 설정 재사용, 분기 생성 |
+
+## 6. Unity 디버깅
+
+| 검사 | 확인 내용 |
+|---|---|
+| 실제 크기 | PPU와 게임 화면 배율에서 크기가 맞는지 확인 |
+| 바닥선 | 방향·동작·상태별 발/바닥 접점이 같은지 확인 |
+| Sprite slicing | rect와 프레임 순서 확인 |
+| Pivot | 이동·회전·장비 결합 기준 확인 |
+| Animation | FPS, loop, 프레임 흔들림 확인 |
+| Tile | 반복 seam, edge/corner/transition 확인 |
+| Object | collision, interaction anchor, sorting point 확인 |
+
+Unity에서 발견한 문제는 asset ID와 generation ID로 로컬 생성 결과에 연결한다.
+
+## 7. 생성 히스토리
+
+### 7.1 generation 기록
+
+| 기록 | 내용 |
+|---|---|
+| 식별 | generation ID, project ID, asset ID, 생성 시각 |
+| 관계 | T2I/I2I, 부모 generation ID, 기준 asset revision |
+| 옵션 | 유형별 조건 전체, 랜덤/직접 선택 여부, 잠금 상태, option seed |
+| prompt | 자동 조립 prompt, 사용자 수정본, negative prompt |
+| 입력 | Reference A/B/C 파일과 hash |
+| 레이아웃 | layout profile ID/revision, 실제 규격, ratio, frame 위치, 바닥선, pose template ID/revision |
+| 모델 | model ID/revision, generation seed, steps, CFG |
+| 결과 | 원본, 후처리 이미지, sprite sheet, metadata |
+| 상태 | 생성 중, 완료, 실패, 승인, 반려, Unity 확인 |
+| 메모 | 이름, 태그, 즐겨찾기, 반려 사유 |
+
+### 7.2 히스토리 동작
+
+| 동작 | 설명 |
+|---|---|
+| 다시 열기 | 과거 generation의 옵션, prompt, 입력, 결과 복원 |
+| 같은 설정 재생성 | 옵션과 prompt는 유지하고 generation seed만 변경 |
+| 옵션 재사용 | 과거 캐릭터/오브젝트 설정을 새 asset 시작값으로 사용 |
+| 분기 생성 | 부모 generation을 남긴 채 일부 옵션만 바꿔 새 결과 생성 |
+| 결과 비교 | 두 generation의 설정 차이와 이미지를 나란히 표시 |
+| 기준 에셋 지정 | 선택한 결과를 이후 I2I의 Reference A로 사용 |
+| 즐겨찾기/태그 | 후보를 묶고 빠르게 필터링 |
+| 실패 재시도 | 실패한 요청의 입력을 유지해 다시 실행 |
+
+히스토리는 로컬 프로젝트를 기준으로 저장한다. Vercel에서 사용할 경우에도 같은 generation 구조를 사용하며 저장 위치만 배포 구성에 맞춰 연결한다.
+
+### 7.3 상태 표시
+
+job 진행 상태와 에셋 작업 상태를 섞지 않고 따로 표시한다.
+
+| Job 상태 | 화면 표시 |
+|---|---|
+| `queued` | 대기 배지와 큐 순서 |
+| `running` | 진행 배지, 진행률, 현재 step, 경과 시간 |
+| `succeeded` | 생성 완료 배지와 결과 썸네일 |
+| `failed` | 실패 배지, 오류 내용, 재시도 버튼 |
+| `canceled` | 중단 배지와 중단 시점 |
+
+| Asset 상태 | 의미 |
+|---|---|
+| `candidate` | 생성됐지만 아직 기준 에셋로 선택되지 않음 |
+| `reference_selected` | 이후 I2I에서 사용할 기준 에셋로 지정 |
+| `post_processed` | 배경 제거와 실제 규격 변환 완료 |
+| `sheet_ready` | 스프라이트 시트와 metadata 생성 완료 |
+| `exported` | Unity용 파일 내보내기 완료 |
+| `unity_verified` | Unity 디버깅에서 확인 완료 |
+| `rejected` | 사용하지 않기로 결정, 반려 사유 표시 |
+
+히스토리 목록의 각 행에는 썸네일, asset ID, T2I/I2I 구분, 방향/동작/상태, Job 상태, Asset 상태, 생성 시각, parent generation을 표시한다. 상태·에셋 유형·기간·즐겨찾기로 필터링하며, 실행 중인 항목은 목록과 결과 카드에서 동시에 진행 상황을 갱신한다.
+
+## 8. 에셋 목록
+
+- [마스터 에셋 카탈로그](ASSET_CATALOG.md)
+- [타일 카탈로그](TILE_CATALOG.md)
+- [오브젝트 카탈로그](OBJECT_CATALOG.md)
+- [캐릭터·오브젝트 상대 크기 규격](SCALE_SYSTEM.md)
+
+타일과 오브젝트의 실제 width/height, ratio, 상태, 방향, animation, collision, pivot, sorting 정보는 각 카탈로그에서 관리한다.
+
+## 9. 구현 순서
+
+1. 로컬 화면에서 RunPod Endpoint T2I/I2I 요청과 결과 저장 연결
+2. 에셋 종류별 옵션 활성화, 랜덤/잠금, prompt 자동 조립
+3. generation 히스토리 저장, 복원, 비교, 분기 생성
+4. 실제 규격 ratio 기반 레이아웃 프로필 편집 및 Reference B 자동 생성
+5. 캐릭터 입력 후 4방향과 7개 동작 생성
+6. 오브젝트별 상태·방향 생성과 레이아웃 프로필 재사용
+7. 배경 제거, 바닥선 정렬, 실제 규격 변환, 스프라이트 시트 생성
+8. 타일·오브젝트 카탈로그 기반 생성 목록 연결
+9. 로컬 Unity 디버깅과 generation ID 역추적

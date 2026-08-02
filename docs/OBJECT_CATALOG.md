@@ -12,6 +12,56 @@
 | 필수 variant/state | 함께 완성해야 하는 상태와 변형 |
 | Unity/배치 정보 | pivot, collision, sorting, anchor 등 필수 metadata |
 
+### 1.1 모든 오브젝트의 Unity 규격과 I2I 레이아웃
+
+아래 표에 나오는 **모든 Object family**는 `unity_size_profile_id`와 `layout_profile_id`를 반드시 갖는다. 오브젝트 유형 체크박스를 선택하면 두 프로필을 함께 불러오며, 실제 출력 규격과 I2I 두 번째 입력 이미지가 자동으로 정해진다. family별 기본 상대 크기는 [캐릭터·오브젝트 상대 크기 규격](SCALE_SYSTEM.md)을 따른다.
+
+| 필수 설정 | 설명 |
+|---|---|
+| `unity_size_profile_id` | 프로젝트 Unity PPU와 cell 규격에 연결된 크기 프리셋 |
+| `footprint_cells_x/y` | 오브젝트가 바닥에서 차지하는 Tilemap cell 수 |
+| `visual_cells_x/y` | 오브젝트 그림 canvas가 차지하는 T 단위 크기 |
+| `target_width_px` | `visual_cells_x × pixels_per_cell`로 계산한 실제 너비 |
+| `target_height_px` | `visual_cells_y × pixels_per_cell`로 계산한 실제 높이 |
+| `visual_overflow` | 나무 수관·지붕처럼 footprint 밖에 그려지는 영역의 추가 여백 |
+| `target_ratio` | `target_width_px:target_height_px` 실제 출력 비율 |
+| `ppu` | 프로젝트 Pixel Perfect Camera의 Asset PPU와 같은 값 |
+| `pivot_px` | 픽셀 단위 pivot |
+| `sorting_point_px` | 앞/뒤 정렬에 사용할 픽셀 좌표 |
+| `collision` | footprint와 실제 기능에 맞는 충돌 영역 |
+| `layout_profile_id` | I2I 레이아웃 윤곽선 규격 ID |
+| `guide_canvas_width/height` | 흰 배경 가이드 전체 크기 |
+| `frame_width/height` | 실제 출력 ratio와 동일한 검은 윤곽선 프레임 크기 |
+| `frame_x/y` | 가이드 안 윤곽선 프레임 위치 |
+| `baseline_y` | 윤곽선 프레임 아랫변 좌표 |
+| `stroke_width` | 검은 윤곽선 두께 |
+| `direction_overrides` | 방향에 따라 다른 위치가 필요할 때의 예외값 |
+| `state_overrides` | open/closed 등 상태에 따라 다른 외형 범위가 필요할 때의 예외값 |
+| `revision` | 승인된 규격 변경 이력 |
+
+필수 관계식:
+
+```text
+target_width_px = visual_cells_x × pixels_per_cell
+target_height_px = visual_cells_y × pixels_per_cell
+target_ratio = target_width_px / target_height_px
+frame_width / frame_height = target_ratio
+baseline_y = frame_y + frame_height
+```
+
+| 체크박스 선택 | 자동 적용 |
+|---|---|
+| `object.1x1` | 1×1 cell 실제 규격, ratio, pivot, 윤곽선 가이드 |
+| `object.1x2` | 1×2 cell 실제 규격, ratio, 바닥선, 윤곽선 가이드 |
+| `object.2x1` | 2×1 cell 실제 규격, ratio, sorting point, 윤곽선 가이드 |
+| `object.2x2` | 2×2 cell 실제 규격, pivot/collision, 윤곽선 가이드 |
+| `object.3x2` 등 | 대형 오브젝트 footprint에서 계산한 전체 규격 |
+| `custom` | 입력한 width/height를 검증하고 새 프로필로 저장 |
+
+같은 오브젝트의 상태·방향 변형은 기본 프로필을 재사용한다. 열림 상태나 움직이는 부품이 기본 프레임을 실제로 벗어날 때만 override를 저장한다. T2I, I2I, 후처리, Unity import는 모두 같은 규격 revision을 사용한다.
+
+오브젝트 선택 UI는 선택값이 바뀌는 즉시 `unity_size_profile_id`와 `layout_profile_id`를 다시 읽고 Reference B의 사각형 윤곽선 width/height/ratio/위치/바닥선을 다시 그린다. 이전에 선택한 오브젝트의 윤곽선을 그대로 재사용하면 안 된다.
+
 ## 2. 나무와 식생
 
 | 우선 | Object family | 필요한 대상 | 필수 variant/state | Unity/배치 정보 |

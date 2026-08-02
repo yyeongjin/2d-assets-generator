@@ -6,7 +6,7 @@
 
 | 항목 | 원칙 |
 |---|---|
-| Tile size | 프로젝트 설정값. MVP 예시는 32×32 px이나 고정하지 않음 |
+| Tile size | 프로젝트 설정값. 32×32 px 등 실제 게임 규격에 맞춰 결정 |
 | 생성 크기 | 모델 친화적 고해상도로 생성 후 결정론적으로 축소 |
 | 연결 | Unity RuleTile 또는 동일한 adjacency 규칙 사용 |
 | 변형 축 | season, weather, state, direction, height, animation 중 필요한 것만 선택 |
