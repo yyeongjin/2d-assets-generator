@@ -37,14 +37,25 @@ npm test
 |---|---|---|
 | 도구 1 | 타일, 오브젝트, 캐릭터, 생명체, 아이템, VFX, UI, 가이드 | 8분류 모두 해당 family·옵션·후보 화면으로 전환 |
 | 캐릭터 방향 | front, back, left, right | 점유 폭 `78%`, `76%`, `56%`, `56%`와 방향별 Reference A 변경 |
-| 캐릭터 동작 | `walk_empty`, `weapon_1h`, `weapon_2h`, `tool_swing`, `bow_shoot`, `carry_front`, `carry_overhead` | 프레임 슬롯 `4`, `2`, `2`, `4`, `3`, `1`, `1`과 내부 포즈 변경 |
+| 캐릭터 동작 | `walk_empty`, `weapon_1h`, `weapon_2h`, `tool_swing`, `bow_shoot`, `carry_front`, `carry_overhead` | 프레임 슬롯 `4`, `2`, `2`, `4`, `3`, `1`, `1`과 내부 포즈 변경. 걷기는 골반 연결점을 유지하고 각도별 다리 길이를 보정해 양발의 바닥선 접촉 유지 |
 | 오브젝트 | 일반 나무, 농가 | 윤곽 ratio와 출력이 `3:5 / 96×160`, `6:7 / 192×224`로 변경 |
 | 타일 | center, edge, outer corner, inner corner, transition, 47-tile blob | 6개 topology 가이드 모두 변경 |
 | 히스토리 | 현재 설정 저장 | `LOCAL-*` 항목 추가와 대기 상태 집계 변경 |
 
-캡처는 `public/screenshots`에 저장한다.
+## 화면 캡처
 
-- `01-t2i-full-catalog.png`: 도구 1의 전체 대분류와 타일 기준 후보
-- `02-i2i-direction-layouts.png`: 방향별 기준 strip과 좌측 `tool_swing` 가이드
-- `03-i2i-object-layout.png`: 농가 `6:7` 규격 윤곽과 접지선
-- `04-i2i-tile-layout.png`: 타일 `transition` topology 가이드
+### 도구 1 — 전체 대분류와 타일 기준 후보
+
+![도구 1 전체 에셋 카탈로그](./public/screenshots/01-t2i-full-catalog.png)
+
+### 캐릭터 — 방향별 기준과 바닥선에 닿는 빈손 걷기
+
+![방향별 캐릭터 기준과 빈손 걷기 접지](./public/screenshots/02-i2i-direction-layouts.png)
+
+### 오브젝트 — 농가 6:7 규격 윤곽과 접지선
+
+![농가 오브젝트 규격 레이아웃](./public/screenshots/03-i2i-object-layout.png)
+
+### 타일 — transition topology 가이드
+
+![타일 transition 레이아웃](./public/screenshots/04-i2i-tile-layout.png)

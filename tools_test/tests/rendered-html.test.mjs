@@ -28,6 +28,8 @@ test("레이아웃을 크롭 범위 안에 가두고 바닥선에 맞춘다", ()
   assert.match(page, /data-ground-contact="aligned"/);
   assert.match(page, /data-ground-edge=\{category === "tile" \? "adjacency" : "bottom"\}/);
   assert.match(css, /\.layout-frame\s*\{[^}]*overflow:\s*hidden/s);
+  assert.match(css, /\.pose-walk_empty \.pose-leg-left\s*\{[^}]*top:\s*61%[^}]*bottom:\s*auto[^}]*height:\s*47%/s);
+  assert.match(css, /\.pose-walk_empty \.pose-leg-right\s*\{[^}]*top:\s*61%[^}]*bottom:\s*auto[^}]*height:\s*49\.5%/s);
 });
 
 test("요청한 캐릭터 동작 7개를 제공한다", () => {

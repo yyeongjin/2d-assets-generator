@@ -401,7 +401,8 @@ button { font: inherit; }
 
 /* Exact action preset IDs from the product specification. */
 .pose-walk_empty .pose-arm-left { transform: rotate(43deg); }.pose-walk_empty .pose-arm-right { transform: rotate(-47deg); }
-.pose-walk_empty .pose-leg-left { transform: rotate(34deg); }.pose-walk_empty .pose-leg-right { transform: rotate(-38deg); }
+.pose-walk_empty .pose-leg-left { top: 61%; bottom: auto; height: 47%; transform: rotate(34deg); }
+.pose-walk_empty .pose-leg-right { top: 61%; bottom: auto; height: 49.5%; transform: rotate(-38deg); }
 .pose-weapon_1h .pose-arm-right { transform: rotate(-103deg); }
 .pose-weapon_1h .pose-equipment { display: block !important; left: 72%; top: 34%; height: 38%; transform: rotate(-24deg); background: var(--orange) !important; }
 .pose-weapon_2h .pose-arm-left { transform: rotate(82deg); }.pose-weapon_2h .pose-arm-right { transform: rotate(-82deg); }
