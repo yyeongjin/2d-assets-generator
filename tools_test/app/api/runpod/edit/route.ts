@@ -248,7 +248,7 @@ export async function POST(request: Request) {
       const outlineDetail = `outline L${layoutValidation.outline.coverage.left.toFixed(2)} T${layoutValidation.outline.coverage.top.toFixed(2)} R${layoutValidation.outline.coverage.right.toFixed(2)} B${layoutValidation.outline.coverage.bottom.toFixed(2)}`;
       const contactDetail = `top ${layoutValidation.contact.topDelta}px, bottom ${layoutValidation.contact.bottomDelta}px`;
       const message = !layoutValidation.outline.ok
-        ? `검은 crop outline이 보존되지 않았습니다. ${outlineDetail} · 접촉 오차 ${contactDetail}`
+        ? `검은 crop outline이 보존되지 않았습니다. ${outlineDetail} · 접촉 판정 보류`
         : !layoutValidation.contact.top || !layoutValidation.contact.bottom
           ? `캐릭터의 머리와 발이 crop rect의 위·아래 변에 닿지 않았습니다. 접촉 오차 ${contactDetail}`
         : content

@@ -69,6 +69,7 @@ type BatchProgress = {
 
 const GUIDE_LONG_EDGE = 1024;
 const GUIDE_FRAME_OCCUPANCY = 0.8;
+const GUIDE_OUTER_MARGIN = "10%";
 const CHARACTER_HEIGHT_OCCUPANCY = "100%";
 
 const INITIAL_DIRECTION_REFERENCES: Record<Direction, DirectionReference> = {
@@ -324,14 +325,14 @@ function makeFramePhases(actionPreset: ActionPreset, direction: Direction): Fram
 }
 
 function characterActionPrompt(direction: Direction, actionPreset: ActionPreset, frame: FramePhase) {
-  return `Image 1 is the character. Image 2 is the target canvas. Edit image 2 only. Keep its white canvas and black rectangle unchanged. Replace the gray pose with image 1 in ${direction} pose ${frame.id}. Hair touches the top edge; soles touch the bottom edge. ${DIRECTION_PROMPT_RULES[direction]} ${ACTION_INSTRUCTIONS[actionPreset.id]}`;
+  return `Keep image 1's character unchanged. Match only image 2's gray pose ${frame.id}. Preserve face, hair, clothes, colors, and proportions. Keep image 2's inner black frame visible at its exact position and size; do not move or scale it to the canvas edges. Place the character only inside that frame. Hair touches the top; soles touch the bottom. ${DIRECTION_PROMPT_RULES[direction]} ${ACTION_INSTRUCTIONS[actionPreset.id]}`;
 }
 
 function directionReferencePrompt(direction: Direction) {
   if (direction === "front") {
-    return "Image 1 is the character. Image 2 is the target canvas. Edit image 2 only. Keep its white canvas and black rectangle unchanged. Put image 1 inside the rectangle. Hair touches the top edge; soles touch the bottom edge.";
+    return "Keep image 1's character unchanged. Preserve face, hair, clothes, colors, and proportions. Keep image 2's inner black frame visible at its exact position and size; do not move or scale it to the canvas edges. Place the character only inside that frame. Hair touches the top; soles touch the bottom.";
   }
-  return `Image 1 is the character. Image 2 is the target canvas. Edit image 2 only. Keep its white canvas and black rectangle unchanged. Replace the gray pose with image 1 facing ${direction}. Hair touches the top edge; soles touch the bottom edge. ${DIRECTION_PROMPT_RULES[direction]}`;
+  return `Keep image 1's character unchanged. Change only its direction to match image 2's gray guide. Preserve face, hair, clothes, colors, and proportions. Keep image 2's inner black frame visible at its exact position and size; do not move or scale it to the canvas edges. Place the character only inside that frame. Hair touches the top; soles touch the bottom. ${DIRECTION_PROMPT_RULES[direction]}`;
 }
 
 function guideCanvasSize(visualX: number, visualY: number) {
@@ -489,10 +490,6 @@ async function createLayoutGuide(
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
   const { frameX, frameY, frameWidth, frameHeight, baselineY: baseline, strokeWidth } = frame;
-  context.strokeStyle = "#000000";
-  context.lineWidth = strokeWidth;
-  context.strokeRect(frameX - strokeWidth * 0.5, frameY - strokeWidth * 0.5, frameWidth + strokeWidth, frameHeight + strokeWidth);
-
   context.strokeStyle = "#555555";
   context.fillStyle = "#555555";
   context.lineWidth = Math.max(8, Math.min(width, height) * 0.025);
@@ -653,6 +650,14 @@ async function createLayoutGuide(
     context.stroke();
   }
 
+  // The crop outline is the fixed target boundary, so draw it last in front of every pose/object guide.
+  context.globalAlpha = 1;
+  context.strokeStyle = "#000000";
+  context.lineWidth = strokeWidth;
+  context.lineCap = "butt";
+  context.lineJoin = "miter";
+  context.strokeRect(frameX - strokeWidth * 0.5, frameY - strokeWidth * 0.5, frameWidth + strokeWidth, frameHeight + strokeWidth);
+
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((value) => value ? resolve(value) : reject(new Error("레이아웃 PNG 생성 실패")), "image/png");
   });
@@ -739,6 +744,16 @@ async function normalizeReferenceOnWhite(
   const drawY = Math.round(targetFrame.frameY + targetFrame.frameHeight - height);
   context.imageSmoothingEnabled = false;
   context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, drawX, drawY, width, height);
+  if (fillFrame) {
+    context.strokeStyle = "#000000";
+    context.lineWidth = fillFrame.strokeWidth;
+    context.strokeRect(
+      fillFrame.frameX - fillFrame.strokeWidth * 0.5,
+      fillFrame.frameY - fillFrame.strokeWidth * 0.5,
+      fillFrame.frameWidth + fillFrame.strokeWidth,
+      fillFrame.frameHeight + fillFrame.strokeWidth,
+    );
+  }
   debugLog("REFERENCE_A_NORMALIZED", {
     source: `${bitmap.width}x${bitmap.height}`,
     foreground: `${sourceWidth}x${sourceHeight}@${sourceX},${sourceY}`,
@@ -870,9 +885,9 @@ export default function Home() {
       return characterActionPrompt(direction, actionPreset, framePhase);
     }
     if (category === "tile") {
-      return `Keep image 1 unchanged. Match only the topology from image 2: ${topology}. Put the tile inside the black frame. Keep all four frame lines and every tile pixel inside. Remove the guide marks.`;
+      return `Keep image 1's tile unchanged. Match only image 2's ${topology} guide. Keep image 2's black frame unchanged and every tile pixel inside it.`;
     }
-    return `Keep image 1 unchanged. Match only the object state from image 2: ${objectState}. Put the object inside the black frame. Keep all four frame lines and every object pixel inside. The base touches the bottom line. Remove the guide marks.`;
+    return `Keep image 1's object unchanged. Match only image 2's ${objectState} guide. Keep image 2's black frame unchanged. Keep every object pixel inside; its base touches the bottom border.`;
   }, [actionPreset, category, direction, framePhase, objectState, topology]);
 
   useEffect(() => {
@@ -1068,15 +1083,10 @@ export default function Home() {
     const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height, guide.frame);
     const requestPrompt = directionReference ? directionReferencePrompt(targetDirection) : characterActionPrompt(targetDirection, targetActionPreset, targetFrame);
     const form = new FormData();
-    form.append("image", normalizedReference, reference.name);
-    form.append("image", guide.blob, `reference-b-character-${targetDirection}-${targetFrame.id}.png`);
+    form.append("image", normalizedReference, `reference-a-identity-${reference.name}`);
+    form.append("image", guide.blob, `reference-b-layout-character-${targetDirection}-${targetFrame.id}.png`);
     form.set("prompt", requestPrompt);
-    const directionNegative = targetDirection === "back"
-      ? ", visible face, visible eyes"
-      : targetDirection === "left" || targetDirection === "right"
-        ? ", front view, three-quarter view, two visible eyes, missing eye"
-        : "";
-    form.set("negativePrompt", `different character, redesign, extra limbs, disconnected body, separated head, separated torso, missing crop outline, changed crop outline, pose skeleton, stick figure, outside frame, floating feet, shadow, ground, text, scenery${directionNegative}`);
+    form.set("negativePrompt", "redesign, restyle, realistic, 3D, shading, changed face, changed hair, changed clothes, changed colors, changed proportions, missing black crop frame, broken crop frame, covered crop frame");
     form.set("size", `${guide.width}x${guide.height}`);
     form.set("seed", String(seed));
     form.set("numInferenceSteps", "40");
@@ -1447,10 +1457,10 @@ export default function Home() {
       const guide = await createLayoutGuide(family.visualX, family.visualY, category, direction, action, frameIndex);
       const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height, category === "character" ? guide.frame : undefined);
       const form = new FormData();
-      form.append("image", normalizedReference, activeReference.name);
-      form.append("image", guide.blob, `reference-b-${category}-${direction}-${action}-${framePhase.id}.png`);
+      form.append("image", normalizedReference, `reference-a-identity-${activeReference.name}`);
+      form.append("image", guide.blob, `reference-b-layout-${category}-${direction}-${action}-${framePhase.id}.png`);
       form.set("prompt", generationPrompt);
-      form.set("negativePrompt", "different character, redesign, extra limbs, missing border, outside frame, floating feet, text, scenery");
+      form.set("negativePrompt", "redesign, restyle, realistic, 3D, shading, changed face, changed hair, changed clothes, changed colors, changed proportions, missing black crop frame, broken crop frame, covered crop frame");
       form.set("size", `${guide.width}x${guide.height}`);
       form.set("seed", String(optionSeed));
       form.set("numInferenceSteps", "40");
@@ -1520,7 +1530,7 @@ export default function Home() {
   }
 
   const guideContent = category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} /> : category === "tile" ? <TileGuide topology={topology} /> : <ObjectSchematic family={family} />;
-  const sentReferenceA = generatedAsset?.referenceImages?.[0]?.url ?? preparedReferenceA ?? activeReference.preview;
+  const sentReferenceA = generatedAsset?.referenceImages?.[0]?.url ?? preparedReferenceA;
   const sentReferenceB = generatedAsset?.referenceImages?.[1]?.url ?? preparedReferenceB;
   const allDirectionReferencesApproved = DIRECTIONS.every((item) => Boolean(directionReferences[item.id].preview) && directionApprovals[item.id]);
   const pipelineDirection = generatedAsset?.selection?.direction ?? direction;
@@ -1612,24 +1622,25 @@ export default function Home() {
             </div>
           ) : (
             <>
-              <div className="asset-meta-strip"><span><small>PROFILE</small>{family.profile}</span><span><small>MODEL CANVAS</small>{guideSize.width} × {guideSize.height}px</span><span><small>FRAME RATIO</small>{ratioLabel}</span><span><small>INPUT</small>A + B</span><span><small>SAVE</small>RAW PNG</span></div>
+              <div className="asset-meta-strip"><span><small>PROFILE</small>{family.profile}</span><span><small>MODEL CANVAS</small>{guideSize.width} × {guideSize.height}px</span><span><small>FRAME RATIO</small>{ratioLabel}</span><span><small>INPUT ORDER</small>IDENTITY A → LAYOUT B</span><span><small>SAVE</small>RAW PNG</span></div>
               <div className="guide-workspace">
                 <div className="guide-rulers"><span>WHITE CANVAS / SAFE AREA</span><span>BLACK CROP OUTLINE / {ratioLabel}</span></div>
                 <div className="guide-canvas" data-testid="guide-canvas" data-content-policy="contained"><div className="grid-overlay" /><div className="layout-frame" style={{ width: frameSize.width, height: frameSize.height }} data-testid="layout-frame" data-ratio={ratioLabel} data-output={`${targetWidth}x${targetHeight}`} data-crop="outline-bounds" data-ground-edge={category === "tile" ? "adjacency" : "bottom"}>{guideContent}</div></div>
                 <div className="canvas-ground-note"><i aria-hidden="true" />{category === "tile" ? "검은 윤곽 = seamless adjacency 경계 · 모든 타일 픽셀은 안쪽 유지" : "검은 윤곽 아랫변 = 접지선 · 모든 포즈·장비·오브젝트 픽셀은 안쪽 유지"}</div>
-                {category === "character" && <div className="direction-layout-note" data-testid="direction-layout-note"><strong>{DIRECTIONS.find((item) => item.id === direction)?.label} 레이아웃</strong><span>크롭 rect {ratioLabel} 고정</span><span>4방향 공통 높이 {directionLayout.height} · 위·아래 변 접촉</span><span>점유폭 {directionLayout.occupancy}</span><span>좌우 안전 여백 {directionLayout.safeMargin}</span><p>{directionLayout.note}</p></div>}
-                <div className="postprocess-flow"><span><small>01 REFERENCE A</small>공통 사각형에 맞춘 기준 이미지</span><i>+</i><span><small>02 REFERENCE B</small>{category === "character" ? `${direction} 방향·포즈 가이드` : category === "tile" ? `${topology} 가이드` : `${family.name} 상태 가이드`}</span><i>→</i><span><small>03 I2I RAW</small>{guideSize.width} × {guideSize.height}px 원본 저장</span></div>
+                {category === "character" && <div className="direction-layout-note" data-testid="direction-layout-note"><strong>{DIRECTIONS.find((item) => item.id === direction)?.label} 레이아웃</strong><span>크롭 rect {ratioLabel} 고정</span><span>캔버스 바깥 여백 {GUIDE_OUTER_MARGIN} 고정</span><span>4방향 공통 높이 {directionLayout.height} · 위·아래 변 접촉</span><span>점유폭 {directionLayout.occupancy}</span><span>좌우 안전 여백 {directionLayout.safeMargin}</span><p>{directionLayout.note}</p></div>}
+                <div className="postprocess-flow"><span><small>01 REFERENCE A</small>공통 사각형에 맞춘 외형 기준 이미지</span><i>+</i><span><small>02 REFERENCE B</small>{category === "character" ? `${direction} 방향·포즈 목표 레이아웃` : category === "tile" ? `${topology} 목표 레이아웃` : `${family.name} 상태 목표 레이아웃`}</span><i>→</i><span><small>03 I2I RAW</small>{guideSize.width} × {guideSize.height}px 원본 저장</span></div>
+                {category === "character" && <div className="mask-flow-note is-unsupported"><strong>MASK 미전송</strong><span>현재 Qwen 파이프라인은 mask_image를 사용하지 않음 · B의 안쪽 검은 사각형을 목표로 지시</span></div>}
 
                 {category === "character" && <section className="frame-phase-strip" data-testid="frame-phase-strip"><div className="option-heading"><span>생성 프레임</span><span className="field-note">{framePhase.id}</span></div><div>{framePhases.map((phase, index) => <button key={phase.id} type="button" role="checkbox" aria-checked={frameIndex === index} className={frameIndex === index ? "frame-phase is-checked" : "frame-phase"} onClick={() => changeFrame(index)} disabled={isGenerating} data-testid={`frame-${index + 1}`}><PoseGuide action={action} direction={direction} frameIndex={index} compact /><span><strong>{phase.id}</strong><small>{phase.label}</small></span></button>)}</div></section>}
 
                 <section className="generation-layout" data-testid="generation-layout">
-                  <div className="generation-layout-heading"><div><span className="field-note">REFERENCE PIPELINE</span><strong>{category === "character" ? "같은 방향 기준 A + 방향·동작 가이드 B" : category === "tile" ? "승인 타일 A + topology 가이드 B" : "승인 오브젝트 A + 상태·규격 가이드 B"}</strong></div><small>{category === "character" ? `${pipelineDirection} · ${pipelineFrameId}` : category === "tile" ? topology : objectState}</small></div>
+                  <div className="generation-layout-heading"><div><span className="field-note">ACTUAL REQUEST ORDER</span><strong>{category === "character" ? "외형 기준 A → 목표 레이아웃 B" : category === "tile" ? "승인 타일 A → topology 레이아웃 B" : "승인 오브젝트 A → 상태·규격 레이아웃 B"}</strong></div><small>{category === "character" ? `${pipelineDirection} · ${pipelineFrameId}` : category === "tile" ? topology : objectState}</small></div>
                   <div className="reference-equation">
-                    <article data-testid="reference-a"><span className="source-label">REFERENCE A {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-asset sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceA ? <img src={sentReferenceA} alt="사각형에 맞춘 실제 전송 Reference A" onLoad={(event) => debugLog("REFERENCE_A_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <PoseGuide action="idle" direction={direction} compact />}<span className="reference-frame-overlay" style={pipelineFrameStyle} aria-label="Reference A 공통 프레임" /></div><strong>{generatedAsset ? "실제 전송 이미지 A" : "공통 사각형에 맞춘 기준 A"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[0]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[0]?.name ?? (category === "character" ? activeReference.name : `${category}.${family.id}.ref`)}</small></article>
+                    <article data-testid="reference-a"><span className="source-label">REFERENCE A {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-asset sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceA ? <img src={sentReferenceA} alt="사각형에 맞춘 실제 전송 외형 기준 A" onLoad={(event) => debugLog("REFERENCE_A_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <PoseGuide action="idle" direction={direction} compact />}<span className="reference-frame-overlay" style={pipelineFrameStyle} aria-label="Reference A 공통 프레임" /></div><strong>{generatedAsset ? "실제 전송 외형 기준 A" : "외형 기준 A"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[0]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[0]?.name ?? (category === "character" ? activeReference.name : `${category}.${family.id}.ref`)}</small></article>
                     <b>+</b>
-                    <article data-testid="reference-b"><span className="source-label">REFERENCE B {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-guide sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceB ? <img src={sentReferenceB} alt="실제 전송 Reference B" onLoad={(event) => debugLog("REFERENCE_B_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <div className="mini-layout-frame">{category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} compact /> : category === "tile" ? <TileGuide topology={topology} compact /> : <ObjectSchematic family={family} compact />}</div>}</div><strong>{sentReferenceB ? "실제 전송 이미지 B" : "자동 레이아웃 가이드"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[1]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[1]?.name ?? `${ratioLabel} · ${category === "character" ? `${framePhase.id} · ${directionLayout.occupancy}` : category === "tile" ? topology : family.footprint}`}</small></article>
+                    <article data-testid="reference-b"><span className="source-label">REFERENCE B {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-guide sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceB ? <img src={sentReferenceB} alt="실제 전송 목표 레이아웃 B" onLoad={(event) => debugLog("REFERENCE_B_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <div className="mini-layout-frame">{category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} compact /> : category === "tile" ? <TileGuide topology={topology} compact /> : <ObjectSchematic family={family} compact />}</div>}</div><strong>{generatedAsset ? "실제 전송 목표 레이아웃 B" : "목표 레이아웃 B"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[1]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[1]?.name ?? `${ratioLabel} · ${category === "character" ? `${framePhase.id} · ${directionLayout.occupancy}` : category === "tile" ? topology : family.footprint}`}</small></article>
                     <b>→</b>
-                    <article className={generatedAsset ? `output-plan has-result${generatedAsset.layoutValidation && !generatedAsset.layoutValidation.ok ? " is-invalid" : ""}` : "output-plan"} data-testid="output-layout"><span className="source-label">OUTPUT</span>{generatedAsset ? <><div className="result-canvas-shell" style={{ aspectRatio: pipelineAspect }}><div className="result-image-area"><img className="generated-result-image" src={`${generatedAsset.imageUrl}?v=${generatedAsset.generationId}`} alt="RunPod 생성 결과" onLoad={(event) => debugLog("OUTPUT_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /><span className="result-crop-overlay" style={outputCropStyle} aria-label="고정 crop bounds 오버레이" /></div></div><strong>{generatedAsset.generationId}</strong><small>canvas {generatedAsset.size}</small><small>{generatedAsset.selection?.frameId ?? pipelineFrameId}</small>{generatedAsset.layout && <small>frame {generatedAsset.layout.frameWidth}×{generatedAsset.layout.frameHeight} · x{generatedAsset.layout.frameX} y{generatedAsset.layout.frameY} · baseline {generatedAsset.layout.baselineY}</small>}{generatedAsset.layoutValidation && !generatedAsset.layoutValidation.ok && <small className="layout-validation-error">윤곽 보존 실패 · L{generatedAsset.layoutValidation.outline.coverage.left.toFixed(2)} T{generatedAsset.layoutValidation.outline.coverage.top.toFixed(2)} R{generatedAsset.layoutValidation.outline.coverage.right.toFixed(2)} B{generatedAsset.layoutValidation.outline.coverage.bottom.toFixed(2)}{outputContactDelta ? ` · 접촉 오차 top ${outputContactDelta.top}px bottom ${outputContactDelta.bottom}px` : ""}</small>}<small>{(generatedAsset.elapsedMs / 1000).toFixed(1)}초</small></> : <><div className="frame-output-title">{isGenerating ? "RUNPOD 생성 중…" : category === "character" ? framePhase.id : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} className={category === "character" && index === frameIndex ? "is-current" : ""} />)}</div></>}</article>
+                    <article className={generatedAsset ? `output-plan has-result${generatedAsset.layoutValidation && !generatedAsset.layoutValidation.ok ? " is-invalid" : ""}` : "output-plan"} data-testid="output-layout"><span className="source-label">OUTPUT</span>{generatedAsset ? <><div className="result-canvas-shell" style={{ aspectRatio: pipelineAspect }}><div className="result-image-area"><img className="generated-result-image" src={`${generatedAsset.imageUrl}?v=${generatedAsset.generationId}`} alt="RunPod 생성 결과" onLoad={(event) => debugLog("OUTPUT_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /><span className="result-crop-overlay" style={outputCropStyle} aria-label="고정 crop bounds 오버레이" /></div></div><strong>{generatedAsset.generationId}</strong><small>canvas {generatedAsset.size}</small><small>{generatedAsset.selection?.frameId ?? pipelineFrameId}</small>{generatedAsset.layout && <small>frame {generatedAsset.layout.frameWidth}×{generatedAsset.layout.frameHeight} · x{generatedAsset.layout.frameX} y{generatedAsset.layout.frameY} · baseline {generatedAsset.layout.baselineY}</small>}{generatedAsset.layoutValidation && !generatedAsset.layoutValidation.ok && <small className="layout-validation-error">윤곽 보존 실패 · L{generatedAsset.layoutValidation.outline.coverage.left.toFixed(2)} T{generatedAsset.layoutValidation.outline.coverage.top.toFixed(2)} R{generatedAsset.layoutValidation.outline.coverage.right.toFixed(2)} B{generatedAsset.layoutValidation.outline.coverage.bottom.toFixed(2)}{!generatedAsset.layoutValidation.outline.ok ? " · 접촉 판정 보류" : outputContactDelta ? ` · 접촉 오차 top ${outputContactDelta.top}px bottom ${outputContactDelta.bottom}px` : ""}</small>}<small>{(generatedAsset.elapsedMs / 1000).toFixed(1)}초</small></> : <><div className="frame-output-title">{isGenerating ? "RUNPOD 생성 중…" : category === "character" ? framePhase.id : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} className={category === "character" && index === frameIndex ? "is-current" : ""} />)}</div></>}</article>
                   </div>
                 </section>
               </div>
@@ -1647,12 +1658,12 @@ export default function Home() {
 
           <div className="prompt-preview"><div className="prompt-heading"><span>PROMPT PREVIEW</span><span>OPTION SEED {optionSeed}</span></div><p>{toolMode === "i2i" ? generationPrompt : prompt}</p></div>
           {toolMode === "i2i" && category === "character" && <section className="batch-generation" data-testid="character-batch-generation">
-            <div className="batch-generation-heading"><div><span>4-DIRECTION CHARACTER ASSETS</span><strong>정면 입력 A → 정면·후면·좌측 기준 생성 + 우측 원본 반전 → 4방향 승인 → 동작 68프레임 원본 생성</strong><small>정면도 정면 가이드 B로 사각형을 채워 다시 생성 · 모든 방향과 동작은 {guideSize.width}×{guideSize.height}px 원본 저장 · 후처리는 전 프레임 완료 뒤 수동 실행</small></div><div className="batch-buttons"><button type="button" onClick={generateDirectionReferences} disabled={endpoint.status !== "연결됨" || isGenerating || !frontSourceReference.preview} data-testid="generate-direction-references">{isGenerating && batchProgress.status === "direction" ? `${batchProgress.completed}/${batchProgress.total} 방향 생성 중` : "정면·후면·좌측 생성 + 우측 반전"}</button><button type="button" onClick={generateAllCharacterActions} disabled={endpoint.status !== "연결됨" || isGenerating || !allDirectionReferencesApproved} data-testid="generate-all-character-assets">{isGenerating && batchProgress.status === "actions" ? `${batchProgress.completed}/${batchProgress.total} RunPod 생성 중` : allDirectionReferencesApproved ? "승인 기준으로 68개 원본 생성" : "4방향 승인 필요"}</button><button type="button" onClick={postprocessCompletedBatch} disabled={batchProgress.status !== "complete" || isGenerating || isPostprocessing} data-testid="postprocess-character-assets">{isPostprocessing ? "후처리 중" : postprocessManifestUrl ? "후처리 완료" : "전 프레임 완료 후 후처리 시작"}</button></div></div>
+            <div className="batch-generation-heading"><div><span>4-DIRECTION CHARACTER ASSETS</span><strong>정면 외형 기준 A + 목표 레이아웃 B → 정면·후면·좌측 생성 + 우측 원본 반전 → 4방향 승인 → 동작 68프레임 원본 생성</strong><small>정면도 정면 레이아웃 B의 안쪽 사각형을 채워 다시 생성 · 모든 방향과 동작은 {guideSize.width}×{guideSize.height}px 원본 저장 · 후처리는 전 프레임 완료 뒤 수동 실행</small></div><div className="batch-buttons"><button type="button" onClick={generateDirectionReferences} disabled={endpoint.status !== "연결됨" || isGenerating || !frontSourceReference.preview} data-testid="generate-direction-references">{isGenerating && batchProgress.status === "direction" ? `${batchProgress.completed}/${batchProgress.total} 방향 생성 중` : "정면·후면·좌측 생성 + 우측 반전"}</button><button type="button" onClick={generateAllCharacterActions} disabled={endpoint.status !== "연결됨" || isGenerating || !allDirectionReferencesApproved} data-testid="generate-all-character-assets">{isGenerating && batchProgress.status === "actions" ? `${batchProgress.completed}/${batchProgress.total} RunPod 생성 중` : allDirectionReferencesApproved ? "승인 기준으로 68개 원본 생성" : "4방향 승인 필요"}</button><button type="button" onClick={postprocessCompletedBatch} disabled={batchProgress.status !== "complete" || isGenerating || isPostprocessing} data-testid="postprocess-character-assets">{isPostprocessing ? "후처리 중" : postprocessManifestUrl ? "후처리 완료" : "전 프레임 완료 후 후처리 시작"}</button></div></div>
             <div className="batch-progress" data-status={batchProgress.status}><i style={{ width: `${batchProgress.total ? (batchProgress.completed / batchProgress.total) * 100 : 0}%` }} /><span>{batchProgress.status === "idle" ? "대기" : `${batchProgress.completed}/${batchProgress.total} · ${batchProgress.current}`}</span></div>
             {batchProgress.bundleId && <div className="batch-bundle"><strong>{batchProgress.bundleId}</strong><span>{batchProgress.manifestUrl && <a href={batchProgress.manifestUrl} target="_blank" rel="noreferrer">원본 manifest</a>}{postprocessManifestUrl && <a href={postprocessManifestUrl} target="_blank" rel="noreferrer">후처리 manifest</a>}</span></div>}
             {batchResults.length > 0 && <div className="batch-result-grid" data-testid="batch-result-grid">{batchResults.map((result) => <article key={result.generationId}><div><img src={result.imageUrl} alt={`${result.selection?.frameId ?? result.generationId} RunPod 원본`} /></div><strong>{result.selection?.frameId}</strong><small>RunPod 원본 · {result.selection?.direction} · {result.selection?.action}</small></article>)}</div>}
           </section>}
-          {toolMode === "i2i" && <div className="runpod-generation-bar" data-testid="runpod-generation"><div><span>QWEN-IMAGE-EDIT-2511</span><strong>{endpoint.status === "연결됨" ? endpoint.model : endpoint.message ?? "Endpoint 확인 중"}</strong><small>{hasActiveReference ? "Reference A + 자동 생성 Reference B" : `${direction}.ref 등록 필요`} · 40 steps · CFG 4 · guidance 1 · seed {optionSeed}</small></div><button type="button" onClick={runImageEdit} disabled={endpoint.status !== "연결됨" || isGenerating || !hasActiveReference} data-testid="runpod-generate">{isGenerating ? "이미지 생성 중…" : hasActiveReference ? "실제 이미지 생성" : `${direction}.ref 등록 필요`}</button></div>}
+          {toolMode === "i2i" && <div className="runpod-generation-bar" data-testid="runpod-generation"><div><span>QWEN-IMAGE-EDIT-2511</span><strong>{endpoint.status === "연결됨" ? endpoint.model : endpoint.message ?? "Endpoint 확인 중"}</strong><small>{hasActiveReference ? "외형 기준 A → 목표 레이아웃 B" : `${direction}.ref 등록 필요`} · 40 steps · true CFG 4 · guidance 1 · seed {optionSeed}</small></div><button type="button" onClick={runImageEdit} disabled={endpoint.status !== "연결됨" || isGenerating || !hasActiveReference} data-testid="runpod-generate">{isGenerating ? "이미지 생성 중…" : hasActiveReference ? "실제 이미지 생성" : `${direction}.ref 등록 필요`}</button></div>}
         </section>
 
         <aside className="history-panel panel">

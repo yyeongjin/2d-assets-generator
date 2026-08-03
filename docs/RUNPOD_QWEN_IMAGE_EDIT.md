@@ -128,3 +128,31 @@ npm run dev
 ```
 
 브라우저에서 `http://localhost:3000`을 열고 `방향 · 상태 · 동작 변형`을 선택합니다. 현재 생성 흐름은 Reference A와 레이아웃 가이드 B를 `/v1/images/edits`로 전송하고, 512×1024 원본을 먼저 저장합니다. 68개 동작 프레임 생성이 모두 끝난 뒤에만 화면의 수동 후처리 버튼을 사용할 수 있습니다.
+
+## 7. 현재 vLLM Qwen 파이프라인의 레이아웃 제한
+
+vLLM-Omni의 `/v1/images/edits` 요청 규격에 `mask_image` 필드가 있어도 현재 `QwenImageEditPlusPipeline`이 그 필드를 실제 생성 입력으로 사용한다는 뜻은 아닙니다. 확인한 vLLM-Omni 구현에서는 Qwen 파이프라인이 `multi_modal_data["image"]`만 읽고 `mask_image`를 읽지 않습니다. 따라서 현재 도구는 사용되지 않는 마스크를 전송하지 않으며 화면에도 `MASK 미전송`으로 표시합니다.
+
+실제 endpoint에서 다음 조건으로 확인했습니다.
+
+| 항목 | 값 |
+|---|---|
+| Reference A | 512×1024, 외형 기준과 내부 검은 프레임 |
+| Reference B | 512×1024, 동일 좌표의 내부 검은 프레임과 걷기 포즈 |
+| 목표 내부 프레임 | `x=52`, `y=103`, `409×818`, 사방 약 10% 바깥 여백 |
+| 출력 | 512×1024 |
+| 검은 프레임 보존율 | `L 0.58 / T 0.53 / R 0.02 / B 0.00` |
+| 접촉 판정 | 윤곽 실패로 보류 |
+
+출력 모델은 Reference B의 내부 프레임을 고정하지 않고 캔버스 가장자리 쪽으로 다시 확대해 그렸습니다. 이 결과를 맞는 것으로 처리하거나 목표 프레임을 96%까지 키우면 안 됩니다. 목표 프레임은 80%와 사방 10% 여백으로 유지하고, 같은 현상은 생성 실패로 기록합니다.
+
+색상을 반전한 마스크도 해결책이 아닙니다.
+
+- 현재 vLLM Qwen 파이프라인에서는 마스크 자체를 읽지 않으므로 흑백 어느 방향도 적용되지 않습니다.
+- Diffusers의 `QwenImageEditInpaintPipeline`에서는 흰 영역을 다시 그리고 검은 영역을 보존합니다.
+- 이 규칙을 반전해 바깥을 흰색, 안쪽을 검은색으로 만들면 바깥을 편집하고 캐릭터가 들어갈 안쪽을 잠그므로 목적과 반대입니다.
+
+프레임을 실제로 잠그려면 흰색 내부 편집 영역과 검은색 외부 보존 영역을 사용하는 inpaint 파이프라인이 필요합니다. 현재 구조처럼 외형 기준 A, 포즈 가이드 B, 보존 마스크를 동시에 사용하려면 이 세 입력을 모두 처리하는 별도 endpoint를 구성해야 합니다. 단순히 vLLM 요청에 `mask_image` 필드만 추가하는 것으로는 해결되지 않습니다.
+
+- [vLLM-Omni Image Edit API](https://docs.vllm.ai/projects/vllm-omni/en/latest/serving/image_edit_api/)
+- [Diffusers Qwen Image Edit/Inpaint](https://huggingface.co/docs/diffusers/api/pipelines/qwenimage)
