@@ -37,11 +37,11 @@ type GeneratedAsset = {
   model: string;
   imageUrl: string;
   metadataUrl: string;
-  assetUrl?: string | null;
-  assetMetadataUrl?: string | null;
+  bundleImageUrl?: string | null;
+  bundleMetadataUrl?: string | null;
   mirroredImageUrl?: string | null;
-  mirroredAssetUrl?: string | null;
-  mirroredAssetMetadataUrl?: string | null;
+  mirroredBundleImageUrl?: string | null;
+  mirroredBundleMetadataUrl?: string | null;
   elapsedMs: number;
   outputBytes: number;
   size: string;
@@ -50,7 +50,7 @@ type GeneratedAsset = {
   layout?: { frameX: number; frameY: number; frameWidth: number; frameHeight: number; baselineY: number; strokeWidth: number };
   selection?: { category: AssetCategory; direction: Direction; action: string; frameId: string; frameIndex: number };
 };
-type DirectionReference = { file: File | null; preview: string; name: string };
+type DirectionReference = { file: File | null; preview: string; name: string; stage: "source" | "generated" };
 type BatchProgress = {
   status: "idle" | "direction" | "review" | "actions" | "complete" | "failed";
   bundleId: string;
@@ -65,10 +65,10 @@ const CHARACTER_TOP_ANCHOR = 0;
 const CHARACTER_HEIGHT_OCCUPANCY = "100%";
 
 const INITIAL_DIRECTION_REFERENCES: Record<Direction, DirectionReference> = {
-  front: { file: null, preview: "/test-inputs/reference-character-front.png", name: "reference-character-front.png" },
-  back: { file: null, preview: "", name: "back.ref 미등록" },
-  left: { file: null, preview: "", name: "left.ref 미등록" },
-  right: { file: null, preview: "", name: "right.ref 미등록" },
+  front: { file: null, preview: "/test-inputs/reference-character-front.png", name: "reference-character-front.png", stage: "source" },
+  back: { file: null, preview: "", name: "back.ref 미등록", stage: "generated" },
+  left: { file: null, preview: "", name: "left.ref 미등록", stage: "generated" },
+  right: { file: null, preview: "", name: "right.ref 미등록", stage: "generated" },
 };
 
 const SCALE_PRESETS = [
@@ -329,6 +329,30 @@ function guideCanvasSize(visualX: number, visualY: number) {
   return { width: visualX * unit, height: visualY * unit };
 }
 
+function guideFrameGeometry(visualX: number, visualY: number) {
+  const { width, height } = guideCanvasSize(visualX, visualY);
+  const strokeWidth = Math.max(6, Math.min(width, height) * 0.012);
+  const availableWidth = width - strokeWidth;
+  const availableHeight = height - strokeWidth;
+  const frameUnit = Math.min(availableWidth / visualX, availableHeight / visualY);
+  const frameWidth = visualX * frameUnit;
+  const frameHeight = visualY * frameUnit;
+  const frameX = (width - frameWidth) * 0.5;
+  const frameY = (height - frameHeight) * 0.5;
+  return {
+    width,
+    height,
+    frame: {
+      frameX: Math.round(frameX),
+      frameY: Math.round(frameY),
+      frameWidth: Math.round(frameWidth),
+      frameHeight: Math.round(frameHeight),
+      baselineY: Math.round(frameY + frameHeight),
+      strokeWidth: Math.round(strokeWidth),
+    },
+  };
+}
+
 const DEFAULT_HISTORY: HistoryItem[] = [
   { id: "GEN-024", asset: "character.farmer_02", detail: "T32 · front.ref · tool_swing", job: "완료", assetState: "기준 선택", time: "방금" },
   { id: "GEN-023", asset: "object.furnace", detail: "32×64 · processing", job: "완료", assetState: "Unity 확인", time: "12분 전" },
@@ -435,7 +459,7 @@ async function createLayoutGuide(
   action: string,
   frameIndex: number,
 ): Promise<{ blob: Blob; width: number; height: number; frame: NonNullable<GeneratedAsset["layout"]> }> {
-  const { width, height } = guideCanvasSize(visualX, visualY);
+  const { width, height, frame } = guideFrameGeometry(visualX, visualY);
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -444,15 +468,7 @@ async function createLayoutGuide(
 
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
-  const strokeWidth = Math.max(6, Math.min(width, height) * 0.012);
-  const availableWidth = width - strokeWidth;
-  const availableHeight = height - strokeWidth;
-  const frameUnit = Math.min(availableWidth / visualX, availableHeight / visualY);
-  const frameWidth = visualX * frameUnit;
-  const frameHeight = visualY * frameUnit;
-  const frameX = (width - frameWidth) * 0.5;
-  const frameY = (height - frameHeight) * 0.5;
-  const baseline = frameY + frameHeight;
+  const { frameX, frameY, frameWidth, frameHeight, baselineY: baseline, strokeWidth } = frame;
   context.strokeStyle = "#000000";
   context.lineWidth = strokeWidth;
   context.strokeRect(frameX, frameY, frameWidth, frameHeight);
@@ -644,14 +660,7 @@ async function createLayoutGuide(
     blob,
     width,
     height,
-    frame: {
-      frameX: Math.round(frameX),
-      frameY: Math.round(frameY),
-      frameWidth: Math.round(frameWidth),
-      frameHeight: Math.round(frameHeight),
-      baselineY: Math.round(baseline),
-      strokeWidth: Math.round(strokeWidth),
-    },
+    frame,
   };
 }
 
@@ -751,12 +760,17 @@ export default function Home() {
   const [endpoint, setEndpoint] = useState<EndpointState>({ status: "확인 중" });
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referencePreview, setReferencePreview] = useState("/test-inputs/reference-character-front.png");
+  const [frontSourceReference, setFrontSourceReference] = useState<DirectionReference>(INITIAL_DIRECTION_REFERENCES.front);
   const [directionReferences, setDirectionReferences] = useState<Record<Direction, DirectionReference>>(INITIAL_DIRECTION_REFERENCES);
-  const [directionApprovals, setDirectionApprovals] = useState<Record<Direction, boolean>>({ front: true, back: false, left: false, right: false });
+  const [directionApprovals, setDirectionApprovals] = useState<Record<Direction, boolean>>({ front: false, back: false, left: false, right: false });
   const [generatedAsset, setGeneratedAsset] = useState<GeneratedAsset | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState<BatchProgress>({ status: "idle", bundleId: "", completed: 0, total: 3, current: "" });
   const [batchResults, setBatchResults] = useState<GeneratedAsset[]>([]);
+  const [isPostprocessing, setIsPostprocessing] = useState(false);
+  const [postprocessManifestUrl, setPostprocessManifestUrl] = useState("");
+  const [preparedReferenceA, setPreparedReferenceA] = useState("");
+  const [preparedReferenceB, setPreparedReferenceB] = useState("");
 
   useEffect(() => {
     debugLog("BOOT", { location: window.location.href, devicePixelRatio: window.devicePixelRatio });
@@ -766,8 +780,11 @@ export default function Home() {
     const saved = window.localStorage.getItem("asset-forge-history");
     if (saved) {
       try {
+        const parsed = JSON.parse(saved) as HistoryItem[];
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setHistory(JSON.parse(saved));
+        setHistory(parsed.map((item) => item.detail.includes("PNG 후처리 완료")
+          ? { ...item, detail: item.detail.replace("PNG 후처리 완료", "기존 구조 후처리 결과") }
+          : item));
       } catch {
         window.localStorage.removeItem("asset-forge-history");
       }
@@ -830,7 +847,7 @@ export default function Home() {
     const optionText = OPTION_GROUPS[category].map((group) => selections[`${category}.${group.key}`]).join(", ");
     if (toolMode === "t2i") {
       const frontRule = category === "character" ? ", front view, neutral standing reference" : "";
-      return `${CATEGORY_META[category].label} 기준 에셋, ${family.name}, ${optionText}${frontRule}, ${targetWidth}x${targetHeight}px, ${family.profile}`;
+      return `${CATEGORY_META[category].label} 기준 에셋, ${family.name}, ${optionText}${frontRule}, ${family.profile}`;
     }
     if (category === "character") {
       return `approved ${direction} direction reference, ${direction}, ${actionPreset.id}, preserve identity, ${targetWidth}x${targetHeight}px, occupancy ${directionLayout.occupancy}, feet on crop bottom`;
@@ -848,6 +865,51 @@ export default function Home() {
     }
     return `Keep image 1 unchanged. Match only the object state from image 2: ${objectState}. Put the object inside the black frame. Keep all four frame lines and every object pixel inside. The base touches the bottom line. Remove the guide marks.`;
   }, [actionPreset, category, direction, framePhase, objectState, topology]);
+
+  useEffect(() => {
+    if (toolMode !== "i2i" || !activeReference.preview) return;
+    let cancelled = false;
+    let referenceAUrl = "";
+    let referenceBUrl = "";
+
+    async function prepareReferencePipeline() {
+      const referenceBlob = activeReference.file
+        ? activeReference.file
+        : await fetch(activeReference.preview).then((response) => {
+          if (!response.ok) throw new Error(`${activeReference.name} 기준 이미지를 읽을 수 없습니다.`);
+          return response.blob();
+        });
+      const guide = await createLayoutGuide(family.visualX, family.visualY, category, direction, action, frameIndex);
+      const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height, category === "character" ? guide.frame : undefined);
+      referenceAUrl = URL.createObjectURL(normalizedReference);
+      referenceBUrl = URL.createObjectURL(guide.blob);
+      if (cancelled) {
+        URL.revokeObjectURL(referenceAUrl);
+        URL.revokeObjectURL(referenceBUrl);
+        return;
+      }
+      setPreparedReferenceA(referenceAUrl);
+      setPreparedReferenceB(referenceBUrl);
+      debugLog("REFERENCE_PIPELINE_PREPARED", {
+        reference: activeReference.name,
+        category,
+        direction,
+        action,
+        frameIndex,
+        canvas: `${guide.width}x${guide.height}`,
+        frame: `${guide.frame.frameWidth}x${guide.frame.frameHeight}@${guide.frame.frameX},${guide.frame.frameY}`,
+      });
+    }
+
+    prepareReferencePipeline().catch((error: Error) => {
+      debugLog("REFERENCE_PIPELINE_PREPARE_FAILED", { message: error.message });
+    });
+    return () => {
+      cancelled = true;
+      if (referenceAUrl) URL.revokeObjectURL(referenceAUrl);
+      if (referenceBUrl) URL.revokeObjectURL(referenceBUrl);
+    };
+  }, [activeReference.file, activeReference.name, activeReference.preview, action, category, direction, family.visualX, family.visualY, frameIndex, toolMode]);
 
   function changeTool(next: ToolMode) {
     setToolMode(next);
@@ -935,11 +997,22 @@ export default function Home() {
     if (!file) return;
     const preview = URL.createObjectURL(file);
     if (category === "character") {
-      const previous = directionReferences[direction].preview;
+      const previous = frontSourceReference.preview;
       if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
-      setDirectionReferences((current) => ({ ...current, [direction]: { file, preview, name: file.name } }));
-      setDirectionApprovals((current) => ({ ...current, [direction]: true }));
-      debugLog("DIRECTION_REFERENCE_REGISTERED", { direction, name: file.name, bytes: file.size, type: file.type });
+      const source = { file, preview, name: file.name, stage: "source" as const };
+      setFrontSourceReference(source);
+      setDirectionReferences({
+        front: source,
+        back: { file: null, preview: "", name: "back.ref 미등록", stage: "generated" },
+        left: { file: null, preview: "", name: "left.ref 미등록", stage: "generated" },
+        right: { file: null, preview: "", name: "right.ref 미등록", stage: "generated" },
+      });
+      setDirectionApprovals({ front: false, back: false, left: false, right: false });
+      setBatchProgress({ status: "idle", bundleId: "", completed: 0, total: 3, current: "" });
+      setBatchResults([]);
+      setPostprocessManifestUrl("");
+      setDirection("front");
+      debugLog("FRONT_SOURCE_REGISTERED", { name: file.name, bytes: file.size, type: file.type });
     } else {
       if (referencePreview.startsWith("blob:")) URL.revokeObjectURL(referencePreview);
       setReferenceFile(file);
@@ -947,7 +1020,7 @@ export default function Home() {
       debugLog("REFERENCE_REGISTERED", { category, name: file.name, bytes: file.size, type: file.type });
     }
     setGeneratedAsset(null);
-    setNotice(`Reference A 교체 · ${category === "character" ? `${direction} · ` : ""}${file.name}`);
+    setNotice(`Reference A 교체 · ${category === "character" ? "정면 생성 입력 · " : ""}${file.name}`);
   }
 
   async function referenceToBlob(reference: DirectionReference) {
@@ -1006,9 +1079,6 @@ export default function Home() {
     form.set("frameHeight", String(guide.frame.frameHeight));
     form.set("baselineY", String(guide.frame.baselineY));
     form.set("strokeWidth", String(guide.frame.strokeWidth));
-    form.set("outputFrameMode", "guide-only");
-    form.set("targetWidth", String(targetWidth));
-    form.set("targetHeight", String(targetHeight));
     form.set("category", "character");
     form.set("direction", targetDirection);
     form.set("action", directionReference ? "direction_reference" : targetAction);
@@ -1031,7 +1101,7 @@ export default function Home() {
         const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
         if (!response.ok) throw new Error(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`);
         const result = body as GeneratedAsset;
-        debugLog("BATCH_REQUEST_COMPLETE", { bundleId, generationId: result.generationId, direction: targetDirection, frameId: targetFrame.id, assetUrl: result.assetUrl, attempt });
+        debugLog("BATCH_REQUEST_COMPLETE", { bundleId, generationId: result.generationId, direction: targetDirection, frameId: targetFrame.id, imageUrl: result.imageUrl, attempt });
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error("생성 실패");
@@ -1043,12 +1113,18 @@ export default function Home() {
   }
 
   async function loadStoredCharacterAsset(bundleId: string, targetDirection: Direction, frameId: string) {
-    const assetUrl = `/assets/generated/${bundleId}/${targetDirection}/${frameId}.png`;
-    const assetMetadataUrl = `/assets/generated/${bundleId}/${targetDirection}/${frameId}.json`;
-    const response = await fetch(assetMetadataUrl, { cache: "no-store" });
+    const bundleImageUrl = `/generated/bundles/${bundleId}/${targetDirection}/${frameId}.png`;
+    const bundleMetadataUrl = `/generated/bundles/${bundleId}/${targetDirection}/${frameId}.json`;
+    let metadataUrl = bundleMetadataUrl;
+    let response = await fetch(metadataUrl, { cache: "no-store" });
+    if (!response.ok) {
+      metadataUrl = `/assets/generated/${bundleId}/${targetDirection}/${frameId}.json`;
+      response = await fetch(metadataUrl, { cache: "no-store" });
+    }
     if (!response.ok) return null;
     const metadata = await response.json() as {
       generationId?: string;
+      sourceGenerationId?: string;
       requestId?: string;
       model?: string;
       selection?: GeneratedAsset["selection"];
@@ -1057,17 +1133,23 @@ export default function Home() {
       output?: { bytes?: number; size?: string };
     };
     if (!metadata.generationId || !metadata.selection) return null;
+    const isRawBundle = metadataUrl === bundleMetadataUrl;
+    const rawImageUrl = isRawBundle
+      ? bundleImageUrl
+      : metadata.generationId.endsWith("-mirror") && metadata.sourceGenerationId
+        ? `/generated/runpod/${metadata.sourceGenerationId}-mirror.png`
+        : `/generated/runpod/${metadata.generationId}.png`;
     return {
       generationId: metadata.generationId,
       requestId: metadata.requestId ?? metadata.generationId,
       model: metadata.model ?? endpoint.model ?? "stored-asset",
-      imageUrl: assetUrl,
-      metadataUrl: assetMetadataUrl,
-      assetUrl,
-      assetMetadataUrl,
+      imageUrl: rawImageUrl,
+      metadataUrl,
+      bundleImageUrl: isRawBundle ? bundleImageUrl : null,
+      bundleMetadataUrl: isRawBundle ? bundleMetadataUrl : null,
       elapsedMs: 0,
       outputBytes: metadata.output?.bytes ?? 0,
-      size: metadata.output?.size ?? `${targetWidth}x${targetHeight}`,
+      size: isRawBundle ? metadata.output?.size ?? `${guideSize.width}x${guideSize.height}` : `${guideSize.width}x${guideSize.height}`,
       seed: metadata.settings?.seed ?? optionSeed,
       layout: metadata.layout,
       selection: metadata.selection,
@@ -1078,21 +1160,21 @@ export default function Home() {
     return {
       id: result.generationId,
       asset: `${result.selection?.direction}.${result.selection?.frameId}`,
-      detail: `${result.assetUrl ? "PNG 후처리 완료" : "원본 생성"} · seed ${result.seed}`,
+      detail: `I2I 원본 생성 · seed ${result.seed}`,
       job: "완료",
-      assetState: result.assetUrl ? "시트 생성" : "후처리",
+      assetState: "기준 선택",
       time: "방금",
     };
   }
 
   function mirroredRightResult(result: GeneratedAsset): GeneratedAsset {
-    if (!result.mirroredImageUrl || !result.mirroredAssetUrl) throw new Error("우측 반전 에셋 응답이 없습니다.");
+    if (!result.mirroredImageUrl || !result.mirroredBundleImageUrl) throw new Error("우측 반전 원본 응답이 없습니다.");
     return {
       ...result,
       generationId: `${result.generationId}-mirror`,
       imageUrl: result.mirroredImageUrl,
-      assetUrl: result.mirroredAssetUrl,
-      assetMetadataUrl: result.mirroredAssetMetadataUrl,
+      bundleImageUrl: result.mirroredBundleImageUrl,
+      bundleMetadataUrl: result.mirroredBundleMetadataUrl,
       selection: result.selection ? { ...result.selection, direction: "right", frameId: result.selection.frameId.replace("_Left_", "_Right_") } : result.selection,
     };
   }
@@ -1103,17 +1185,18 @@ export default function Home() {
     try {
       const response = await fetch("/api/assets/manifest");
       const body = await response.json() as { error?: string; bundleId?: string; references?: Partial<Record<Direction, string>> };
-      if (!response.ok || !body.bundleId || !body.references?.back || !body.references.left || !body.references.right) {
+      if (!response.ok || !body.bundleId || !body.references?.front || !body.references.back || !body.references.left || !body.references.right) {
         throw new Error(body.error || "완전한 방향 기준 묶음이 없습니다.");
       }
-      setDirectionReferences((current) => ({
-        front: current.front,
-        back: { file: null, preview: body.references!.back!, name: `${body.bundleId}.back.ref` },
-        left: { file: null, preview: body.references!.left!, name: `${body.bundleId}.left.ref` },
-        right: { file: null, preview: body.references!.right!, name: `${body.bundleId}.right.ref` },
-      }));
-      setDirectionApprovals({ front: true, back: false, left: false, right: false });
-      setBatchProgress({ status: "review", bundleId: body.bundleId, completed: 2, total: 2, current: "불러온 방향 기준 검수·승인 필요" });
+      setDirectionReferences({
+        front: { file: null, preview: body.references.front, name: `${body.bundleId}.front.ref`, stage: "generated" },
+        back: { file: null, preview: body.references!.back!, name: `${body.bundleId}.back.ref`, stage: "generated" },
+        left: { file: null, preview: body.references!.left!, name: `${body.bundleId}.left.ref`, stage: "generated" },
+        right: { file: null, preview: body.references!.right!, name: `${body.bundleId}.right.ref`, stage: "generated" },
+      });
+      setFrontSourceReference({ file: null, preview: body.references.front, name: `${body.bundleId}.front.source`, stage: "source" });
+      setDirectionApprovals({ front: false, back: false, left: false, right: false });
+      setBatchProgress({ status: "review", bundleId: body.bundleId, completed: 3, total: 3, current: "불러온 4방향 기준 검수·승인 필요" });
       setDirection("front");
       setNotice(`${body.bundleId} 방향 기준을 불러왔습니다. 검수 후 승인하세요.`);
       debugLog("DIRECTION_BUNDLE_LOADED", { bundleId: body.bundleId, references: body.references });
@@ -1126,24 +1209,24 @@ export default function Home() {
 
   async function generateDirectionReferences() {
     if (isGenerating || endpoint.status !== "연결됨") return;
-    const frontReference = directionReferences.front;
+    const frontReference = frontSourceReference;
     if (!frontReference.preview) {
       setNotice("정면 승인 기준 이미지가 필요합니다.");
       return;
     }
 
     const bundleId = `character-farmer-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
-    const total = 2;
+    const total = 3;
     const results: GeneratedAsset[] = [];
     let completed = 0;
     setIsGenerating(true);
     setBatchResults([]);
-    setBatchProgress({ status: "direction", bundleId, completed, total, current: "후면 방향 기준" });
-    setDirectionApprovals({ front: true, back: false, left: false, right: false });
+    setBatchProgress({ status: "direction", bundleId, completed, total, current: "정면 방향 기준" });
+    setDirectionApprovals({ front: false, back: false, left: false, right: false });
     setNotice(`방향 기준 생성 시작 · ${bundleId}`);
 
     try {
-      for (const target of DIRECTIONS.filter((item) => item.id === "back" || item.id === "left")) {
+      for (const target of DIRECTIONS.filter((item) => item.id === "front" || item.id === "back" || item.id === "left")) {
         setDirection(target.id);
         setAction("walk_empty");
         setFrameIndex(0);
@@ -1160,7 +1243,7 @@ export default function Home() {
           directionReference: true,
           mirrorRight: target.id === "left",
         });
-        const generatedReference = { file: null, preview: result.imageUrl, name: `${target.id}.ref.${result.generationId}.png` };
+        const generatedReference: DirectionReference = { file: null, preview: result.imageUrl, name: `${target.id}.ref.${result.generationId}.png`, stage: "generated" };
         setDirectionReferences((currentReferences) => ({ ...currentReferences, [target.id]: generatedReference }));
         results.push(result);
         completed += 1;
@@ -1169,7 +1252,7 @@ export default function Home() {
         setHistory((currentHistory) => [batchHistoryItem(result), ...currentHistory].slice(0, 8));
         if (target.id === "left") {
           const mirrored = mirroredRightResult(result);
-          const mirroredReference = { file: null, preview: mirrored.imageUrl, name: `right.ref.${mirrored.generationId}.png` };
+          const mirroredReference: DirectionReference = { file: null, preview: mirrored.imageUrl, name: `right.ref.${mirrored.generationId}.png`, stage: "generated" };
           setDirectionReferences((currentReferences) => ({ ...currentReferences, right: mirroredReference }));
           results.push(mirrored);
           setBatchResults([...results]);
@@ -1177,7 +1260,7 @@ export default function Home() {
         }
       }
       setBatchProgress({ status: "review", bundleId, completed, total, current: "방향 기준 검수·승인 필요" });
-      setNotice("후면·좌·우 기준 생성 완료 · 눈·얼굴 방향과 접지선을 확인하고 승인하세요.");
+      setNotice("정면·후면·좌측 기준 생성과 우측 원본 반전 완료 · 4방향 모두 사각형 점유와 접지선을 확인하고 승인하세요.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "방향 기준 생성 실패";
       setBatchProgress({ status: "failed", bundleId, completed, total, current: message });
@@ -1189,9 +1272,9 @@ export default function Home() {
   }
 
   async function regenerateDirectionReference(targetDirection: Direction) {
-    if (targetDirection === "front" || isGenerating || endpoint.status !== "연결됨") return;
+    if (isGenerating || endpoint.status !== "연결됨") return;
     const sourceDirection: Direction = targetDirection === "right" ? "left" : targetDirection;
-    const frontReference = directionReferences.front;
+    const frontReference = frontSourceReference;
     const bundleId = batchProgress.bundleId || `character-farmer-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
     setIsGenerating(true);
     setDirection(sourceDirection);
@@ -1200,13 +1283,13 @@ export default function Home() {
     setNotice(`${sourceDirection} 기준을 다시 생성 중입니다.${sourceDirection === "left" ? " 우측은 자동 반전합니다." : ""}`);
     try {
       const result = await requestCharacterAsset({ reference: frontReference, targetDirection: sourceDirection, targetAction: "walk_empty", targetFrameIndex: 0, seed: optionSeed, bundleId, directionReference: true, mirrorRight: sourceDirection === "left" });
-      const generatedReference = { file: null, preview: result.imageUrl, name: `${sourceDirection}.ref.${result.generationId}.png` };
+      const generatedReference: DirectionReference = { file: null, preview: result.imageUrl, name: `${sourceDirection}.ref.${result.generationId}.png`, stage: "generated" };
       setDirectionReferences((current) => ({ ...current, [sourceDirection]: generatedReference }));
       const replacements = [result];
       if (sourceDirection === "left") {
         const mirrored = mirroredRightResult(result);
         replacements.push(mirrored);
-        setDirectionReferences((current) => ({ ...current, left: generatedReference, right: { file: null, preview: mirrored.imageUrl, name: `right.ref.${mirrored.generationId}.png` } }));
+        setDirectionReferences((current) => ({ ...current, left: generatedReference, right: { file: null, preview: mirrored.imageUrl, name: `right.ref.${mirrored.generationId}.png`, stage: "generated" } }));
       }
       setBatchResults((current) => [...current.filter((item) => !(item.selection?.action === "direction_reference" && replacements.some((replacement) => replacement.selection?.direction === item.selection?.direction))), ...replacements]);
       setGeneratedAsset(result);
@@ -1276,19 +1359,22 @@ export default function Home() {
         schemaVersion: 1,
         bundleId,
         createdAt: new Date().toISOString(),
-        type: "character-animation-set",
+        type: "character-i2i-raw-set",
+        status: "generation-complete",
+        expectedAssets: 68,
         sourceReference: directionReferences.front.name,
         model: endpoint.model,
-        unity: { pixelsPerUnit: scale.pixels, frameWidth: targetWidth, frameHeight: targetHeight, pivot: { x: 0.5, y: 0 } },
+        canvas: `${guideSize.width}x${guideSize.height}`,
         directions: Object.fromEntries(DIRECTIONS.map((item) => [item.id, DIRECTION_EXPORT_NAMES[item.id]])),
         actions: ACTIONS.map((item) => ({ id: item.id, frames: item.frames })),
-        assets: results.map((result) => ({ generationId: result.generationId, direction: result.selection?.direction, action: result.selection?.action, frameId: result.selection?.frameId, seed: result.seed, rawUrl: result.imageUrl, assetUrl: result.assetUrl, metadataUrl: result.assetMetadataUrl, size: `${targetWidth}x${targetHeight}` })),
+        assets: results.filter((result) => result.selection?.action !== "direction_reference").map((result) => ({ generationId: result.generationId, direction: result.selection?.direction, action: result.selection?.action, frameId: result.selection?.frameId, seed: result.seed, rawUrl: result.bundleImageUrl ?? result.imageUrl, metadataUrl: result.bundleMetadataUrl ?? result.metadataUrl, size: result.size })),
       };
       const manifestResponse = await fetch("/api/assets/manifest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bundleId, manifest }) });
       const manifestBody = await manifestResponse.json();
       if (!manifestResponse.ok) throw new Error(manifestBody.error || "manifest 저장 실패");
       setBatchProgress({ status: "complete", bundleId, completed, total, current: "완료", manifestUrl: manifestBody.manifestUrl });
-      setNotice(`RunPod 51프레임 + 우측 반전 17프레임 생성·후처리 완료 · ${manifestBody.manifestUrl}`);
+      setPostprocessManifestUrl("");
+      setNotice(`I2I 원본 68프레임 생성 완료 · 검수 후 후처리 시작 버튼을 누르세요. · ${manifestBody.manifestUrl}`);
       debugLog("BATCH_COMPLETE", { bundleId, completed, manifestUrl: manifestBody.manifestUrl });
     } catch (error) {
       const message = error instanceof Error ? error.message : "동작 생성 실패";
@@ -1297,6 +1383,31 @@ export default function Home() {
       debugLog("BATCH_FAILED", { bundleId, completed, message });
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function postprocessCompletedBatch() {
+    if (batchProgress.status !== "complete" || !batchProgress.bundleId || isPostprocessing) return;
+    setIsPostprocessing(true);
+    setPostprocessManifestUrl("");
+    setNotice("완료된 68개 원본의 crop·Unity 리사이즈를 시작합니다.");
+    try {
+      const response = await fetch("/api/assets/postprocess", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bundleId: batchProgress.bundleId, targetWidth, targetHeight }),
+      });
+      const body = await response.json() as { error?: string; processed?: number; manifestUrl?: string };
+      if (!response.ok || !body.manifestUrl) throw new Error(body.error || "후처리 실패");
+      setPostprocessManifestUrl(body.manifestUrl);
+      setNotice(`${body.processed ?? 0}개 프레임 후처리 완료 · ${body.manifestUrl}`);
+      debugLog("POSTPROCESS_COMPLETE", { bundleId: batchProgress.bundleId, processed: body.processed, manifestUrl: body.manifestUrl });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "후처리 실패";
+      setNotice(`후처리 실패 · ${message}`);
+      debugLog("POSTPROCESS_FAILED", { bundleId: batchProgress.bundleId, message });
+    } finally {
+      setIsPostprocessing(false);
     }
   }
 
@@ -1338,8 +1449,6 @@ export default function Home() {
       form.set("frameHeight", String(guide.frame.frameHeight));
       form.set("baselineY", String(guide.frame.baselineY));
       form.set("strokeWidth", String(guide.frame.strokeWidth));
-      form.set("targetWidth", String(targetWidth));
-      form.set("targetHeight", String(targetHeight));
       form.set("category", category);
       form.set("direction", direction);
       form.set("action", action);
@@ -1395,13 +1504,20 @@ export default function Home() {
   }
 
   const guideContent = category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} /> : category === "tile" ? <TileGuide topology={topology} /> : <ObjectSchematic family={family} />;
-  const sentReferenceA = generatedAsset?.referenceImages?.[0]?.url ?? activeReference.preview;
-  const sentReferenceB = generatedAsset?.referenceImages?.[1]?.url;
+  const sentReferenceA = generatedAsset?.referenceImages?.[0]?.url ?? preparedReferenceA ?? activeReference.preview;
+  const sentReferenceB = generatedAsset?.referenceImages?.[1]?.url ?? preparedReferenceB;
   const allDirectionReferencesApproved = DIRECTIONS.every((item) => Boolean(directionReferences[item.id].preview) && directionApprovals[item.id]);
   const pipelineDirection = generatedAsset?.selection?.direction ?? direction;
   const pipelineFrameId = generatedAsset?.selection?.frameId ?? framePhase.id;
   const pipelineCanvas = generatedAsset?.size ?? `${guideSize.width}x${guideSize.height}`;
   const pipelineAspect = `${guideSize.width} / ${guideSize.height}`;
+  const pipelineFrameGeometry = guideFrameGeometry(family.visualX, family.visualY);
+  const pipelineFrameStyle = {
+    left: `${(pipelineFrameGeometry.frame.frameX / pipelineFrameGeometry.width) * 100}%`,
+    top: `${(pipelineFrameGeometry.frame.frameY / pipelineFrameGeometry.height) * 100}%`,
+    width: `${(pipelineFrameGeometry.frame.frameWidth / pipelineFrameGeometry.width) * 100}%`,
+    height: `${(pipelineFrameGeometry.frame.frameHeight / pipelineFrameGeometry.height) * 100}%`,
+  };
 
   return (
     <main className="app-shell">
@@ -1436,8 +1552,8 @@ export default function Home() {
 
           {toolMode === "i2i" && (
             <section className="reference-input" data-testid="reference-input">
-              <div className={hasActiveReference ? "reference-input-thumb actual-reference" : "reference-input-thumb reference-missing"}>{hasActiveReference ? <img src={activeReference.preview} alt="Reference A 승인 기준 이미지" /> : <PoseGuide action="idle" direction={direction} compact />}</div>
-              <div><span className={hasActiveReference ? "approved-badge" : "approved-badge is-missing"}>REFERENCE A</span><strong>{activeReference.name}</strong><small>{category === "character" ? `${DIRECTIONS.find((item) => item.id === direction)?.label} · ${hasActiveReference ? "승인 기준" : "등록 필요"}` : `${family.name} · 승인 기준`}</small></div>
+              <div className={(category === "character" ? frontSourceReference.preview : activeReference.preview) ? "reference-input-thumb actual-reference" : "reference-input-thumb reference-missing"}>{(category === "character" ? frontSourceReference.preview : activeReference.preview) ? <img src={category === "character" ? frontSourceReference.preview : activeReference.preview} alt={category === "character" ? "정면 방향 생성 입력 이미지" : "Reference A 승인 기준 이미지"} /> : <PoseGuide action="idle" direction={direction} compact />}</div>
+              <div><span className={(category === "character" ? frontSourceReference.preview : activeReference.preview) ? "approved-badge" : "approved-badge is-missing"}>REFERENCE A</span><strong>{category === "character" ? frontSourceReference.name : activeReference.name}</strong><small>{category === "character" ? `정면 방향 생성 입력 · ${frontSourceReference.preview ? "등록됨" : "등록 필요"}` : `${family.name} · 승인 기준`}</small></div>
               <label className="reference-upload">교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => changeReference(event.target.files?.[0] ?? null)} /></label>
             </section>
           )}
@@ -1469,20 +1585,20 @@ export default function Home() {
             </div>
           ) : (
             <>
-              <div className="asset-meta-strip"><span><small>PROFILE</small>{family.profile}</span><span><small>OUTPUT</small>{targetWidth} × {targetHeight}px</span><span><small>RATIO</small>{ratioLabel}</span><span><small>PPU</small>{scale.pixels}</span><span><small>FOOTPRINT</small>{family.footprint}</span></div>
+              <div className="asset-meta-strip"><span><small>PROFILE</small>{family.profile}</span><span><small>MODEL CANVAS</small>{guideSize.width} × {guideSize.height}px</span><span><small>FRAME RATIO</small>{ratioLabel}</span><span><small>INPUT</small>A + B</span><span><small>SAVE</small>RAW PNG</span></div>
               <div className="guide-workspace">
                 <div className="guide-rulers"><span>WHITE CANVAS / SAFE AREA</span><span>BLACK CROP OUTLINE / {ratioLabel}</span></div>
                 <div className="guide-canvas" data-testid="guide-canvas" data-content-policy="contained"><div className="grid-overlay" /><div className="layout-frame" style={{ width: frameSize.width, height: frameSize.height }} data-testid="layout-frame" data-ratio={ratioLabel} data-output={`${targetWidth}x${targetHeight}`} data-crop="outline-bounds" data-ground-edge={category === "tile" ? "adjacency" : "bottom"}>{guideContent}</div></div>
                 <div className="canvas-ground-note"><i aria-hidden="true" />{category === "tile" ? "검은 윤곽 = seamless adjacency 경계 · 모든 타일 픽셀은 안쪽 유지" : "검은 윤곽 아랫변 = 접지선 · 모든 포즈·장비·오브젝트 픽셀은 안쪽 유지"}</div>
                 {category === "character" && <div className="direction-layout-note" data-testid="direction-layout-note"><strong>{DIRECTIONS.find((item) => item.id === direction)?.label} 레이아웃</strong><span>크롭 rect {ratioLabel} 고정</span><span>4방향 공통 높이 {directionLayout.height} · 위·아래 변 접촉</span><span>점유폭 {directionLayout.occupancy}</span><span>좌우 안전 여백 {directionLayout.safeMargin}</span><p>{directionLayout.note}</p></div>}
-                <div className="postprocess-flow"><span><small>01 GUIDE</small>{category === "character" ? `${direction} 방향 점유·포즈` : category === "tile" ? `${topology} mask` : `${family.name} 범위`}</span><i>→</i><span><small>02 CROP</small>검은 윤곽 내부만 절삭</span><i>→</i><span><small>03 RESIZE</small>{targetWidth} × {targetHeight}px</span></div>
+                <div className="postprocess-flow"><span><small>01 REFERENCE A</small>공통 사각형에 맞춘 기준 이미지</span><i>+</i><span><small>02 REFERENCE B</small>{category === "character" ? `${direction} 방향·포즈 가이드` : category === "tile" ? `${topology} 가이드` : `${family.name} 상태 가이드`}</span><i>→</i><span><small>03 I2I RAW</small>{guideSize.width} × {guideSize.height}px 원본 저장</span></div>
 
                 {category === "character" && <section className="frame-phase-strip" data-testid="frame-phase-strip"><div className="option-heading"><span>생성 프레임</span><span className="field-note">{framePhase.id}</span></div><div>{framePhases.map((phase, index) => <button key={phase.id} type="button" role="checkbox" aria-checked={frameIndex === index} className={frameIndex === index ? "frame-phase is-checked" : "frame-phase"} onClick={() => changeFrame(index)} disabled={isGenerating} data-testid={`frame-${index + 1}`}><PoseGuide action={action} direction={direction} frameIndex={index} compact /><span><strong>{phase.id}</strong><small>{phase.label}</small></span></button>)}</div></section>}
 
                 <section className="generation-layout" data-testid="generation-layout">
                   <div className="generation-layout-heading"><div><span className="field-note">REFERENCE PIPELINE</span><strong>{category === "character" ? "같은 방향 기준 A + 방향·동작 가이드 B" : category === "tile" ? "승인 타일 A + topology 가이드 B" : "승인 오브젝트 A + 상태·규격 가이드 B"}</strong></div><small>{category === "character" ? `${pipelineDirection} · ${pipelineFrameId}` : category === "tile" ? topology : objectState}</small></div>
                   <div className="reference-equation">
-                    <article data-testid="reference-a"><span className="source-label">REFERENCE A {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-asset sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceA ? <img src={sentReferenceA} alt="실제 전송 Reference A" onLoad={(event) => debugLog("REFERENCE_A_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <PoseGuide action="idle" direction={direction} compact />}</div><strong>{generatedAsset ? "실제 전송 이미지 A" : category === "character" ? `${direction} ${hasActiveReference ? "승인 기준" : "기준 미등록"}` : "승인된 기준 이미지"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[0]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[0]?.name ?? (category === "character" ? activeReference.name : `${category}.${family.id}.ref`)}</small></article>
+                    <article data-testid="reference-a"><span className="source-label">REFERENCE A {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-asset sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceA ? <img src={sentReferenceA} alt="사각형에 맞춘 실제 전송 Reference A" onLoad={(event) => debugLog("REFERENCE_A_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <PoseGuide action="idle" direction={direction} compact />}<span className="reference-frame-overlay" style={pipelineFrameStyle} aria-label="Reference A 공통 프레임" /></div><strong>{generatedAsset ? "실제 전송 이미지 A" : "공통 사각형에 맞춘 기준 A"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[0]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[0]?.name ?? (category === "character" ? activeReference.name : `${category}.${family.id}.ref`)}</small></article>
                     <b>+</b>
                     <article data-testid="reference-b"><span className="source-label">REFERENCE B {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-guide sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceB ? <img src={sentReferenceB} alt="실제 전송 Reference B" onLoad={(event) => debugLog("REFERENCE_B_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <div className="mini-layout-frame">{category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} compact /> : category === "tile" ? <TileGuide topology={topology} compact /> : <ObjectSchematic family={family} compact />}</div>}</div><strong>{sentReferenceB ? "실제 전송 이미지 B" : "자동 레이아웃 가이드"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[1]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[1]?.name ?? `${ratioLabel} · ${category === "character" ? `${framePhase.id} · ${directionLayout.occupancy}` : category === "tile" ? topology : family.footprint}`}</small></article>
                     <b>→</b>
@@ -1491,10 +1607,11 @@ export default function Home() {
                 </section>
               </div>
 
-              {category === "character" && <div className="direction-reference-strip" data-testid="direction-reference-strip"><div className="option-heading"><span>방향별 무동작 기준 이미지</span><button type="button" onClick={loadLatestDirectionReferences} disabled={isGenerating} data-testid="load-latest-direction-references">최근 기준 불러오기</button></div><div>{DIRECTIONS.map((item) => {
+              {category === "character" && <div className="direction-reference-strip" data-testid="direction-reference-strip"><div className="option-heading"><span>방향별 무동작 생성 기준</span><button type="button" onClick={loadLatestDirectionReferences} disabled={isGenerating} data-testid="load-latest-direction-references">최근 기준 불러오기</button></div><div>{DIRECTIONS.map((item) => {
                 const reference = directionReferences[item.id];
                 const approved = directionApprovals[item.id];
-                return <article key={item.id} className={`${direction === item.id ? "is-active" : ""}${approved ? " is-approved" : reference.preview ? " is-review" : " is-missing"}`} data-testid={`direction-reference-${item.id}`}><div className="direction-reference-preview">{reference.preview ? <img src={reference.preview} alt={`${item.label} 기준 이미지`} /> : <PoseGuide action="idle" direction={item.id} compact />}</div><strong>{item.label}</strong><small>{approved ? "승인됨" : reference.preview ? "검수 필요" : "미등록"}</small><div className="direction-reference-actions"><button type="button" onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-${item.id}`}>보기</button>{item.id !== "front" && reference.preview && <button type="button" className={approved ? "is-approved" : ""} onClick={() => setDirectionApprovals((current) => ({ ...current, [item.id]: !current[item.id] }))} disabled={isGenerating} data-testid={`approve-direction-${item.id}`}>{approved ? "승인 취소" : "승인"}</button>}{item.id !== "front" && <button type="button" onClick={() => regenerateDirectionReference(item.id)} disabled={isGenerating || endpoint.status !== "연결됨"} data-testid={`regenerate-direction-${item.id}`}>재생성</button>}</div></article>;
+                const generated = reference.stage === "generated" && Boolean(reference.preview);
+                return <article key={item.id} className={`${direction === item.id ? "is-active" : ""}${approved ? " is-approved" : generated ? " is-review" : " is-missing"}`} data-testid={`direction-reference-${item.id}`}><div className="direction-reference-preview">{reference.preview ? <img src={reference.preview} alt={`${item.label} 기준 이미지`} /> : <PoseGuide action="idle" direction={item.id} compact />}</div><strong>{item.label}</strong><small>{approved ? "승인됨" : generated ? "생성 결과 검수 필요" : item.id === "front" && reference.preview ? "정면 입력 원본 · 생성 전" : "생성 전"}</small><div className="direction-reference-actions"><button type="button" onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-${item.id}`}>보기</button>{generated && <button type="button" className={approved ? "is-approved" : ""} onClick={() => setDirectionApprovals((current) => ({ ...current, [item.id]: !current[item.id] }))} disabled={isGenerating} data-testid={`approve-direction-${item.id}`}>{approved ? "승인 취소" : "승인"}</button>}<button type="button" onClick={() => regenerateDirectionReference(item.id)} disabled={isGenerating || endpoint.status !== "연결됨"} data-testid={`regenerate-direction-${item.id}`}>재생성</button></div></article>;
               })}</div></div>}
 
               {category === "character" && <div className="variant-controls"><section className="variant-section"><div className="option-heading"><span>방향</span><span className="field-note">LAYOUT OVERRIDE</span></div><div className="direction-grid">{DIRECTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={direction === item.id} className={direction === item.id ? "check-option is-checked" : "check-option"} onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-control-${item.id}`}><span className="check-box">{direction === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section><section className="variant-section"><div className="option-heading"><span>동작 7종</span><span className="field-note">CLICK TO DEBUG</span></div><div className="action-grid">{ACTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={action === item.id} className={action === item.id ? "check-option is-checked" : "check-option"} onClick={() => changeAction(item.id)} disabled={isGenerating} data-testid={`action-${item.id}`}><span className="check-box">{action === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section></div>}
@@ -1503,10 +1620,10 @@ export default function Home() {
 
           <div className="prompt-preview"><div className="prompt-heading"><span>PROMPT PREVIEW</span><span>OPTION SEED {optionSeed}</span></div><p>{toolMode === "i2i" ? generationPrompt : prompt}</p></div>
           {toolMode === "i2i" && category === "character" && <section className="batch-generation" data-testid="character-batch-generation">
-            <div className="batch-generation-heading"><div><span>4-DIRECTION CHARACTER ASSETS</span><strong>정면 기준 → 후면·좌측 생성 + 우측 반전 → 방향 검수·승인 → 동작 68프레임</strong><small>RunPod 51프레임 + 우측 반전 17프레임 · crop · {targetWidth}×{targetHeight}px · Unity pivot (0.5, 0)</small></div><div className="batch-buttons"><button type="button" onClick={generateDirectionReferences} disabled={endpoint.status !== "연결됨" || isGenerating || !directionReferences.front.preview} data-testid="generate-direction-references">{isGenerating && batchProgress.status === "direction" ? `${batchProgress.completed}/${batchProgress.total} 방향 생성 중` : "후면·좌측 생성 + 우측 반전"}</button><button type="button" onClick={generateAllCharacterActions} disabled={endpoint.status !== "연결됨" || isGenerating || !allDirectionReferencesApproved} data-testid="generate-all-character-assets">{isGenerating && batchProgress.status === "actions" ? `${batchProgress.completed}/${batchProgress.total} RunPod 생성 중` : allDirectionReferencesApproved ? "승인 기준으로 68개 에셋 생성" : "4방향 승인 필요"}</button></div></div>
+            <div className="batch-generation-heading"><div><span>4-DIRECTION CHARACTER ASSETS</span><strong>정면 입력 A → 정면·후면·좌측 기준 생성 + 우측 원본 반전 → 4방향 승인 → 동작 68프레임 원본 생성</strong><small>정면도 정면 가이드 B로 사각형을 채워 다시 생성 · 모든 방향과 동작은 {guideSize.width}×{guideSize.height}px 원본 저장 · 후처리는 전 프레임 완료 뒤 수동 실행</small></div><div className="batch-buttons"><button type="button" onClick={generateDirectionReferences} disabled={endpoint.status !== "연결됨" || isGenerating || !frontSourceReference.preview} data-testid="generate-direction-references">{isGenerating && batchProgress.status === "direction" ? `${batchProgress.completed}/${batchProgress.total} 방향 생성 중` : "정면·후면·좌측 생성 + 우측 반전"}</button><button type="button" onClick={generateAllCharacterActions} disabled={endpoint.status !== "연결됨" || isGenerating || !allDirectionReferencesApproved} data-testid="generate-all-character-assets">{isGenerating && batchProgress.status === "actions" ? `${batchProgress.completed}/${batchProgress.total} RunPod 생성 중` : allDirectionReferencesApproved ? "승인 기준으로 68개 원본 생성" : "4방향 승인 필요"}</button><button type="button" onClick={postprocessCompletedBatch} disabled={batchProgress.status !== "complete" || isGenerating || isPostprocessing} data-testid="postprocess-character-assets">{isPostprocessing ? "후처리 중" : postprocessManifestUrl ? "후처리 완료" : "전 프레임 완료 후 후처리 시작"}</button></div></div>
             <div className="batch-progress" data-status={batchProgress.status}><i style={{ width: `${batchProgress.total ? (batchProgress.completed / batchProgress.total) * 100 : 0}%` }} /><span>{batchProgress.status === "idle" ? "대기" : `${batchProgress.completed}/${batchProgress.total} · ${batchProgress.current}`}</span></div>
-            {batchProgress.bundleId && <div className="batch-bundle"><strong>{batchProgress.bundleId}</strong>{batchProgress.manifestUrl && <a href={batchProgress.manifestUrl} target="_blank" rel="noreferrer">manifest.json</a>}</div>}
-            {batchResults.length > 0 && <div className="batch-result-grid" data-testid="batch-result-grid">{batchResults.map((result) => <article key={result.generationId}><div>{result.assetUrl ? <img src={result.assetUrl} alt={result.selection?.frameId ?? result.generationId} /> : <span>RAW</span>}</div><strong>{result.selection?.frameId}</strong><small>{result.selection?.direction} · {result.selection?.action}</small></article>)}</div>}
+            {batchProgress.bundleId && <div className="batch-bundle"><strong>{batchProgress.bundleId}</strong><span>{batchProgress.manifestUrl && <a href={batchProgress.manifestUrl} target="_blank" rel="noreferrer">원본 manifest</a>}{postprocessManifestUrl && <a href={postprocessManifestUrl} target="_blank" rel="noreferrer">후처리 manifest</a>}</span></div>}
+            {batchResults.length > 0 && <div className="batch-result-grid" data-testid="batch-result-grid">{batchResults.map((result) => <article key={result.generationId}><div><img src={result.imageUrl} alt={`${result.selection?.frameId ?? result.generationId} RunPod 원본`} /></div><strong>{result.selection?.frameId}</strong><small>RunPod 원본 · {result.selection?.direction} · {result.selection?.action}</small></article>)}</div>}
           </section>}
           {toolMode === "i2i" && <div className="runpod-generation-bar" data-testid="runpod-generation"><div><span>QWEN-IMAGE-EDIT-2511</span><strong>{endpoint.status === "연결됨" ? endpoint.model : endpoint.message ?? "Endpoint 확인 중"}</strong><small>{hasActiveReference ? "Reference A + 자동 생성 Reference B" : `${direction}.ref 등록 필요`} · 40 steps · CFG 4 · guidance 1 · seed {optionSeed}</small></div><button type="button" onClick={runImageEdit} disabled={endpoint.status !== "연결됨" || isGenerating || !hasActiveReference} data-testid="runpod-generate">{isGenerating ? "이미지 생성 중…" : hasActiveReference ? "실제 이미지 생성" : `${direction}.ref 등록 필요`}</button></div>}
         </section>

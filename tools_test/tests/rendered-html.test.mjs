@@ -3,13 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
-const [page, css, editRoute, runpodServer, manifestRoute, healthRoute] = await Promise.all([
+const [page, css, editRoute, runpodServer, manifestRoute, healthRoute, postprocessRoute] = await Promise.all([
   source("../app/page.tsx"),
   source("../app/globals.css"),
   source("../app/api/runpod/edit/route.ts"),
   source("../lib/runpod-server.ts"),
   source("../app/api/assets/manifest/route.ts"),
   source("../app/api/runpod/health/route.ts"),
+  source("../app/api/assets/postprocess/route.ts"),
 ]);
 
 test("T2I와 I2I 화면을 분리한다", () => {
@@ -79,8 +80,12 @@ test("정면·후면·측면은 서로 다른 점유 규격과 방향별 기준�
   assert.match(page, /같은 방향 기준 A \+ 방향·동작 가이드 B/);
   assert.match(page, /activeReference\.name/);
   assert.match(page, /INITIAL_DIRECTION_REFERENCES/);
-  assert.match(page, /back: \{ file: null, preview: "", name: "back\.ref 미등록" \}/);
-  assert.match(page, /DIRECTION_REFERENCE_REGISTERED/);
+  assert.match(page, /back: \{ file: null, preview: "", name: "back\.ref 미등록", stage: "generated" \}/);
+  assert.match(page, /FRONT_SOURCE_REGISTERED/);
+  assert.match(page, /frontSourceReference/);
+  assert.match(page, /stage: "source"/);
+  assert.match(page, /const generated = reference\.stage === "generated"/);
+  assert.match(page, /정면 입력 원본 · 생성 전/);
   assert.match(page, /isGenerating \|\| !hasActiveReference/);
   assert.match(page, /directionReferencePrompt/);
   assert.match(page, /정면 기준으로 \$\{current\} 생성 중/);
@@ -90,7 +95,7 @@ test("정면·후면·측면은 서로 다른 점유 규격과 방향별 기준�
   assert.match(css, /\.pose-guide\.direction-left, \.pose-guide\.direction-right \{ inset: 0 22% 0; \}/);
 });
 
-test("RunPod가 방향 기준 3종과 4방향 동작 68프레임을 생성하고 에셋으로 후처리한다", () => {
+test("RunPod가 정면 포함 방향 기준과 4방향 동작 68프레임 원본을 먼저 생성한다", () => {
   assert.match(page, /generateDirectionReferences/);
   assert.match(page, /generateAllCharacterActions/);
   assert.match(page, /directionApprovals/);
@@ -101,16 +106,30 @@ test("RunPod가 방향 기준 3종과 4방향 동작 68프레임을 생성하고
   assert.match(page, /requestCharacterAsset/);
   assert.match(page, /assetBundle/);
   assert.match(page, /assetName/);
-  assert.match(editRoute, /sharp\(imageBuffer\)/);
-  assert.match(editRoute, /\.extract\(/);
-  assert.match(editRoute, /kernel: sharp\.kernel\.nearest/);
-  assert.match(editRoute, /ASSET_EXPORTED/);
+  assert.match(page, /item\.id === "front" \|\| item\.id === "back" \|\| item\.id === "left"/);
+  assert.match(editRoute, /RAW_BUNDLE_SAVED/);
+  assert.match(editRoute, /public", "generated", "bundles"/);
+  assert.doesNotMatch(editRoute, /\.extract\(/);
+  assert.doesNotMatch(editRoute, /\.resize\(/);
   assert.match(page, /BATCH_REQUEST_RETRY/);
   assert.match(page, /BATCH_ASSET_REUSED/);
   assert.match(page, /loadStoredCharacterAsset/);
   assert.match(manifestRoute, /export async function GET/);
   assert.match(manifestRoute, /Idle_Right_01\.png/);
   assert.match(css, /\.batch-progress/);
+});
+
+test("후처리는 68개 원본 생성 완료 뒤 수동 버튼으로만 실행한다", () => {
+  assert.match(page, /data-testid="postprocess-character-assets"/);
+  assert.match(page, /batchProgress\.status !== "complete"/);
+  assert.match(page, /postprocessCompletedBatch/);
+  assert.doesNotMatch(page, /postprocessCompletedBatch\(\);/);
+  assert.match(postprocessRoute, /manifest\.assets\.length !== expectedAssets/);
+  assert.match(postprocessRoute, /status !== "generation-complete"/);
+  assert.match(postprocessRoute, /\.extract\(/);
+  assert.match(postprocessRoute, /\.resize\(/);
+  assert.match(postprocessRoute, /trigger: "manual"/);
+  assert.match(postprocessRoute, /paletteReduction: false/);
 });
 
 test("타일 I2I는 캐릭터 포즈가 아닌 topology 가이드를 쓴다", () => {
@@ -135,6 +154,11 @@ test("RunPod 설정은 환경변수만 사용하고 두 참조 이미지를 edit
 
 test("A·B·OUTPUT의 실제 캔버스와 브라우저 디버그 로그를 표시한다", () => {
   assert.match(page, /normalizeReferenceOnWhite/);
+  assert.match(page, /REFERENCE_PIPELINE_PREPARED/);
+  assert.match(page, /preparedReferenceA/);
+  assert.match(page, /preparedReferenceB/);
+  assert.match(page, /reference-frame-overlay/);
+  assert.match(page, /공통 사각형에 맞춘 기준 A/);
   assert.match(page, /실제 전송 이미지 A/);
   assert.match(page, /실제 전송 이미지 B/);
   assert.match(page, /REFERENCE_A_RENDERED/);
@@ -147,8 +171,13 @@ test("A·B·OUTPUT의 실제 캔버스와 브라우저 디버그 로그를 표�
 });
 
 test("I2I 프롬프트는 정체성·포즈·프레임 내부·접지만 지시한다", () => {
+  const characterPromptSource = page.slice(page.indexOf("function characterActionPrompt"), page.indexOf("function directionReferencePrompt"));
   assert.match(page, /Keep image 1 colors, face, hair, clothing, and proportions exact\./);
   assert.match(page, /Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge\./);
   assert.match(page, /Strict full left profile/);
   assert.doesNotMatch(page, /Keep image 1[^`\n]*ratio/i);
+  assert.doesNotMatch(characterPromptSource, /pixel/i);
+  assert.doesNotMatch(page, /frontRule\}, \$\{targetWidth\}x\$\{targetHeight\}px/);
+  assert.match(page, /RunPod 원본/);
+  assert.match(page, /전 프레임 완료 후 후처리 시작/);
 });

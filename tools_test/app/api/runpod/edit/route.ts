@@ -15,10 +15,6 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 800;
 
 const MAX_REFERENCE_BYTES = 20 * 1024 * 1024;
-const CHARACTER_PALETTE = [
-  [49, 34, 48], [240, 173, 112], [57, 143, 202], [49, 71, 101], [88, 54, 43], [8, 13, 19], [255, 255, 255],
-] as const;
-
 function textValue(form: FormData, key: string, fallback = "") {
   const value = form.get(key);
   return typeof value === "string" ? value.trim() : fallback;
@@ -105,8 +101,6 @@ export async function POST(request: Request) {
     };
     const assetBundle = safeAssetSegment(textValue(form, "assetBundle"));
     const assetName = safeAssetSegment(textValue(form, "assetName"));
-    const targetWidth = Math.round(numericValue(form, "targetWidth", 32, 8, 2048));
-    const targetHeight = Math.round(numericValue(form, "targetHeight", 64, 8, 2048));
     const mirrorDirection = safeAssetSegment(textValue(form, "mirrorDirection"));
     const mirrorAssetName = safeAssetSegment(textValue(form, "mirrorAssetName"));
     if (assetBundle) {
@@ -159,83 +153,41 @@ export async function POST(request: Request) {
       ),
     );
 
-    let assetUrl: string | null = null;
-    let assetMetadataUrl: string | null = null;
+    let bundleImageUrl: string | null = null;
+    let bundleMetadataUrl: string | null = null;
     let mirroredImageUrl: string | null = null;
-    let mirroredAssetUrl: string | null = null;
-    let mirroredAssetMetadataUrl: string | null = null;
+    let mirroredBundleImageUrl: string | null = null;
+    let mirroredBundleMetadataUrl: string | null = null;
     if (assetBundle && assetName) {
       const directionDirectory = safeAssetSegment(selection.direction) || "shared";
-      const assetDirectory = path.join(process.cwd(), "public", "assets", "generated", assetBundle, directionDirectory);
-      const assetFilename = `${assetName}.png`;
-      const assetMetadataFilename = `${assetName}.json`;
-      const imageMetadata = await sharp(imageBuffer).metadata();
-      const sourceWidth = imageMetadata.width ?? Number(size.split("x")[0]);
-      const sourceHeight = imageMetadata.height ?? Number(size.split("x")[1]);
-      const guideWidth = Number(size.split("x")[0]);
-      const guideHeight = Number(size.split("x")[1]);
-      const scaleX = sourceWidth / guideWidth;
-      const scaleY = sourceHeight / guideHeight;
-      const cropInset = textValue(form, "outputFrameMode") === "guide-only" ? 0 : layout.strokeWidth;
-      const cropLeft = Math.max(0, Math.round((layout.frameX + cropInset) * scaleX));
-      const cropTop = Math.max(0, Math.round((layout.frameY + cropInset) * scaleY));
-      const cropWidth = Math.min(sourceWidth - cropLeft, Math.max(1, Math.round((layout.frameWidth - cropInset * 2) * scaleX)));
-      const cropHeight = Math.min(sourceHeight - cropTop, Math.max(1, Math.round((layout.frameHeight - cropInset * 2) * scaleY)));
-      const resizedAssetBuffer = await sharp(imageBuffer)
-        .extract({ left: cropLeft, top: cropTop, width: cropWidth, height: cropHeight })
-        .resize(targetWidth, targetHeight, { fit: "fill", kernel: sharp.kernel.nearest })
-        .png()
-        .toBuffer();
-      const { data: rgba, info: rgbaInfo } = await sharp(resizedAssetBuffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-      for (let offset = 0; offset < rgba.length; offset += 4) {
-        const red = rgba[offset];
-        const green = rgba[offset + 1];
-        const blue = rgba[offset + 2];
-        const brightest = Math.max(red, green, blue);
-        const darkest = Math.min(red, green, blue);
-        if (darkest > 238 || (brightest - darkest < 12 && darkest > 50)) rgba[offset + 3] = 0;
-        if (selection.category === "character" && rgba[offset + 3] > 0) {
-          let nearest: readonly [number, number, number] = CHARACTER_PALETTE[0];
-          let nearestDistance = Number.POSITIVE_INFINITY;
-          for (const color of CHARACTER_PALETTE) {
-            const distance = (red - color[0]) ** 2 + (green - color[1]) ** 2 + (blue - color[2]) ** 2;
-            if (distance < nearestDistance) {
-              nearest = color;
-              nearestDistance = distance;
-            }
-          }
-          rgba[offset] = nearest[0];
-          rgba[offset + 1] = nearest[1];
-          rgba[offset + 2] = nearest[2];
-        }
-      }
-      const assetBuffer = await sharp(rgba, { raw: rgbaInfo }).png().toBuffer();
-      await mkdir(assetDirectory, { recursive: true });
-      await writeFile(path.join(assetDirectory, assetFilename), assetBuffer);
+      const bundleDirectory = path.join(process.cwd(), "public", "generated", "bundles", assetBundle, directionDirectory);
+      const bundleFilename = `${assetName}.png`;
+      const bundleMetadataFilename = `${assetName}.json`;
+      await mkdir(bundleDirectory, { recursive: true });
+      await writeFile(path.join(bundleDirectory, bundleFilename), imageBuffer);
       await writeFile(
-        path.join(assetDirectory, assetMetadataFilename),
-        JSON.stringify({ generationId, requestId: result.requestId, model: result.model, createdAt: new Date().toISOString(), selection, layout, settings, crop: { left: cropLeft, top: cropTop, width: cropWidth, height: cropHeight }, output: { filename: assetFilename, bytes: assetBuffer.length, size: `${targetWidth}x${targetHeight}`, format: "png" } }, null, 2),
+        path.join(bundleDirectory, bundleMetadataFilename),
+        JSON.stringify({ phase: "i2i-raw", generationId, requestId: result.requestId, model: result.model, createdAt: new Date().toISOString(), selection, layout, settings, output: { filename: bundleFilename, bytes: imageBuffer.length, size: result.responseSize, format: "png" } }, null, 2),
       );
-      assetUrl = `/assets/generated/${assetBundle}/${directionDirectory}/${assetFilename}`;
-      assetMetadataUrl = `/assets/generated/${assetBundle}/${directionDirectory}/${assetMetadataFilename}`;
-      console.info("[RunPod][ASSET_EXPORTED]", { assetBundle, direction: directionDirectory, assetName, assetUrl, crop: `${cropWidth}x${cropHeight}@${cropLeft},${cropTop}`, output: `${targetWidth}x${targetHeight}` });
+      bundleImageUrl = `/generated/bundles/${assetBundle}/${directionDirectory}/${bundleFilename}`;
+      bundleMetadataUrl = `/generated/bundles/${assetBundle}/${directionDirectory}/${bundleMetadataFilename}`;
+      console.info("[RunPod][RAW_BUNDLE_SAVED]", { assetBundle, direction: directionDirectory, assetName, bundleImageUrl, output: result.responseSize });
 
       if (mirrorDirection && mirrorAssetName) {
         const mirroredRawFilename = `${generationId}-mirror.png`;
         const mirroredRawBuffer = await sharp(imageBuffer).flop().png().toBuffer();
-        const mirroredAssetDirectory = path.join(process.cwd(), "public", "assets", "generated", assetBundle, mirrorDirection);
-        const mirroredAssetFilename = `${mirrorAssetName}.png`;
+        const mirroredBundleDirectory = path.join(process.cwd(), "public", "generated", "bundles", assetBundle, mirrorDirection);
+        const mirroredBundleFilename = `${mirrorAssetName}.png`;
         const mirroredMetadataFilename = `${mirrorAssetName}.json`;
-        const mirroredAssetBuffer = await sharp(assetBuffer).flop().png().toBuffer();
         const mirroredSelection = { ...selection, direction: mirrorDirection, frameId: mirrorAssetName };
-        await mkdir(mirroredAssetDirectory, { recursive: true });
+        await mkdir(mirroredBundleDirectory, { recursive: true });
         await writeFile(path.join(outputDirectory, mirroredRawFilename), mirroredRawBuffer);
-        await writeFile(path.join(mirroredAssetDirectory, mirroredAssetFilename), mirroredAssetBuffer);
-        await writeFile(path.join(mirroredAssetDirectory, mirroredMetadataFilename), JSON.stringify({ generationId: `${generationId}-mirror`, sourceGenerationId: generationId, transform: "horizontal-flip", createdAt: new Date().toISOString(), selection: mirroredSelection, layout, output: { filename: mirroredAssetFilename, bytes: mirroredAssetBuffer.length, size: `${targetWidth}x${targetHeight}`, format: "png" } }, null, 2));
+        await writeFile(path.join(mirroredBundleDirectory, mirroredBundleFilename), mirroredRawBuffer);
+        await writeFile(path.join(mirroredBundleDirectory, mirroredMetadataFilename), JSON.stringify({ phase: "i2i-raw", generationId: `${generationId}-mirror`, sourceGenerationId: generationId, transform: "horizontal-flip", createdAt: new Date().toISOString(), selection: mirroredSelection, layout, settings, output: { filename: mirroredBundleFilename, bytes: mirroredRawBuffer.length, size: result.responseSize, format: "png" } }, null, 2));
         mirroredImageUrl = `/generated/runpod/${mirroredRawFilename}`;
-        mirroredAssetUrl = `/assets/generated/${assetBundle}/${mirrorDirection}/${mirroredAssetFilename}`;
-        mirroredAssetMetadataUrl = `/assets/generated/${assetBundle}/${mirrorDirection}/${mirroredMetadataFilename}`;
-        console.info("[RunPod][ASSET_MIRRORED]", { source: assetName, direction: mirrorDirection, assetName: mirrorAssetName, mirroredAssetUrl });
+        mirroredBundleImageUrl = `/generated/bundles/${assetBundle}/${mirrorDirection}/${mirroredBundleFilename}`;
+        mirroredBundleMetadataUrl = `/generated/bundles/${assetBundle}/${mirrorDirection}/${mirroredMetadataFilename}`;
+        console.info("[RunPod][RAW_BUNDLE_MIRRORED]", { source: assetName, direction: mirrorDirection, assetName: mirrorAssetName, mirroredBundleImageUrl });
       }
     }
 
@@ -247,11 +199,11 @@ export async function POST(request: Request) {
       model: result.model,
       imageUrl: `/generated/runpod/${imageFilename}`,
       metadataUrl: `/generated/runpod/${metadataFilename}`,
-      assetUrl,
-      assetMetadataUrl,
+      bundleImageUrl,
+      bundleMetadataUrl,
       mirroredImageUrl,
-      mirroredAssetUrl,
-      mirroredAssetMetadataUrl,
+      mirroredBundleImageUrl,
+      mirroredBundleMetadataUrl,
       referenceImages: referenceImages.map((image) => ({ name: image.name, type: image.type, bytes: image.bytes, filename: image.filename, url: image.url, width: image.width, height: image.height, size: image.size })),
       layout,
       selection,
