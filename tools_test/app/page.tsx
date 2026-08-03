@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- blob previews and runtime-generated PNG URLs are intentionally shown without optimization. */
+
 import { useEffect, useMemo, useState } from "react";
 
 type ToolMode = "t2i" | "i2i";
@@ -22,6 +24,38 @@ type HistoryItem = {
   job: "완료" | "대기" | "실패";
   assetState: "기준 선택" | "후처리" | "시트 생성" | "Unity 확인" | "반려";
   time: string;
+};
+type EndpointState = {
+  status: "확인 중" | "연결됨" | "오류";
+  model?: string;
+  latencyMs?: number;
+  message?: string;
+};
+type GeneratedAsset = {
+  generationId: string;
+  requestId: string;
+  model: string;
+  imageUrl: string;
+  metadataUrl: string;
+  elapsedMs: number;
+  outputBytes: number;
+  size: string;
+  seed: number;
+  referenceImages?: Array<{ name: string; type: string; bytes: number; filename: string; url: string; width?: number; height?: number; size?: string }>;
+  layout?: { frameX: number; frameY: number; frameWidth: number; frameHeight: number; baselineY: number; strokeWidth: number };
+  selection?: { category: AssetCategory; direction: Direction; action: string; frameId: string; frameIndex: number };
+};
+type DirectionReference = { file: File | null; preview: string; name: string };
+
+const GUIDE_LONG_EDGE = 1024;
+const GUIDE_FRAME_INSET = 0.04;
+const GUIDE_FRAME_SCALE = 0.92;
+
+const INITIAL_DIRECTION_REFERENCES: Record<Direction, DirectionReference> = {
+  front: { file: null, preview: "/test-inputs/reference-character-front.png", name: "reference-character-front.png" },
+  back: { file: null, preview: "", name: "back.ref 미등록" },
+  left: { file: null, preview: "", name: "left.ref 미등록" },
+  right: { file: null, preview: "", name: "right.ref 미등록" },
 };
 
 const SCALE_PRESETS = [
@@ -76,7 +110,6 @@ function makeFamilies(prefix: string, group: string, names: string[], profile: s
   const shape = PROFILE_SHAPES[profile] ?? PROFILE_SHAPES["object.1x1"];
   return names.map((name, index) => ({ id: `${prefix}-${index}`, name, group, profile, ...shape }));
 }
-
 const FAMILY_CATALOG: Record<AssetCategory, Family[]> = {
   tile: [
     ...makeFamilies("tile-surface", "자연 지표면", ["잔디", "흙", "경작지", "모래", "얕은 물", "깊은 물", "자갈", "암반", "눈", "얼음", "늪·습지", "낙엽·꽃잎", "재·화산"], "tile.1x1"),
@@ -216,6 +249,38 @@ const ACTIONS = [
   { id: "carry_overhead", label: "물건을 머리 위에 들기", frames: 1 },
 ];
 
+type ActionPreset = (typeof ACTIONS)[number];
+type FramePhase = { id: string; label: string; prompt: string };
+
+const DIRECTION_EXPORT_NAMES: Record<Direction, string> = {
+  front: "Down",
+  back: "Up",
+  left: "Left",
+  right: "Right",
+};
+
+function makeFramePhases(actionPreset: ActionPreset, direction: Direction): FramePhase[] {
+  if (actionPreset.id === "walk_empty") {
+    const side = direction === "left" || direction === "right";
+    const labels = side ? ["앞발 전진", "중간", "뒷발 전진", "중간"] : ["화면 왼쪽 발 전진", "중간", "화면 오른쪽 발 전진", "중간"];
+    return labels.map((label, index) => ({
+      id: `Walk_${DIRECTION_EXPORT_NAMES[direction]}_${String(index + 1).padStart(2, "0")}`,
+      label,
+      prompt: label,
+    }));
+  }
+  return Array.from({ length: actionPreset.frames }, (_, index) => ({
+    id: `${actionPreset.id}_${String(index + 1).padStart(2, "0")}`,
+    label: `프레임 ${index + 1}`,
+    prompt: `frame ${index + 1}`,
+  }));
+}
+
+function guideCanvasSize(visualX: number, visualY: number) {
+  const unit = Math.max(128, Math.floor(GUIDE_LONG_EDGE / Math.max(visualX, visualY) / 64) * 64);
+  return { width: visualX * unit, height: visualY * unit };
+}
+
 const DEFAULT_HISTORY: HistoryItem[] = [
   { id: "GEN-024", asset: "character.farmer_02", detail: "T32 · front.ref · tool_swing", job: "완료", assetState: "기준 선택", time: "방금" },
   { id: "GEN-023", asset: "object.furnace", detail: "32×64 · processing", job: "완료", assetState: "Unity 확인", time: "12분 전" },
@@ -229,6 +294,10 @@ const INITIAL_SELECTIONS = Object.fromEntries(
 
 function pick<T>(values: T[]) {
   return values[Math.floor(Math.random() * values.length)];
+}
+
+function debugLog(event: string, details: Record<string, unknown> = {}) {
+  console.info(`[AssetForge][${event}]`, details);
 }
 
 function OptionGroup({
@@ -268,9 +337,9 @@ function OptionGroup({
   );
 }
 
-function PoseGuide({ action, direction, compact = false }: { action: string; direction: Direction; compact?: boolean }) {
+function PoseGuide({ action, direction, frameIndex = 0, compact = false }: { action: string; direction: Direction; frameIndex?: number; compact?: boolean }) {
   return (
-    <div className={`pose-guide direction-${direction} pose-${action}${compact ? " is-compact" : ""}`} aria-label={`${direction} ${action} 포즈 가이드`} data-testid="asset-pose" data-direction={direction} data-action={action} data-ground-contact="aligned" data-occupancy={DIRECTION_LAYOUTS[direction].occupancy}>
+    <div className={`pose-guide direction-${direction} pose-${action} frame-${frameIndex}${compact ? " is-compact" : ""}`} aria-label={`${direction} ${action} frame ${frameIndex + 1} 포즈 가이드`} data-testid="asset-pose" data-direction={direction} data-action={action} data-frame={frameIndex} data-ground-contact="aligned" data-occupancy={DIRECTION_LAYOUTS[direction].occupancy}>
       <span className="pose-back-shape" />
       <span className="pose-head" />
       <span className="pose-face-mark" />
@@ -310,6 +379,167 @@ function TileGuide({ topology, compact = false }: { topology: string; compact?: 
   );
 }
 
+async function createLayoutGuide(
+  visualX: number,
+  visualY: number,
+  category: AssetCategory,
+  direction: Direction,
+  action: string,
+  frameIndex: number,
+): Promise<{ blob: Blob; width: number; height: number; frame: NonNullable<GeneratedAsset["layout"]> }> {
+  const { width, height } = guideCanvasSize(visualX, visualY);
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas 2D context를 만들 수 없습니다.");
+
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, width, height);
+  const frameX = width * GUIDE_FRAME_INSET;
+  const frameY = height * GUIDE_FRAME_INSET;
+  const frameWidth = width * GUIDE_FRAME_SCALE;
+  const frameHeight = height * GUIDE_FRAME_SCALE;
+  const baseline = frameY + frameHeight;
+  context.strokeStyle = "#000000";
+  const strokeWidth = Math.max(6, Math.min(width, height) * 0.012);
+  context.lineWidth = strokeWidth;
+  context.strokeRect(frameX, frameY, frameWidth, frameHeight);
+
+  context.strokeStyle = "#555555";
+  context.fillStyle = "#555555";
+  context.lineWidth = Math.max(8, Math.min(width, height) * 0.025);
+  context.lineCap = "round";
+  context.lineJoin = "round";
+
+  if (category === "character") {
+    const side = direction === "left" || direction === "right";
+    const centerX = frameX + frameWidth * 0.5;
+    const headY = frameY + frameHeight * 0.19;
+    const headRadius = frameWidth * (side ? 0.105 : 0.135);
+    const shoulderY = frameY + frameHeight * 0.35;
+    const hipY = frameY + frameHeight * 0.61;
+    const stride = action === "walk_empty" ? frameWidth * (side ? 0.18 : 0.24) : frameWidth * 0.13;
+    let leftFootOffset = -stride;
+    let rightFootOffset = stride;
+    if (action === "walk_empty") {
+      if (side) {
+        const forward = direction === "left" ? -1 : 1;
+        const phases = [
+          [forward * stride, -forward * stride * 0.35],
+          [-forward * stride * 0.12, forward * stride * 0.12],
+          [-forward * stride, forward * stride * 0.35],
+          [forward * stride * 0.12, -forward * stride * 0.12],
+        ];
+        [leftFootOffset, rightFootOffset] = phases[frameIndex % phases.length];
+      } else {
+        const phases = [
+          [-stride, stride * 0.25],
+          [-stride * 0.12, stride * 0.12],
+          [-stride * 0.25, stride],
+          [stride * 0.12, -stride * 0.12],
+        ];
+        [leftFootOffset, rightFootOffset] = phases[frameIndex % phases.length];
+      }
+    }
+
+    context.beginPath();
+    context.arc(centerX, headY, headRadius, 0, Math.PI * 2);
+    context.stroke();
+    context.beginPath();
+    context.moveTo(centerX, headY + headRadius);
+    context.lineTo(centerX, hipY);
+    context.moveTo(centerX, shoulderY);
+    context.lineTo(centerX - frameWidth * (side ? 0.12 : 0.25), frameY + frameHeight * 0.5);
+    context.moveTo(centerX, shoulderY);
+    context.lineTo(centerX + frameWidth * (side ? 0.11 : 0.25), frameY + frameHeight * 0.48);
+    context.moveTo(centerX, hipY);
+    context.lineTo(centerX + leftFootOffset, baseline);
+    context.moveTo(centerX, hipY);
+    context.lineTo(centerX + rightFootOffset, baseline);
+    context.moveTo(centerX + leftFootOffset - frameWidth * 0.05, baseline);
+    context.lineTo(centerX + leftFootOffset + frameWidth * 0.08, baseline);
+    context.moveTo(centerX + rightFootOffset - frameWidth * 0.05, baseline);
+    context.lineTo(centerX + rightFootOffset + frameWidth * 0.08, baseline);
+    context.stroke();
+    context.beginPath();
+    context.arc(centerX, hipY, context.lineWidth * 0.7, 0, Math.PI * 2);
+    context.fill();
+  } else if (category === "tile") {
+    const cellWidth = frameWidth / 3;
+    const cellHeight = frameHeight / 3;
+    for (let row = 0; row < 3; row += 1) {
+      for (let column = 0; column < 3; column += 1) {
+        context.globalAlpha = row === 1 || column === 1 ? 0.5 : 0.15;
+        context.fillRect(frameX + column * cellWidth, frameY + row * cellHeight, cellWidth, cellHeight);
+      }
+    }
+    context.globalAlpha = 1;
+  } else {
+    const objectWidth = frameWidth * 0.72;
+    const objectHeight = frameHeight * 0.62;
+    context.strokeRect(frameX + (frameWidth - objectWidth) * 0.5, baseline - objectHeight, objectWidth, objectHeight);
+    context.beginPath();
+    context.moveTo(frameX + frameWidth * 0.22, baseline - objectHeight * 0.55);
+    context.lineTo(frameX + frameWidth * 0.78, baseline - objectHeight * 0.55);
+    context.stroke();
+  }
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => value ? resolve(value) : reject(new Error("레이아웃 PNG 생성 실패")), "image/png");
+  });
+  debugLog("GUIDE_CREATED", {
+    category,
+    direction,
+    action,
+    frameIndex,
+    canvas: `${width}x${height}`,
+    frame: `${Math.round(frameWidth)}x${Math.round(frameHeight)}@${Math.round(frameX)},${Math.round(frameY)}`,
+    baseline: Math.round(baseline),
+  });
+  return {
+    blob,
+    width,
+    height,
+    frame: {
+      frameX: Math.round(frameX),
+      frameY: Math.round(frameY),
+      frameWidth: Math.round(frameWidth),
+      frameHeight: Math.round(frameHeight),
+      baselineY: Math.round(baseline),
+      strokeWidth: Math.round(strokeWidth),
+    },
+  };
+}
+
+async function normalizeReferenceOnWhite(source: Blob, targetWidth: number, targetHeight: number) {
+  const bitmap = await createImageBitmap(source);
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    throw new Error("Reference A 흰 배경 합성 실패");
+  }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  const scale = Math.min(targetWidth / bitmap.width, targetHeight / bitmap.height);
+  const width = Math.round(bitmap.width * scale);
+  const height = Math.round(bitmap.height * scale);
+  context.imageSmoothingEnabled = false;
+  context.drawImage(bitmap, Math.round((targetWidth - width) / 2), Math.round((targetHeight - height) / 2), width, height);
+  debugLog("REFERENCE_A_NORMALIZED", {
+    source: `${bitmap.width}x${bitmap.height}`,
+    target: `${targetWidth}x${targetHeight}`,
+    drawn: `${width}x${height}`,
+  });
+  bitmap.close();
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Reference A PNG 변환 실패")), "image/png");
+  });
+}
+
 export default function Home() {
   const [toolMode, setToolMode] = useState<ToolMode>("t2i");
   const [category, setCategory] = useState<AssetCategory>("tile");
@@ -318,11 +548,22 @@ export default function Home() {
   const [activeGroup, setActiveGroup] = useState(FAMILY_CATALOG.tile[0].group);
   const [direction, setDirection] = useState<Direction>("front");
   const [action, setAction] = useState("walk_empty");
+  const [frameIndex, setFrameIndex] = useState(0);
   const [selections, setSelections] = useState<Record<string, string>>(INITIAL_SELECTIONS);
   const [lockedFields, setLockedFields] = useState<string[]>(["character.gender"]);
   const [optionSeed, setOptionSeed] = useState(4821);
   const [history, setHistory] = useState<HistoryItem[]>(DEFAULT_HISTORY);
-  const [notice, setNotice] = useState("Endpoint 없이 카탈로그·레이아웃·히스토리를 테스트 중입니다.");
+  const [notice, setNotice] = useState("RunPod 연결 상태를 확인 중입니다.");
+  const [endpoint, setEndpoint] = useState<EndpointState>({ status: "확인 중" });
+  const [referenceFile, setReferenceFile] = useState<File | null>(null);
+  const [referencePreview, setReferencePreview] = useState("/test-inputs/reference-character-front.png");
+  const [directionReferences, setDirectionReferences] = useState<Record<Direction, DirectionReference>>(INITIAL_DIRECTION_REFERENCES);
+  const [generatedAsset, setGeneratedAsset] = useState<GeneratedAsset | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    debugLog("BOOT", { location: window.location.href, devicePixelRatio: window.devicePixelRatio });
+  }, []);
 
   useEffect(() => {
     const saved = window.localStorage.getItem("asset-forge-history");
@@ -334,6 +575,26 @@ export default function Home() {
         window.localStorage.removeItem("asset-forge-history");
       }
     }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/runpod/health", { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.message || "Endpoint 상태 확인 실패");
+        if (active) {
+          setEndpoint({ status: "연결됨", model: body.model, latencyMs: body.latencyMs });
+          setNotice(`RunPod 연결 완료 · ${body.model}`);
+        }
+      })
+      .catch((error: Error) => {
+        if (active) {
+          setEndpoint({ status: "오류", message: error.message });
+          setNotice(`RunPod 연결 오류 · ${error.message}`);
+        }
+      });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -350,9 +611,16 @@ export default function Home() {
   const targetHeight = family.visualY * scale.pixels;
   const ratioLabel = `${family.visualX}:${family.visualY}`;
   const actionPreset = ACTIONS.find((item) => item.id === action) ?? ACTIONS[0];
+  const framePhases = useMemo(() => makeFramePhases(actionPreset, direction), [actionPreset, direction]);
+  const framePhase = framePhases[Math.min(frameIndex, framePhases.length - 1)];
   const directionLayout = DIRECTION_LAYOUTS[direction];
+  const activeReference = category === "character"
+    ? directionReferences[direction]
+    : { file: referenceFile, preview: referencePreview, name: referenceFile?.name ?? "reference-a.png" };
+  const hasActiveReference = Boolean(activeReference.preview);
   const topology = selections["tile.topology"];
   const objectState = selections["object.state"];
+  const guideSize = guideCanvasSize(family.visualX, family.visualY);
 
   const frameSize = useMemo(() => {
     const maxWidth = 230;
@@ -374,25 +642,64 @@ export default function Home() {
     return `object variant, ${family.name}, ${objectState}, ${targetWidth}x${targetHeight}px, ${family.profile}, base on crop bottom`;
   }, [actionPreset.id, category, direction, directionLayout.occupancy, family, objectState, selections, targetHeight, targetWidth, toolMode, topology]);
 
+  const generationPrompt = useMemo(() => {
+    if (category === "character") {
+      return `Keep image 1 unchanged. Match only this pose from image 2: ${framePhase.id}, ${framePhase.prompt}. Put the character inside the black frame. Feet touch the bottom line. Remove the pose marks.${actionPreset.id === "walk_empty" ? " Empty hands." : ""}`;
+    }
+    if (category === "tile") {
+      return `Keep image 1 unchanged. Match only the topology from image 2: ${topology}. Put the tile inside the black frame. Keep all four frame lines and every tile pixel inside. Remove the guide marks.`;
+    }
+    return `Keep image 1 unchanged. Match only the object state from image 2: ${objectState}. Put the object inside the black frame. Keep all four frame lines and every object pixel inside. The base touches the bottom line. Remove the guide marks.`;
+  }, [actionPreset.id, category, framePhase.id, framePhase.prompt, objectState, topology]);
+
   function changeTool(next: ToolMode) {
     setToolMode(next);
+    setGeneratedAsset(null);
     if (next === "i2i" && !I2I_CATEGORIES.includes(category)) changeCategory("character");
     setNotice(next === "t2i" ? "T2I 전체 카탈로그의 기준 에셋 조건을 편집합니다." : "승인된 방향별 기준 이미지로 I2I 변형을 편집합니다.");
   }
 
   function changeCategory(next: AssetCategory) {
     setCategory(next);
+    setGeneratedAsset(null);
     const selected = FAMILY_CATALOG[next].find((item) => item.id === familyByCategory[next]) ?? FAMILY_CATALOG[next][0];
     setActiveGroup(selected.group);
   }
 
   function selectFamily(next: Family) {
     setFamilyByCategory((current) => ({ ...current, [category]: next.id }));
+    setGeneratedAsset(null);
     setNotice(`${CATEGORY_META[category].label} / ${next.name} family를 선택했습니다.`);
   }
 
   function updateOption(key: string, value: string) {
     setSelections((current) => ({ ...current, [`${category}.${key}`]: value }));
+    setGeneratedAsset(null);
+  }
+
+  function changeScale(next: string) {
+    setScaleId(next);
+    setGeneratedAsset(null);
+  }
+
+  function changeDirection(next: Direction) {
+    debugLog("DIRECTION_SELECTED", { from: direction, to: next });
+    setDirection(next);
+    setFrameIndex(0);
+    setGeneratedAsset(null);
+  }
+
+  function changeAction(next: string) {
+    debugLog("ACTION_SELECTED", { from: action, to: next });
+    setAction(next);
+    setFrameIndex(0);
+    setGeneratedAsset(null);
+  }
+
+  function changeFrame(next: number) {
+    debugLog("FRAME_SELECTED", { from: framePhase.id, to: framePhases[next]?.id, index: next });
+    setFrameIndex(next);
+    setGeneratedAsset(null);
   }
 
   function randomizeField(definition: OptionDefinition) {
@@ -427,14 +734,129 @@ export default function Home() {
     setNotice("현재 설정을 로컬 히스토리에 저장했습니다.");
   }
 
-  const guideContent = category === "character" ? <PoseGuide action={action} direction={direction} /> : category === "tile" ? <TileGuide topology={topology} /> : <ObjectSchematic family={family} />;
-  const referenceContent = category === "character" ? <PoseGuide action="idle" direction={direction} compact /> : category === "tile" ? <TileGuide topology="center" compact /> : <ObjectSchematic family={family} compact />;
+  function changeReference(file: File | null) {
+    if (!file) return;
+    const preview = URL.createObjectURL(file);
+    if (category === "character") {
+      const previous = directionReferences[direction].preview;
+      if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+      setDirectionReferences((current) => ({ ...current, [direction]: { file, preview, name: file.name } }));
+      debugLog("DIRECTION_REFERENCE_REGISTERED", { direction, name: file.name, bytes: file.size, type: file.type });
+    } else {
+      if (referencePreview.startsWith("blob:")) URL.revokeObjectURL(referencePreview);
+      setReferenceFile(file);
+      setReferencePreview(preview);
+      debugLog("REFERENCE_REGISTERED", { category, name: file.name, bytes: file.size, type: file.type });
+    }
+    setGeneratedAsset(null);
+    setNotice(`Reference A 교체 · ${category === "character" ? `${direction} · ` : ""}${file.name}`);
+  }
+
+  async function runImageEdit() {
+    if (toolMode !== "i2i" || isGenerating) return;
+    if (!hasActiveReference) {
+      const message = `${direction}.ref 승인 기준을 먼저 등록해야 합니다.`;
+      debugLog("REQUEST_BLOCKED", { direction, action, reason: "missing-direction-reference" });
+      setNotice(message);
+      return;
+    }
+    setIsGenerating(true);
+    setGeneratedAsset(null);
+    setNotice("Reference A/B를 PNG로 조립해 RunPod 생성 요청을 보내는 중입니다.");
+    debugLog("REQUEST_PREPARE", { category, direction, action, frameId: framePhase.id, seed: optionSeed });
+
+    try {
+      const referenceBlob: Blob = activeReference.file
+        ? activeReference.file
+        : await fetch(activeReference.preview).then((response) => {
+            if (!response.ok) throw new Error("기본 Reference A를 읽을 수 없습니다.");
+            return response.blob();
+          });
+      const guide = await createLayoutGuide(family.visualX, family.visualY, category, direction, action, frameIndex);
+      const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height);
+      const form = new FormData();
+      form.append("image", normalizedReference, activeReference.name);
+      form.append("image", guide.blob, `reference-b-${category}-${direction}-${action}-${framePhase.id}.png`);
+      form.set("prompt", generationPrompt);
+      form.set("negativePrompt", "redesign, added detail, added item, missing border, outside frame, floating feet, text, scenery");
+      form.set("size", `${guide.width}x${guide.height}`);
+      form.set("seed", String(optionSeed));
+      form.set("numInferenceSteps", "40");
+      form.set("trueCfgScale", "4");
+      form.set("guidanceScale", "1");
+      form.set("frameX", String(guide.frame.frameX));
+      form.set("frameY", String(guide.frame.frameY));
+      form.set("frameWidth", String(guide.frame.frameWidth));
+      form.set("frameHeight", String(guide.frame.frameHeight));
+      form.set("baselineY", String(guide.frame.baselineY));
+      form.set("strokeWidth", String(guide.frame.strokeWidth));
+      form.set("category", category);
+      form.set("direction", direction);
+      form.set("action", action);
+      form.set("frameId", framePhase.id);
+      form.set("frameIndex", String(frameIndex));
+
+      debugLog("REQUEST_SEND", {
+        referenceA: `${guide.width}x${guide.height}`,
+        referenceB: `${guide.width}x${guide.height}`,
+        frameId: framePhase.id,
+        prompt: generationPrompt,
+      });
+
+      const response = await fetch("/api/runpod/edit", { method: "POST", body: form });
+      const body = await response.json();
+      if (!response.ok) throw new Error(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`);
+
+      const result = body as GeneratedAsset;
+      debugLog("REQUEST_COMPLETE", {
+        generationId: result.generationId,
+        requestId: result.requestId,
+        output: result.size,
+        references: result.referenceImages?.map((image) => image.size ?? "unknown"),
+        selection: result.selection,
+      });
+      setGeneratedAsset(result);
+      const completedItem: HistoryItem = {
+        id: result.generationId,
+        asset: `${category}.${family.id}`,
+        detail: `${scaleId} · ${framePhase.id} · seed ${result.seed}`,
+        job: "완료",
+        assetState: "후처리",
+        time: "방금",
+      };
+      setHistory((current) => [completedItem, ...current].slice(0, 8));
+      setNotice(`생성 완료 · ${result.size} · ${(result.elapsedMs / 1000).toFixed(1)}초 · ${result.requestId}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "알 수 없는 생성 오류";
+      debugLog("REQUEST_FAILED", { message, direction, action, frameId: framePhase.id });
+      setNotice(`생성 실패 · ${message}`);
+      const failedItem: HistoryItem = {
+        id: `FAILED-${String(Date.now()).slice(-6)}`,
+        asset: `${category}.${family.id}`,
+        detail: `${framePhase.id} · ${message}`,
+        job: "실패",
+        assetState: "반려",
+        time: "방금",
+      };
+      setHistory((current) => [failedItem, ...current].slice(0, 8));
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  const guideContent = category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} /> : category === "tile" ? <TileGuide topology={topology} /> : <ObjectSchematic family={family} />;
+  const sentReferenceA = generatedAsset?.referenceImages?.[0]?.url ?? activeReference.preview;
+  const sentReferenceB = generatedAsset?.referenceImages?.[1]?.url;
+  const pipelineDirection = generatedAsset?.selection?.direction ?? direction;
+  const pipelineFrameId = generatedAsset?.selection?.frameId ?? framePhase.id;
+  const pipelineCanvas = generatedAsset?.size ?? `${guideSize.width}x${guideSize.height}`;
+  const pipelineAspect = `${guideSize.width} / ${guideSize.height}`;
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div className="brand-block"><div className="brand-mark">AF</div><div><p className="eyebrow">2D ASSET WORKBENCH</p><h1>Asset Forge</h1></div></div>
-        <div className="project-summary"><span className="project-name">farm-rpg / catalog-layout-debug</span><span className="endpoint-state"><i /> RUNPOD ENDPOINT 미연결</span></div>
+        <div className="project-summary"><span className="project-name">farm-rpg / catalog-layout-debug</span><span className={`endpoint-state endpoint-${endpoint.status}`}><i /> RUNPOD {endpoint.status}{endpoint.latencyMs ? ` · ${endpoint.latencyMs}ms` : ""}</span></div>
         <button type="button" className="save-button" onClick={saveSnapshot} data-testid="save-history">현재 설정 저장</button>
       </header>
 
@@ -458,14 +880,14 @@ export default function Home() {
 
           <section className="option-group scale-options">
             <div className="option-heading"><span>Unity 기준 해상도</span><span className="field-note">1 CELL = 1 UNIT</span></div>
-            <div className="scale-grid">{SCALE_PRESETS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={scaleId === item.id} className={scaleId === item.id ? "scale-card is-checked" : "scale-card"} onClick={() => setScaleId(item.id)} data-testid={`scale-${item.id}`}><span className="check-box">{scaleId === item.id ? "✓" : ""}</span><strong>{item.id}</strong><small>{item.pixels}px · {item.description}</small></button>)}</div>
+            <div className="scale-grid">{SCALE_PRESETS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={scaleId === item.id} className={scaleId === item.id ? "scale-card is-checked" : "scale-card"} onClick={() => changeScale(item.id)} data-testid={`scale-${item.id}`}><span className="check-box">{scaleId === item.id ? "✓" : ""}</span><strong>{item.id}</strong><small>{item.pixels}px · {item.description}</small></button>)}</div>
           </section>
 
           {toolMode === "i2i" && (
             <section className="reference-input" data-testid="reference-input">
-              <div className="reference-input-thumb">{referenceContent}</div>
-              <div><span className="approved-badge">{category === "character" ? "방향 기준 승인" : "기준 에셋 승인"}</span><strong>{category === "character" ? directionLayout.reference : `${category}.${family.id}.ref`}</strong><small>{category === "character" ? `${DIRECTIONS.find((item) => item.id === direction)?.label} · 무동작 기준` : `${family.name} · 기본 상태`}</small></div>
-              <button type="button" onClick={() => setNotice("현재는 로컬 mock 기준 이미지를 사용합니다.")}>교체</button>
+              <div className={hasActiveReference ? "reference-input-thumb actual-reference" : "reference-input-thumb reference-missing"}>{hasActiveReference ? <img src={activeReference.preview} alt="Reference A 승인 기준 이미지" /> : <PoseGuide action="idle" direction={direction} compact />}</div>
+              <div><span className={hasActiveReference ? "approved-badge" : "approved-badge is-missing"}>REFERENCE A</span><strong>{activeReference.name}</strong><small>{category === "character" ? `${DIRECTIONS.find((item) => item.id === direction)?.label} · ${hasActiveReference ? "승인 기준" : "등록 필요"}` : `${family.name} · 승인 기준`}</small></div>
+              <label className="reference-upload">교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => changeReference(event.target.files?.[0] ?? null)} /></label>
             </section>
           )}
 
@@ -491,7 +913,7 @@ export default function Home() {
               <div className="coverage-strip">{T2I_CATEGORIES.map((item) => <span key={item} className={category === item ? "is-current" : ""}><b>{CATEGORY_META[item].short}</b>{FAMILY_CATALOG[item].length}</span>)}</div>
               <div className="candidate-stage-heading"><div><span className="field-note">{CATEGORY_META[category].label.toUpperCase()} REFERENCE CANDIDATES</span><h3>{family.name} 기준 후보</h3><p>1번 도구는 레이아웃 이미지 없이 선택 조건과 프롬프트로 기준 이미지만 생성합니다. 승인 결과가 2번 도구의 기준 입력이 됩니다.</p></div><div className="candidate-spec"><small>OUTPUT</small><strong>{targetWidth} × {targetHeight}px</strong><span>{family.profile}</span></div></div>
               <div className="selected-option-summary">{OPTION_GROUPS[category].map((definition) => <span key={definition.key}><small>{definition.title}</small>{selections[`${category}.${definition.key}`]}</span>)}</div>
-              <div className="candidate-grid">{["A", "B", "C", "D"].map((item) => <article key={item}><div className="candidate-placeholder"><span>{item}</span><small>ENDPOINT OFFLINE</small></div><strong>후보 {item}</strong><small>비교 · 승인 · 기준 지정</small></article>)}</div>
+              <div className="candidate-grid">{["A", "B", "C", "D"].map((item) => <article key={item}><div className="candidate-placeholder"><span>{item}</span><small>T2I MODEL REQUIRED</small></div><strong>후보 {item}</strong><small>현재 Endpoint는 Image Edit 전용</small></article>)}</div>
               <div className="candidate-note"><i />T2I에는 검은 레이아웃 가이드를 넣지 않습니다. 캐릭터는 정면 중립 기준을 먼저 승인합니다.</div>
             </div>
           ) : (
@@ -504,25 +926,28 @@ export default function Home() {
                 {category === "character" && <div className="direction-layout-note" data-testid="direction-layout-note"><strong>{DIRECTIONS.find((item) => item.id === direction)?.label} 레이아웃</strong><span>크롭 rect {ratioLabel} 고정</span><span>점유폭 {directionLayout.occupancy}</span><span>좌우 안전 여백 {directionLayout.safeMargin}</span><p>{directionLayout.note}</p></div>}
                 <div className="postprocess-flow"><span><small>01 GUIDE</small>{category === "character" ? `${direction} 방향 점유·포즈` : category === "tile" ? `${topology} mask` : `${family.name} 범위`}</span><i>→</i><span><small>02 CROP</small>검은 윤곽 내부만 절삭</span><i>→</i><span><small>03 RESIZE</small>{targetWidth} × {targetHeight}px</span></div>
 
+                {category === "character" && <section className="frame-phase-strip" data-testid="frame-phase-strip"><div className="option-heading"><span>생성 프레임</span><span className="field-note">{framePhase.id}</span></div><div>{framePhases.map((phase, index) => <button key={phase.id} type="button" role="checkbox" aria-checked={frameIndex === index} className={frameIndex === index ? "frame-phase is-checked" : "frame-phase"} onClick={() => changeFrame(index)} disabled={isGenerating} data-testid={`frame-${index + 1}`}><PoseGuide action={action} direction={direction} frameIndex={index} compact /><span><strong>{phase.id}</strong><small>{phase.label}</small></span></button>)}</div></section>}
+
                 <section className="generation-layout" data-testid="generation-layout">
-                  <div className="generation-layout-heading"><div><span className="field-note">REFERENCE PIPELINE</span><strong>{category === "character" ? "같은 방향 기준 A + 방향·동작 가이드 B" : category === "tile" ? "승인 타일 A + topology 가이드 B" : "승인 오브젝트 A + 상태·규격 가이드 B"}</strong></div><small>{category === "character" ? `${direction} · ${actionPreset.frames}프레임` : category === "tile" ? topology : objectState}</small></div>
+                  <div className="generation-layout-heading"><div><span className="field-note">REFERENCE PIPELINE</span><strong>{category === "character" ? "같은 방향 기준 A + 방향·동작 가이드 B" : category === "tile" ? "승인 타일 A + topology 가이드 B" : "승인 오브젝트 A + 상태·규격 가이드 B"}</strong></div><small>{category === "character" ? `${pipelineDirection} · ${pipelineFrameId}` : category === "tile" ? topology : objectState}</small></div>
                   <div className="reference-equation">
-                    <article data-testid="reference-a"><span className="source-label">REFERENCE A</span><div className="source-preview source-asset">{referenceContent}</div><strong>{category === "character" ? `${direction} 승인 기준` : "승인된 기준 이미지"}</strong><small>{category === "character" ? directionLayout.reference : `${category}.${family.id}.ref`}</small></article>
+                    <article data-testid="reference-a"><span className="source-label">REFERENCE A {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-asset sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceA ? <img src={sentReferenceA} alt="실제 전송 Reference A" onLoad={(event) => debugLog("REFERENCE_A_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <PoseGuide action="idle" direction={direction} compact />}</div><strong>{generatedAsset ? "실제 전송 이미지 A" : category === "character" ? `${direction} ${hasActiveReference ? "승인 기준" : "기준 미등록"}` : "승인된 기준 이미지"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[0]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[0]?.name ?? (category === "character" ? activeReference.name : `${category}.${family.id}.ref`)}</small></article>
                     <b>+</b>
-                    <article data-testid="reference-b"><span className="source-label">REFERENCE B</span><div className="source-preview source-guide"><div className="mini-layout-frame">{category === "character" ? <PoseGuide action={action} direction={direction} compact /> : category === "tile" ? <TileGuide topology={topology} compact /> : <ObjectSchematic family={family} compact />}</div></div><strong>자동 레이아웃 가이드</strong><small>{ratioLabel} · {category === "character" ? `${direction} ${directionLayout.occupancy}` : category === "tile" ? topology : family.footprint}</small></article>
+                    <article data-testid="reference-b"><span className="source-label">REFERENCE B {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-guide sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceB ? <img src={sentReferenceB} alt="실제 전송 Reference B" onLoad={(event) => debugLog("REFERENCE_B_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <div className="mini-layout-frame">{category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} compact /> : category === "tile" ? <TileGuide topology={topology} compact /> : <ObjectSchematic family={family} compact />}</div>}</div><strong>{sentReferenceB ? "실제 전송 이미지 B" : "자동 레이아웃 가이드"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[1]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[1]?.name ?? `${ratioLabel} · ${category === "character" ? `${framePhase.id} · ${directionLayout.occupancy}` : category === "tile" ? topology : family.footprint}`}</small></article>
                     <b>→</b>
-                    <article className="output-plan" data-testid="output-layout"><span className="source-label">OUTPUT SLOTS</span><div className="frame-output-title">{category === "character" ? actionPreset.label : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} />)}</div></article>
+                    <article className={generatedAsset ? "output-plan has-result" : "output-plan"} data-testid="output-layout"><span className="source-label">OUTPUT</span>{generatedAsset ? <><div className="result-canvas-shell" style={{ aspectRatio: pipelineAspect }}><img className="generated-result-image" src={`${generatedAsset.imageUrl}?v=${generatedAsset.generationId}`} alt="RunPod 생성 결과" onLoad={(event) => debugLog("OUTPUT_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /></div><strong>{generatedAsset.generationId}</strong><small>canvas {generatedAsset.size}</small><small>{generatedAsset.selection?.frameId ?? pipelineFrameId}</small>{generatedAsset.layout && <small>frame {generatedAsset.layout.frameWidth}×{generatedAsset.layout.frameHeight} · x{generatedAsset.layout.frameX} y{generatedAsset.layout.frameY} · baseline {generatedAsset.layout.baselineY}</small>}<small>{(generatedAsset.elapsedMs / 1000).toFixed(1)}초</small></> : <><div className="frame-output-title">{isGenerating ? "RUNPOD 생성 중…" : category === "character" ? framePhase.id : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} className={category === "character" && index === frameIndex ? "is-current" : ""} />)}</div></>}</article>
                   </div>
                 </section>
               </div>
 
-              {category === "character" && <div className="direction-reference-strip" data-testid="direction-reference-strip"><div className="option-heading"><span>방향별 무동작 기준 이미지</span><span className="field-note">ACTION은 같은 방향 REF 사용</span></div><div>{DIRECTIONS.map((item) => <button key={item.id} type="button" className={direction === item.id ? "is-active" : ""} onClick={() => setDirection(item.id)} data-testid={`direction-${item.id}`}><PoseGuide action="idle" direction={item.id} compact /><span>{item.label}<small>승인 기준</small></span></button>)}</div></div>}
+              {category === "character" && <div className="direction-reference-strip" data-testid="direction-reference-strip"><div className="option-heading"><span>방향별 무동작 기준 이미지</span><span className="field-note">ACTION은 같은 방향 REF 사용</span></div><div>{DIRECTIONS.map((item) => <button key={item.id} type="button" className={`${direction === item.id ? "is-active" : ""}${directionReferences[item.id].preview ? " is-approved" : " is-missing"}`} onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-${item.id}`}><PoseGuide action="idle" direction={item.id} compact /><span>{item.label}<small>{directionReferences[item.id].preview ? "승인 기준" : "미등록"}</small></span></button>)}</div></div>}
 
-              {category === "character" && <div className="variant-controls"><section className="variant-section"><div className="option-heading"><span>방향</span><span className="field-note">LAYOUT OVERRIDE</span></div><div className="direction-grid">{DIRECTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={direction === item.id} className={direction === item.id ? "check-option is-checked" : "check-option"} onClick={() => setDirection(item.id)} data-testid={`direction-control-${item.id}`}><span className="check-box">{direction === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section><section className="variant-section"><div className="option-heading"><span>동작 7종</span><span className="field-note">CLICK TO DEBUG</span></div><div className="action-grid">{ACTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={action === item.id} className={action === item.id ? "check-option is-checked" : "check-option"} onClick={() => setAction(item.id)} data-testid={`action-${item.id}`}><span className="check-box">{action === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section></div>}
+              {category === "character" && <div className="variant-controls"><section className="variant-section"><div className="option-heading"><span>방향</span><span className="field-note">LAYOUT OVERRIDE</span></div><div className="direction-grid">{DIRECTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={direction === item.id} className={direction === item.id ? "check-option is-checked" : "check-option"} onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-control-${item.id}`}><span className="check-box">{direction === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section><section className="variant-section"><div className="option-heading"><span>동작 7종</span><span className="field-note">CLICK TO DEBUG</span></div><div className="action-grid">{ACTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={action === item.id} className={action === item.id ? "check-option is-checked" : "check-option"} onClick={() => changeAction(item.id)} disabled={isGenerating} data-testid={`action-${item.id}`}><span className="check-box">{action === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section></div>}
             </>
           )}
 
-          <div className="prompt-preview"><div className="prompt-heading"><span>PROMPT PREVIEW</span><span>OPTION SEED {optionSeed}</span></div><p>{prompt}</p></div>
+          <div className="prompt-preview"><div className="prompt-heading"><span>PROMPT PREVIEW</span><span>OPTION SEED {optionSeed}</span></div><p>{toolMode === "i2i" ? generationPrompt : prompt}</p></div>
+          {toolMode === "i2i" && <div className="runpod-generation-bar" data-testid="runpod-generation"><div><span>QWEN-IMAGE-EDIT-2511</span><strong>{endpoint.status === "연결됨" ? endpoint.model : endpoint.message ?? "Endpoint 확인 중"}</strong><small>{hasActiveReference ? "Reference A + 자동 생성 Reference B" : `${direction}.ref 등록 필요`} · 40 steps · CFG 4 · guidance 1 · seed {optionSeed}</small></div><button type="button" onClick={runImageEdit} disabled={endpoint.status !== "연결됨" || isGenerating || !hasActiveReference} data-testid="runpod-generate">{isGenerating ? "이미지 생성 중…" : hasActiveReference ? "실제 이미지 생성" : `${direction}.ref 등록 필요`}</button></div>}
         </section>
 
         <aside className="history-panel panel">
@@ -531,7 +956,7 @@ export default function Home() {
           <div className="status-summary"><div><strong>{history.filter((item) => item.job === "대기").length}</strong><span>대기</span></div><div><strong>0</strong><span>진행</span></div><div><strong>{history.filter((item) => item.job === "완료").length}</strong><span>완료</span></div><div><strong>{history.filter((item) => item.job === "실패").length}</strong><span>실패</span></div></div>
           <div className="notice-box"><i />{notice}</div>
           <div className="history-list" data-testid="history-list">{history.map((item) => <article className="history-item" key={item.id}><div className="history-thumb"><span>{item.asset.slice(0, 2).toUpperCase()}</span></div><div className="history-copy"><div className="history-id"><strong>{item.id}</strong><time>{item.time}</time></div><p>{item.asset}</p><small>{item.detail}</small><div className="status-tags"><span className={`job-tag job-${item.job}`}>{item.job}</span><span className="asset-tag">{item.assetState}</span></div></div></article>)}</div>
-          <div className="endpoint-note"><span className="endpoint-icon">!</span><div><strong>생성 요청 비활성화</strong><p>Endpoint 연결 전이라 카탈로그·가이드·히스토리만 로컬에서 동작합니다.</p></div></div>
+          <div className={`endpoint-note endpoint-note-${endpoint.status}`}><span className="endpoint-icon">{endpoint.status === "연결됨" ? "✓" : "!"}</span><div><strong>RunPod {endpoint.status}</strong><p>{endpoint.model ?? endpoint.message ?? "서버 상태와 모델을 확인하고 있습니다."}</p></div></div>
         </aside>
       </div>
     </main>

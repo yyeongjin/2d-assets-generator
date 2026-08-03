@@ -151,7 +151,7 @@ target_ratio = target_width_px / target_height_px
 
 ### 3.2 입력 이미지
 
-`Qwen/Qwen-Image-Edit-2509`를 사용하는 I2I 요청은 다음 입력을 사용한다.
+I2I 입력 구조는 `Qwen/Qwen-Image-Edit-2509`의 다중 참조 방식을 기준으로 한다. 현재 로컬 연결 검증은 vLLM의 `Qwen-Image-Edit-2511` OpenAI 호환 endpoint로 수행한다.
 
 | 입력 | 필수 | 내용 |
 |---|---:|---|
@@ -313,7 +313,7 @@ Reference B는 다음 순서로 자동 생성한다.
 
 | 입력 | 내용 |
 |---|---|
-| model | `Qwen/Qwen-Image-Edit-2509` |
+| model | 설계 기준 `Qwen/Qwen-Image-Edit-2509`, 현재 endpoint `Qwen-Image-Edit-2511` |
 | Reference A | 선택 방향의 승인 기준 이미지. 방향 기준 생성 단계에서는 도구 1의 정면 중립 이미지 |
 | Reference B | scale/layout profile과 선택한 pose template에서 자동 생성한 규격·포즈 가이드 |
 | Reference C | 선택한 무기/도구/의상/추가 참조 |
@@ -427,7 +427,7 @@ job 진행 상태와 에셋 작업 상태를 섞지 않고 따로 표시한다.
 
 ## 9. 구현 순서
 
-1. 로컬 화면에서 RunPod Endpoint T2I/I2I 요청과 결과 저장 연결
+1. 로컬 화면에서 RunPod I2I 요청, 실제 전송 A/B와 결과 PNG·JSON 저장 연결 — 구현·브라우저 검증 완료. T2I endpoint 연결은 별도 진행
 2. 에셋 종류별 옵션 활성화, 랜덤/잠금, prompt 자동 조립
 3. generation 히스토리 저장, 복원, 비교, 분기 생성
 4. 실제 규격 ratio 기반 레이아웃 프로필 편집 및 Reference B 자동 생성

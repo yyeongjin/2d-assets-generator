@@ -4,7 +4,7 @@
 
 농장 생활 RPG 한 작품에도 타일, 자연물, 건물, 가구, 아이템, 캐릭터, 방향별 동작 등 수천 개의 에셋과 변형이 필요합니다. 이 프로젝트의 목표는 한 장의 그림을 만드는 데서 끝나지 않고, 에셋 카탈로그 전체를 반복 가능하게 생산하는 파이프라인을 만드는 것입니다.
 
-> 현재 단계: 제품 기획·에셋 카탈로그 설계와 로컬 디버깅 도구 구현. `tools_test`에서 Endpoint 없이 유형 선택, 규격 가이드, 방향·동작, 히스토리를 확인할 수 있습니다.
+> 현재 단계: 제품 기획·에셋 카탈로그 설계와 로컬 디버깅 도구 구현. `tools_test`에서 유형 선택, 규격 가이드, 방향·동작, 히스토리를 확인하고 환경변수로 설정한 RunPod의 Image Edit endpoint를 직접 호출할 수 있습니다.
 
 ## 목표
 
@@ -48,7 +48,7 @@
 
 캐릭터와 오브젝트 모두 선택된 Unity 규격 프리셋에서 실제 출력 크기와 레이아웃 가이드 ratio를 가져옵니다.
 
-기본 편집 파이프라인은 `QwenImageEditPlusPipeline`과 [`Qwen/Qwen-Image-Edit-2509`](https://huggingface.co/Qwen/Qwen-Image-Edit-2509)를 사용합니다. 2509가 권장하는 1~3장 참조 입력을 위 세 슬롯에 대응시킵니다.
+편집 설계 기준은 `QwenImageEditPlusPipeline`과 [`Qwen/Qwen-Image-Edit-2509`](https://huggingface.co/Qwen/Qwen-Image-Edit-2509)의 1~3장 참조 입력입니다. 현재 로컬 디버깅 도구는 vLLM으로 서비스한 `Qwen-Image-Edit-2511`의 OpenAI 호환 `/v1/images/edits` endpoint에서 Reference A와 B를 실제 전송해 검증했습니다.
 
 ### 3. 생성 디버거와 Unity 검증
 
@@ -106,7 +106,7 @@ flowchart LR
 - 생성 도구: 로컬에서 실행
 - 모델 추론: 로컬 도구가 RunPod Endpoint를 호출
 - 선택적 웹 배포: Vercel
-- 모델: `Qwen/Qwen-Image`, `Qwen/Qwen-Image-Edit-2509`
+- 모델: T2I 설계 `Qwen/Qwen-Image`, I2I 설계 `Qwen/Qwen-Image-Edit-2509`, 현재 RunPod 검증 모델 `Qwen-Image-Edit-2511`
 - UI 프레임워크: 미정
 - Unity 연동: 생성된 이미지와 메타데이터를 로컬 Unity 디버깅 도구에서 확인
 
