@@ -30,6 +30,8 @@ test("T2I 도구에 문서의 전체 8개 대분류를 제공한다", () => {
 });
 
 test("레이아웃과 모든 발을 검은 크롭 범위의 바닥선에 맞춘다", () => {
+  assert.match(page, /GUIDE_FRAME_OCCUPANCY = 0\.8/);
+  assert.match(page, /Math\.max\(12, Math\.min\(width, height\) \* 0\.024\)/);
   assert.match(page, /data-content-policy="contained"/);
   assert.match(page, /data-crop="outline-bounds"/);
   assert.match(page, /data-ground-contact="aligned"/);
@@ -108,6 +110,13 @@ test("RunPod가 정면 포함 방향 기준과 4방향 동작 68프레임 원본
   assert.match(page, /assetName/);
   assert.match(page, /item\.id === "front" \|\| item\.id === "back" \|\| item\.id === "left"/);
   assert.match(editRoute, /RAW_BUNDLE_SAVED/);
+  assert.match(editRoute, /LAYOUT_VALIDATION_FAILED/);
+  assert.match(editRoute, /LAYOUT_VIOLATION/);
+  assert.match(editRoute, /outlineCoverage/);
+  assert.match(editRoute, /edgeContactTolerance = 2/);
+  assert.match(editRoute, /contact\.top/);
+  assert.match(editRoute, /contact\.bottom/);
+  assert.match(editRoute, /retryable: false/);
   assert.match(editRoute, /public", "generated", "bundles"/);
   assert.doesNotMatch(editRoute, /\.extract\(/);
   assert.doesNotMatch(editRoute, /\.resize\(/);
@@ -172,12 +181,21 @@ test("A·B·OUTPUT의 실제 캔버스와 브라우저 디버그 로그를 표�
 
 test("I2I 프롬프트는 정체성·포즈·프레임 내부·접지만 지시한다", () => {
   const characterPromptSource = page.slice(page.indexOf("function characterActionPrompt"), page.indexOf("function directionReferencePrompt"));
-  assert.match(page, /Keep image 1 colors, face, hair, clothing, and proportions exact\./);
-  assert.match(page, /Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge\./);
+  assert.match(page, /Image 2 is the target canvas\./);
+  assert.match(page, /Edit image 2 only\./);
+  assert.match(page, /Keep its white canvas and black rectangle unchanged\./);
+  assert.match(page, /Replace the gray pose with image 1/);
+  assert.match(page, /Hair touches the top edge; soles touch the bottom edge\./);
+  assert.doesNotMatch(page, /Remove the outline/);
+  assert.doesNotMatch(page, /drawn frame, border lines/);
   assert.match(page, /Strict full left profile/);
   assert.doesNotMatch(page, /Keep image 1[^`\n]*ratio/i);
   assert.doesNotMatch(characterPromptSource, /pixel/i);
+  assert.doesNotMatch(page, /setLineDash/);
   assert.doesNotMatch(page, /frontRule\}, \$\{targetWidth\}x\$\{targetHeight\}px/);
   assert.match(page, /RunPod 원본/);
+  assert.match(page, /윤곽 보존 실패/);
+  assert.match(css, /\.output-plan\.is-invalid/);
+  assert.match(css, /content: "EXPECTED"/);
   assert.match(page, /전 프레임 완료 후 후처리 시작/);
 });

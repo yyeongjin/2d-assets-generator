@@ -49,6 +49,13 @@ type GeneratedAsset = {
   referenceImages?: Array<{ name: string; type: string; bytes: number; filename: string; url: string; width?: number; height?: number; size?: string }>;
   layout?: { frameX: number; frameY: number; frameWidth: number; frameHeight: number; baselineY: number; strokeWidth: number };
   selection?: { category: AssetCategory; direction: Direction; action: string; frameId: string; frameIndex: number };
+  layoutValidation?: {
+    ok: boolean;
+    outline: { ok: boolean; coverage: { left: number; top: number; right: number; bottom: number } };
+    content: { left: number; top: number; right: number; bottom: number } | null;
+    overflow: { left: number; top: number; right: number; bottom: number };
+    contact?: { topDelta: number; bottomDelta: number; top: boolean; bottom: boolean };
+  };
 };
 type DirectionReference = { file: File | null; preview: string; name: string; stage: "source" | "generated" };
 type BatchProgress = {
@@ -61,7 +68,7 @@ type BatchProgress = {
 };
 
 const GUIDE_LONG_EDGE = 1024;
-const CHARACTER_TOP_ANCHOR = 0;
+const GUIDE_FRAME_OCCUPANCY = 0.8;
 const CHARACTER_HEIGHT_OCCUPANCY = "100%";
 
 const INITIAL_DIRECTION_REFERENCES: Record<Direction, DirectionReference> = {
@@ -317,11 +324,14 @@ function makeFramePhases(actionPreset: ActionPreset, direction: Direction): Fram
 }
 
 function characterActionPrompt(direction: Direction, actionPreset: ActionPreset, frame: FramePhase) {
-  return `Keep image 1 colors, face, hair, clothing, and proportions exact. Change only direction and pose. ${DIRECTION_PROMPT_RULES[direction]} Match pose ${frame.id} from image 2. Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge. Keep everything inside. ${ACTION_INSTRUCTIONS[actionPreset.id]} Remove guide marks.`;
+  return `Image 1 is the character. Image 2 is the target canvas. Edit image 2 only. Keep its white canvas and black rectangle unchanged. Replace the gray pose with image 1 in ${direction} pose ${frame.id}. Hair touches the top edge; soles touch the bottom edge. ${DIRECTION_PROMPT_RULES[direction]} ${ACTION_INSTRUCTIONS[actionPreset.id]}`;
 }
 
 function directionReferencePrompt(direction: Direction) {
-  return `Keep image 1 colors, face, hair, clothing, and proportions exact. Change only direction. ${DIRECTION_PROMPT_RULES[direction]} Match the idle pose from image 2. Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge. Keep everything inside. Remove guide marks.`;
+  if (direction === "front") {
+    return "Image 1 is the character. Image 2 is the target canvas. Edit image 2 only. Keep its white canvas and black rectangle unchanged. Put image 1 inside the rectangle. Hair touches the top edge; soles touch the bottom edge.";
+  }
+  return `Image 1 is the character. Image 2 is the target canvas. Edit image 2 only. Keep its white canvas and black rectangle unchanged. Replace the gray pose with image 1 facing ${direction}. Hair touches the top edge; soles touch the bottom edge. ${DIRECTION_PROMPT_RULES[direction]}`;
 }
 
 function guideCanvasSize(visualX: number, visualY: number) {
@@ -331,10 +341,10 @@ function guideCanvasSize(visualX: number, visualY: number) {
 
 function guideFrameGeometry(visualX: number, visualY: number) {
   const { width, height } = guideCanvasSize(visualX, visualY);
-  const strokeWidth = Math.max(6, Math.min(width, height) * 0.012);
-  const availableWidth = width - strokeWidth;
-  const availableHeight = height - strokeWidth;
-  const frameUnit = Math.min(availableWidth / visualX, availableHeight / visualY);
+  const strokeWidth = Math.max(12, Math.min(width, height) * 0.024);
+  const availableWidth = width * GUIDE_FRAME_OCCUPANCY;
+  const availableHeight = height * GUIDE_FRAME_OCCUPANCY;
+  const frameUnit = Math.floor(Math.min(availableWidth / visualX, availableHeight / visualY));
   const frameWidth = visualX * frameUnit;
   const frameHeight = visualY * frameUnit;
   const frameX = (width - frameWidth) * 0.5;
@@ -370,6 +380,16 @@ function pick<T>(values: T[]) {
 
 function debugLog(event: string, details: Record<string, unknown> = {}) {
   console.info(`[AssetForge][${event}]`, details);
+}
+
+class GenerationRequestError extends Error {
+  retryable: boolean;
+
+  constructor(message: string, retryable = true) {
+    super(message);
+    this.name = "GenerationRequestError";
+    this.retryable = retryable;
+  }
 }
 
 function OptionGroup({
@@ -471,7 +491,7 @@ async function createLayoutGuide(
   const { frameX, frameY, frameWidth, frameHeight, baselineY: baseline, strokeWidth } = frame;
   context.strokeStyle = "#000000";
   context.lineWidth = strokeWidth;
-  context.strokeRect(frameX, frameY, frameWidth, frameHeight);
+  context.strokeRect(frameX - strokeWidth * 0.5, frameY - strokeWidth * 0.5, frameWidth + strokeWidth, frameHeight + strokeWidth);
 
   context.strokeStyle = "#555555";
   context.fillStyle = "#555555";
@@ -479,22 +499,11 @@ async function createLayoutGuide(
   context.lineCap = "round";
   context.lineJoin = "round";
 
-  if (category === "character") {
+  if (category === "character" && action === "idle" && direction === "front") {
+    // 정면 기준은 포즈 변형이 없으므로 검은 배치 외곽선만 전송한다.
+  } else if (category === "character") {
     const side = direction === "left" || direction === "right";
     const centerX = frameX + frameWidth * 0.5;
-    const occupancy = Number.parseFloat(DIRECTION_LAYOUTS[direction].occupancy) / 100;
-    const placementWidth = frameWidth * occupancy;
-    const placementTop = frameY + frameHeight * CHARACTER_TOP_ANCHOR;
-    context.save();
-    context.strokeStyle = "#777777";
-    context.lineWidth = Math.max(4, Math.min(width, height) * 0.009);
-    context.setLineDash([Math.max(8, width * 0.02), Math.max(5, width * 0.012)]);
-    context.strokeRect(centerX - placementWidth * 0.5, placementTop, placementWidth, baseline - placementTop);
-    context.setLineDash([]);
-    context.fillStyle = "#777777";
-    context.fillRect(centerX - placementWidth * 0.18, placementTop, placementWidth * 0.36, context.lineWidth);
-    context.fillRect(centerX - placementWidth * 0.18, baseline - context.lineWidth, placementWidth * 0.36, context.lineWidth);
-    context.restore();
     const headRadius = frameWidth * (side ? 0.105 : 0.135);
     const headY = frameY + headRadius;
     const shoulderY = frameY + frameHeight * 0.35;
@@ -1065,9 +1074,9 @@ export default function Home() {
     const directionNegative = targetDirection === "back"
       ? ", visible face, visible eyes"
       : targetDirection === "left" || targetDirection === "right"
-        ? ", front view, three-quarter view, two visible eyes"
+        ? ", front view, three-quarter view, two visible eyes, missing eye"
         : "";
-    form.set("negativePrompt", `different character, redesign, extra limbs, drawn frame, border lines, guide marks, outside frame, floating feet, shadow, ground, text, scenery${directionNegative}`);
+    form.set("negativePrompt", `different character, redesign, extra limbs, disconnected body, separated head, separated torso, missing crop outline, changed crop outline, pose skeleton, stick figure, outside frame, floating feet, shadow, ground, text, scenery${directionNegative}`);
     form.set("size", `${guide.width}x${guide.height}`);
     form.set("seed", String(seed));
     form.set("numInferenceSteps", "40");
@@ -1098,14 +1107,18 @@ export default function Home() {
       debugLog("BATCH_REQUEST_SEND", { bundleId, direction: targetDirection, action: targetAction, frameId: targetFrame.id, prompt: requestPrompt, seed, attempt });
       try {
         const response = await fetch("/api/runpod/edit", { method: "POST", body: form });
-        const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-        if (!response.ok) throw new Error(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`);
+        const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` })) as { error?: string; requestId?: string; retryable?: boolean } & GeneratedAsset;
+        if (!response.ok) {
+          if (body.imageUrl) setGeneratedAsset(body as GeneratedAsset);
+          throw new GenerationRequestError(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`, body.retryable !== false);
+        }
         const result = body as GeneratedAsset;
         debugLog("BATCH_REQUEST_COMPLETE", { bundleId, generationId: result.generationId, direction: targetDirection, frameId: targetFrame.id, imageUrl: result.imageUrl, attempt });
         return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error("생성 실패");
         debugLog("BATCH_REQUEST_RETRY", { bundleId, direction: targetDirection, frameId: targetFrame.id, attempt, message: lastError.message });
+        if (error instanceof GenerationRequestError && !error.retryable) throw error;
         if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, attempt * 1_500));
       }
     }
@@ -1464,7 +1477,10 @@ export default function Home() {
 
       const response = await fetch("/api/runpod/edit", { method: "POST", body: form });
       const body = await response.json();
-      if (!response.ok) throw new Error(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`);
+      if (!response.ok) {
+        if (body.imageUrl) setGeneratedAsset(body as GeneratedAsset);
+        throw new Error(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`);
+      }
 
       const result = body as GeneratedAsset;
       debugLog("REQUEST_COMPLETE", {
@@ -1518,6 +1534,17 @@ export default function Home() {
     width: `${(pipelineFrameGeometry.frame.frameWidth / pipelineFrameGeometry.width) * 100}%`,
     height: `${(pipelineFrameGeometry.frame.frameHeight / pipelineFrameGeometry.height) * 100}%`,
   };
+  const [generatedCanvasWidth, generatedCanvasHeight] = (generatedAsset?.size ?? pipelineCanvas).split("x").map(Number);
+  const outputCropStyle = generatedAsset?.layout && generatedCanvasWidth > 0 && generatedCanvasHeight > 0 ? {
+    left: `${(generatedAsset.layout.frameX / generatedCanvasWidth) * 100}%`,
+    top: `${(generatedAsset.layout.frameY / generatedCanvasHeight) * 100}%`,
+    width: `${(generatedAsset.layout.frameWidth / generatedCanvasWidth) * 100}%`,
+    height: `${(generatedAsset.layout.frameHeight / generatedCanvasHeight) * 100}%`,
+  } : pipelineFrameStyle;
+  const outputContactDelta = generatedAsset?.layoutValidation?.content && generatedAsset.layout ? {
+    top: generatedAsset.layoutValidation.content.top - generatedAsset.layout.frameY,
+    bottom: generatedAsset.layout.frameY + generatedAsset.layout.frameHeight - 1 - generatedAsset.layoutValidation.content.bottom,
+  } : null;
 
   return (
     <main className="app-shell">
@@ -1602,7 +1629,7 @@ export default function Home() {
                     <b>+</b>
                     <article data-testid="reference-b"><span className="source-label">REFERENCE B {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-guide sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceB ? <img src={sentReferenceB} alt="실제 전송 Reference B" onLoad={(event) => debugLog("REFERENCE_B_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <div className="mini-layout-frame">{category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} compact /> : category === "tile" ? <TileGuide topology={topology} compact /> : <ObjectSchematic family={family} compact />}</div>}</div><strong>{sentReferenceB ? "실제 전송 이미지 B" : "자동 레이아웃 가이드"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[1]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[1]?.name ?? `${ratioLabel} · ${category === "character" ? `${framePhase.id} · ${directionLayout.occupancy}` : category === "tile" ? topology : family.footprint}`}</small></article>
                     <b>→</b>
-                    <article className={generatedAsset ? "output-plan has-result" : "output-plan"} data-testid="output-layout"><span className="source-label">OUTPUT</span>{generatedAsset ? <><div className="result-canvas-shell" style={{ aspectRatio: pipelineAspect }}><img className="generated-result-image" src={`${generatedAsset.imageUrl}?v=${generatedAsset.generationId}`} alt="RunPod 생성 결과" onLoad={(event) => debugLog("OUTPUT_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /><span className="result-crop-overlay" aria-label="고정 crop bounds 오버레이" /></div><strong>{generatedAsset.generationId}</strong><small>canvas {generatedAsset.size}</small><small>{generatedAsset.selection?.frameId ?? pipelineFrameId}</small>{generatedAsset.layout && <small>frame {generatedAsset.layout.frameWidth}×{generatedAsset.layout.frameHeight} · x{generatedAsset.layout.frameX} y{generatedAsset.layout.frameY} · baseline {generatedAsset.layout.baselineY}</small>}<small>{(generatedAsset.elapsedMs / 1000).toFixed(1)}초</small></> : <><div className="frame-output-title">{isGenerating ? "RUNPOD 생성 중…" : category === "character" ? framePhase.id : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} className={category === "character" && index === frameIndex ? "is-current" : ""} />)}</div></>}</article>
+                    <article className={generatedAsset ? `output-plan has-result${generatedAsset.layoutValidation && !generatedAsset.layoutValidation.ok ? " is-invalid" : ""}` : "output-plan"} data-testid="output-layout"><span className="source-label">OUTPUT</span>{generatedAsset ? <><div className="result-canvas-shell" style={{ aspectRatio: pipelineAspect }}><div className="result-image-area"><img className="generated-result-image" src={`${generatedAsset.imageUrl}?v=${generatedAsset.generationId}`} alt="RunPod 생성 결과" onLoad={(event) => debugLog("OUTPUT_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /><span className="result-crop-overlay" style={outputCropStyle} aria-label="고정 crop bounds 오버레이" /></div></div><strong>{generatedAsset.generationId}</strong><small>canvas {generatedAsset.size}</small><small>{generatedAsset.selection?.frameId ?? pipelineFrameId}</small>{generatedAsset.layout && <small>frame {generatedAsset.layout.frameWidth}×{generatedAsset.layout.frameHeight} · x{generatedAsset.layout.frameX} y{generatedAsset.layout.frameY} · baseline {generatedAsset.layout.baselineY}</small>}{generatedAsset.layoutValidation && !generatedAsset.layoutValidation.ok && <small className="layout-validation-error">윤곽 보존 실패 · L{generatedAsset.layoutValidation.outline.coverage.left.toFixed(2)} T{generatedAsset.layoutValidation.outline.coverage.top.toFixed(2)} R{generatedAsset.layoutValidation.outline.coverage.right.toFixed(2)} B{generatedAsset.layoutValidation.outline.coverage.bottom.toFixed(2)}{outputContactDelta ? ` · 접촉 오차 top ${outputContactDelta.top}px bottom ${outputContactDelta.bottom}px` : ""}</small>}<small>{(generatedAsset.elapsedMs / 1000).toFixed(1)}초</small></> : <><div className="frame-output-title">{isGenerating ? "RUNPOD 생성 중…" : category === "character" ? framePhase.id : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} className={category === "character" && index === frameIndex ? "is-current" : ""} />)}</div></>}</article>
                   </div>
                 </section>
               </div>
