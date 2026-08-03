@@ -1,0 +1,27 @@
+{
+  "generationId": "RUNPOD-20260803064338-968c34d1-mirror",
+  "sourceGenerationId": "RUNPOD-20260803064338-968c34d1",
+  "transform": "horizontal-flip",
+  "createdAt": "2026-08-03T06:43:38.908Z",
+  "selection": {
+    "category": "character",
+    "direction": "right",
+    "action": "direction_reference",
+    "frameId": "Idle_Right_01",
+    "frameIndex": 0
+  },
+  "layout": {
+    "frameX": 3,
+    "frameY": 6,
+    "frameWidth": 506,
+    "frameHeight": 1012,
+    "baselineY": 1018,
+    "strokeWidth": 6
+  },
+  "output": {
+    "filename": "Idle_Right_01.png",
+    "bytes": 295,
+    "size": "32x64",
+    "format": "png"
+  }
+}

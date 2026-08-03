@@ -37,6 +37,11 @@ type GeneratedAsset = {
   model: string;
   imageUrl: string;
   metadataUrl: string;
+  assetUrl?: string | null;
+  assetMetadataUrl?: string | null;
+  mirroredImageUrl?: string | null;
+  mirroredAssetUrl?: string | null;
+  mirroredAssetMetadataUrl?: string | null;
   elapsedMs: number;
   outputBytes: number;
   size: string;
@@ -46,10 +51,18 @@ type GeneratedAsset = {
   selection?: { category: AssetCategory; direction: Direction; action: string; frameId: string; frameIndex: number };
 };
 type DirectionReference = { file: File | null; preview: string; name: string };
+type BatchProgress = {
+  status: "idle" | "direction" | "review" | "actions" | "complete" | "failed";
+  bundleId: string;
+  completed: number;
+  total: number;
+  current: string;
+  manifestUrl?: string;
+};
 
 const GUIDE_LONG_EDGE = 1024;
-const GUIDE_FRAME_INSET = 0.04;
-const GUIDE_FRAME_SCALE = 0.92;
+const CHARACTER_TOP_ANCHOR = 0;
+const CHARACTER_HEIGHT_OCCUPANCY = "100%";
 
 const INITIAL_DIRECTION_REFERENCES: Record<Direction, DirectionReference> = {
   front: { file: null, preview: "/test-inputs/reference-character-front.png", name: "reference-character-front.png" },
@@ -232,11 +245,11 @@ const DIRECTIONS: Array<{ id: Direction; label: string }> = [
   { id: "right", label: "우측" },
 ];
 
-const DIRECTION_LAYOUTS: Record<Direction, { occupancy: string; safeMargin: string; reference: string; note: string }> = {
-  front: { occupancy: "78%", safeMargin: "11%", reference: "character.farmer.front.ref", note: "어깨·양팔·양발이 보이는 정면 실루엣" },
-  back: { occupancy: "76%", safeMargin: "12%", reference: "character.farmer.back.ref", note: "얼굴 없이 등·후두부 중심의 후면 실루엣" },
-  left: { occupancy: "56%", safeMargin: "22%", reference: "character.farmer.left.ref", note: "몸통 폭을 줄이고 겹친 팔다리를 표시하는 측면 실루엣" },
-  right: { occupancy: "56%", safeMargin: "22%", reference: "character.farmer.right.ref", note: "좌측 기준을 반전하되 비대칭 장비 anchor는 별도 저장" },
+const DIRECTION_LAYOUTS: Record<Direction, { occupancy: string; height: string; safeMargin: string; reference: string; note: string }> = {
+  front: { occupancy: "78%", height: CHARACTER_HEIGHT_OCCUPANCY, safeMargin: "11%", reference: "character.farmer.front.ref", note: "어깨·양팔·양발이 보이는 정면 실루엣" },
+  back: { occupancy: "76%", height: CHARACTER_HEIGHT_OCCUPANCY, safeMargin: "12%", reference: "character.farmer.back.ref", note: "얼굴 없이 등·후두부 중심의 후면 실루엣" },
+  left: { occupancy: "56%", height: CHARACTER_HEIGHT_OCCUPANCY, safeMargin: "22%", reference: "character.farmer.left.ref", note: "몸통 폭을 줄이고 겹친 팔다리를 표시하는 측면 실루엣" },
+  right: { occupancy: "56%", height: CHARACTER_HEIGHT_OCCUPANCY, safeMargin: "22%", reference: "character.farmer.right.ref", note: "좌측 기준을 수평 반전해 동일 픽셀로 저장" },
 };
 
 const ACTIONS = [
@@ -249,6 +262,25 @@ const ACTIONS = [
   { id: "carry_overhead", label: "물건을 머리 위에 들기", frames: 1 },
 ];
 
+const ACTION_EXPORT_PREFIX: Record<string, string> = {
+  weapon_1h: "Weapon1H",
+  weapon_2h: "Weapon2H",
+  tool_swing: "ToolSwing",
+  bow_shoot: "BowShoot",
+  carry_front: "CarryFront",
+  carry_overhead: "CarryOverhead",
+};
+
+const ACTION_INSTRUCTIONS: Record<string, string> = {
+  walk_empty: "Empty hands.",
+  weapon_1h: "Hold one one-handed weapon.",
+  weapon_2h: "Hold one weapon with both hands.",
+  tool_swing: "Swing one tool.",
+  bow_shoot: "Shoot one bow.",
+  carry_front: "Hold one object in front.",
+  carry_overhead: "Hold one object overhead.",
+};
+
 type ActionPreset = (typeof ACTIONS)[number];
 type FramePhase = { id: string; label: string; prompt: string };
 
@@ -257,6 +289,13 @@ const DIRECTION_EXPORT_NAMES: Record<Direction, string> = {
   back: "Up",
   left: "Left",
   right: "Right",
+};
+
+const DIRECTION_PROMPT_RULES: Record<Direction, string> = {
+  front: "Strict front view. Both eyes aligned.",
+  back: "Strict back view. No face or eyes visible.",
+  left: "Strict full left profile. Nose points left. Exactly one eye visible. No right eye.",
+  right: "Strict full right profile. Nose points right. Exactly one eye visible. No left eye.",
 };
 
 function makeFramePhases(actionPreset: ActionPreset, direction: Direction): FramePhase[] {
@@ -269,11 +308,20 @@ function makeFramePhases(actionPreset: ActionPreset, direction: Direction): Fram
       prompt: label,
     }));
   }
+  const exportPrefix = ACTION_EXPORT_PREFIX[actionPreset.id] ?? actionPreset.id;
   return Array.from({ length: actionPreset.frames }, (_, index) => ({
-    id: `${actionPreset.id}_${String(index + 1).padStart(2, "0")}`,
+    id: `${exportPrefix}_${DIRECTION_EXPORT_NAMES[direction]}_${String(index + 1).padStart(2, "0")}`,
     label: `프레임 ${index + 1}`,
     prompt: `frame ${index + 1}`,
   }));
+}
+
+function characterActionPrompt(direction: Direction, actionPreset: ActionPreset, frame: FramePhase) {
+  return `Keep image 1 colors, face, hair, clothing, and proportions exact. Change only direction and pose. ${DIRECTION_PROMPT_RULES[direction]} Match pose ${frame.id} from image 2. Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge. Keep everything inside. ${ACTION_INSTRUCTIONS[actionPreset.id]} Remove guide marks.`;
+}
+
+function directionReferencePrompt(direction: Direction) {
+  return `Keep image 1 colors, face, hair, clothing, and proportions exact. Change only direction. ${DIRECTION_PROMPT_RULES[direction]} Match the idle pose from image 2. Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge. Keep everything inside. Remove guide marks.`;
 }
 
 function guideCanvasSize(visualX: number, visualY: number) {
@@ -396,13 +444,16 @@ async function createLayoutGuide(
 
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, width, height);
-  const frameX = width * GUIDE_FRAME_INSET;
-  const frameY = height * GUIDE_FRAME_INSET;
-  const frameWidth = width * GUIDE_FRAME_SCALE;
-  const frameHeight = height * GUIDE_FRAME_SCALE;
+  const strokeWidth = Math.max(6, Math.min(width, height) * 0.012);
+  const availableWidth = width - strokeWidth;
+  const availableHeight = height - strokeWidth;
+  const frameUnit = Math.min(availableWidth / visualX, availableHeight / visualY);
+  const frameWidth = visualX * frameUnit;
+  const frameHeight = visualY * frameUnit;
+  const frameX = (width - frameWidth) * 0.5;
+  const frameY = (height - frameHeight) * 0.5;
   const baseline = frameY + frameHeight;
   context.strokeStyle = "#000000";
-  const strokeWidth = Math.max(6, Math.min(width, height) * 0.012);
   context.lineWidth = strokeWidth;
   context.strokeRect(frameX, frameY, frameWidth, frameHeight);
 
@@ -415,8 +466,21 @@ async function createLayoutGuide(
   if (category === "character") {
     const side = direction === "left" || direction === "right";
     const centerX = frameX + frameWidth * 0.5;
-    const headY = frameY + frameHeight * 0.19;
+    const occupancy = Number.parseFloat(DIRECTION_LAYOUTS[direction].occupancy) / 100;
+    const placementWidth = frameWidth * occupancy;
+    const placementTop = frameY + frameHeight * CHARACTER_TOP_ANCHOR;
+    context.save();
+    context.strokeStyle = "#777777";
+    context.lineWidth = Math.max(4, Math.min(width, height) * 0.009);
+    context.setLineDash([Math.max(8, width * 0.02), Math.max(5, width * 0.012)]);
+    context.strokeRect(centerX - placementWidth * 0.5, placementTop, placementWidth, baseline - placementTop);
+    context.setLineDash([]);
+    context.fillStyle = "#777777";
+    context.fillRect(centerX - placementWidth * 0.18, placementTop, placementWidth * 0.36, context.lineWidth);
+    context.fillRect(centerX - placementWidth * 0.18, baseline - context.lineWidth, placementWidth * 0.36, context.lineWidth);
+    context.restore();
     const headRadius = frameWidth * (side ? 0.105 : 0.135);
+    const headY = frameY + headRadius;
     const shoulderY = frameY + frameHeight * 0.35;
     const hipY = frameY + frameHeight * 0.61;
     const stride = action === "walk_empty" ? frameWidth * (side ? 0.18 : 0.24) : frameWidth * 0.13;
@@ -443,16 +507,55 @@ async function createLayoutGuide(
       }
     }
 
+    let leftHandX = centerX - frameWidth * (side ? 0.12 : 0.25);
+    let leftHandY = frameY + frameHeight * 0.5;
+    let rightHandX = centerX + frameWidth * (side ? 0.11 : 0.25);
+    let rightHandY = frameY + frameHeight * 0.48;
+    const phase = frameIndex % Math.max(1, ACTIONS.find((item) => item.id === action)?.frames ?? 1);
+
+    if (action === "weapon_1h") {
+      rightHandX = centerX + frameWidth * 0.3;
+      rightHandY = frameY + frameHeight * (phase === 0 ? 0.39 : 0.48);
+    } else if (action === "weapon_2h" || action === "tool_swing") {
+      const raised = action === "tool_swing" && phase < 2;
+      leftHandX = centerX - frameWidth * 0.15;
+      rightHandX = centerX + frameWidth * 0.15;
+      leftHandY = rightHandY = frameY + frameHeight * (raised ? 0.28 : 0.43);
+    } else if (action === "bow_shoot") {
+      leftHandX = centerX + frameWidth * 0.24;
+      rightHandX = centerX - frameWidth * (phase === 2 ? 0.08 : 0.2);
+      leftHandY = rightHandY = frameY + frameHeight * 0.4;
+    } else if (action === "carry_front") {
+      leftHandX = centerX - frameWidth * 0.2;
+      rightHandX = centerX + frameWidth * 0.2;
+      leftHandY = rightHandY = frameY + frameHeight * 0.49;
+    } else if (action === "carry_overhead") {
+      leftHandX = centerX - frameWidth * 0.18;
+      rightHandX = centerX + frameWidth * 0.18;
+      leftHandY = rightHandY = frameY + frameHeight * 0.16;
+    }
+
     context.beginPath();
     context.arc(centerX, headY, headRadius, 0, Math.PI * 2);
     context.stroke();
+    if (direction === "left" || direction === "right") {
+      const facing = direction === "left" ? -1 : 1;
+      context.beginPath();
+      context.moveTo(centerX + facing * headRadius * 0.9, headY - headRadius * 0.1);
+      context.lineTo(centerX + facing * headRadius * 1.35, headY + headRadius * 0.12);
+      context.lineTo(centerX + facing * headRadius * 0.88, headY + headRadius * 0.25);
+      context.stroke();
+      context.beginPath();
+      context.arc(centerX + facing * headRadius * 0.45, headY - headRadius * 0.18, context.lineWidth * 0.48, 0, Math.PI * 2);
+      context.fill();
+    }
     context.beginPath();
     context.moveTo(centerX, headY + headRadius);
     context.lineTo(centerX, hipY);
     context.moveTo(centerX, shoulderY);
-    context.lineTo(centerX - frameWidth * (side ? 0.12 : 0.25), frameY + frameHeight * 0.5);
+    context.lineTo(leftHandX, leftHandY);
     context.moveTo(centerX, shoulderY);
-    context.lineTo(centerX + frameWidth * (side ? 0.11 : 0.25), frameY + frameHeight * 0.48);
+    context.lineTo(rightHandX, rightHandY);
     context.moveTo(centerX, hipY);
     context.lineTo(centerX + leftFootOffset, baseline);
     context.moveTo(centerX, hipY);
@@ -465,6 +568,46 @@ async function createLayoutGuide(
     context.beginPath();
     context.arc(centerX, hipY, context.lineWidth * 0.7, 0, Math.PI * 2);
     context.fill();
+
+    context.lineWidth = Math.max(6, Math.min(width, height) * 0.018);
+    if (action === "weapon_1h") {
+      context.beginPath();
+      context.moveTo(rightHandX, rightHandY);
+      context.lineTo(rightHandX + frameWidth * 0.18, rightHandY - frameHeight * 0.19);
+      context.stroke();
+    } else if (action === "weapon_2h") {
+      context.beginPath();
+      context.moveTo(centerX - frameWidth * 0.34, leftHandY + frameHeight * 0.1);
+      context.lineTo(centerX + frameWidth * 0.34, rightHandY - frameHeight * 0.1);
+      context.stroke();
+    } else if (action === "tool_swing") {
+      const angle = [-0.32, -0.1, 0.16, 0.34][phase] ?? 0;
+      context.beginPath();
+      context.moveTo(centerX - frameWidth * angle, leftHandY - frameHeight * 0.08);
+      context.lineTo(centerX + frameWidth * angle, frameY + frameHeight * 0.67);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(centerX + frameWidth * angle - frameWidth * 0.12, frameY + frameHeight * 0.67);
+      context.lineTo(centerX + frameWidth * angle + frameWidth * 0.12, frameY + frameHeight * 0.67);
+      context.stroke();
+    } else if (action === "bow_shoot") {
+      const bowX = centerX + frameWidth * 0.28;
+      context.beginPath();
+      context.arc(bowX, leftHandY, frameWidth * 0.19, Math.PI * 0.5, Math.PI * 1.5);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(bowX, leftHandY - frameWidth * 0.19);
+      context.lineTo(rightHandX, rightHandY);
+      context.lineTo(bowX, leftHandY + frameWidth * 0.19);
+      context.moveTo(rightHandX, rightHandY);
+      context.lineTo(bowX + frameWidth * 0.18, leftHandY);
+      context.stroke();
+    } else if (action === "carry_front" || action === "carry_overhead") {
+      const itemWidth = frameWidth * 0.42;
+      const itemHeight = frameHeight * 0.16;
+      const itemY = action === "carry_overhead" ? frameY + frameHeight * 0.035 : frameY + frameHeight * 0.43;
+      context.strokeRect(centerX - itemWidth * 0.5, itemY, itemWidth, itemHeight);
+    }
   } else if (category === "tile") {
     const cellWidth = frameWidth / 3;
     const cellHeight = frameHeight / 3;
@@ -512,8 +655,54 @@ async function createLayoutGuide(
   };
 }
 
-async function normalizeReferenceOnWhite(source: Blob, targetWidth: number, targetHeight: number) {
+async function normalizeReferenceOnWhite(
+  source: Blob,
+  targetWidth: number,
+  targetHeight: number,
+  fillFrame?: NonNullable<GeneratedAsset["layout"]>,
+) {
   const bitmap = await createImageBitmap(source);
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = bitmap.width;
+  sourceCanvas.height = bitmap.height;
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  if (!sourceContext) {
+    bitmap.close();
+    throw new Error("Reference A 외곽 분석 실패");
+  }
+  sourceContext.fillStyle = "#ffffff";
+  sourceContext.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+  sourceContext.drawImage(bitmap, 0, 0);
+
+  let sourceX = 0;
+  let sourceY = 0;
+  let sourceWidth = bitmap.width;
+  let sourceHeight = bitmap.height;
+  if (fillFrame) {
+    const pixels = sourceContext.getImageData(0, 0, bitmap.width, bitmap.height).data;
+    let minX = bitmap.width;
+    let minY = bitmap.height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < bitmap.height; y += 1) {
+      for (let x = 0; x < bitmap.width; x += 1) {
+        const offset = (y * bitmap.width + x) * 4;
+        const foreground = pixels[offset + 3] > 16 && (pixels[offset] < 245 || pixels[offset + 1] < 245 || pixels[offset + 2] < 245);
+        if (!foreground) continue;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+    if (maxX >= minX && maxY >= minY) {
+      sourceX = minX;
+      sourceY = minY;
+      sourceWidth = maxX - minX + 1;
+      sourceHeight = maxY - minY + 1;
+    }
+  }
+
   const canvas = document.createElement("canvas");
   canvas.width = targetWidth;
   canvas.height = targetHeight;
@@ -524,15 +713,20 @@ async function normalizeReferenceOnWhite(source: Blob, targetWidth: number, targ
   }
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, canvas.width, canvas.height);
-  const scale = Math.min(targetWidth / bitmap.width, targetHeight / bitmap.height);
-  const width = Math.round(bitmap.width * scale);
-  const height = Math.round(bitmap.height * scale);
+  const targetFrame = fillFrame ?? { frameX: 0, frameY: 0, frameWidth: targetWidth, frameHeight: targetHeight, baselineY: targetHeight, strokeWidth: 0 };
+  const scale = Math.min(targetFrame.frameWidth / sourceWidth, targetFrame.frameHeight / sourceHeight);
+  const width = Math.round(sourceWidth * scale);
+  const height = Math.round(sourceHeight * scale);
+  const drawX = Math.round(targetFrame.frameX + (targetFrame.frameWidth - width) * 0.5);
+  const drawY = Math.round(targetFrame.frameY + targetFrame.frameHeight - height);
   context.imageSmoothingEnabled = false;
-  context.drawImage(bitmap, Math.round((targetWidth - width) / 2), Math.round((targetHeight - height) / 2), width, height);
+  context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, drawX, drawY, width, height);
   debugLog("REFERENCE_A_NORMALIZED", {
     source: `${bitmap.width}x${bitmap.height}`,
+    foreground: `${sourceWidth}x${sourceHeight}@${sourceX},${sourceY}`,
     target: `${targetWidth}x${targetHeight}`,
-    drawn: `${width}x${height}`,
+    drawn: `${width}x${height}@${drawX},${drawY}`,
+    frame: fillFrame ? `${fillFrame.frameWidth}x${fillFrame.frameHeight}@${fillFrame.frameX},${fillFrame.frameY}` : "canvas",
   });
   bitmap.close();
   return new Promise<Blob>((resolve, reject) => {
@@ -558,8 +752,11 @@ export default function Home() {
   const [referenceFile, setReferenceFile] = useState<File | null>(null);
   const [referencePreview, setReferencePreview] = useState("/test-inputs/reference-character-front.png");
   const [directionReferences, setDirectionReferences] = useState<Record<Direction, DirectionReference>>(INITIAL_DIRECTION_REFERENCES);
+  const [directionApprovals, setDirectionApprovals] = useState<Record<Direction, boolean>>({ front: true, back: false, left: false, right: false });
   const [generatedAsset, setGeneratedAsset] = useState<GeneratedAsset | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<BatchProgress>({ status: "idle", bundleId: "", completed: 0, total: 3, current: "" });
+  const [batchResults, setBatchResults] = useState<GeneratedAsset[]>([]);
 
   useEffect(() => {
     debugLog("BOOT", { location: window.location.href, devicePixelRatio: window.devicePixelRatio });
@@ -582,7 +779,7 @@ export default function Home() {
     fetch("/api/runpod/health", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json();
-        if (!response.ok) throw new Error(body.message || "Endpoint 상태 확인 실패");
+        if (!response.ok || body.ok !== true) throw new Error(body.message || `Endpoint 상태 확인 실패 · HTTP ${body.status ?? response.status}`);
         if (active) {
           setEndpoint({ status: "연결됨", model: body.model, latencyMs: body.latencyMs });
           setNotice(`RunPod 연결 완료 · ${body.model}`);
@@ -644,13 +841,13 @@ export default function Home() {
 
   const generationPrompt = useMemo(() => {
     if (category === "character") {
-      return `Keep image 1 unchanged. Match only this pose from image 2: ${framePhase.id}, ${framePhase.prompt}. Put the character inside the black frame. Feet touch the bottom line. Remove the pose marks.${actionPreset.id === "walk_empty" ? " Empty hands." : ""}`;
+      return characterActionPrompt(direction, actionPreset, framePhase);
     }
     if (category === "tile") {
       return `Keep image 1 unchanged. Match only the topology from image 2: ${topology}. Put the tile inside the black frame. Keep all four frame lines and every tile pixel inside. Remove the guide marks.`;
     }
     return `Keep image 1 unchanged. Match only the object state from image 2: ${objectState}. Put the object inside the black frame. Keep all four frame lines and every object pixel inside. The base touches the bottom line. Remove the guide marks.`;
-  }, [actionPreset.id, category, framePhase.id, framePhase.prompt, objectState, topology]);
+  }, [actionPreset, category, direction, framePhase, objectState, topology]);
 
   function changeTool(next: ToolMode) {
     setToolMode(next);
@@ -741,6 +938,7 @@ export default function Home() {
       const previous = directionReferences[direction].preview;
       if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
       setDirectionReferences((current) => ({ ...current, [direction]: { file, preview, name: file.name } }));
+      setDirectionApprovals((current) => ({ ...current, [direction]: true }));
       debugLog("DIRECTION_REFERENCE_REGISTERED", { direction, name: file.name, bytes: file.size, type: file.type });
     } else {
       if (referencePreview.startsWith("blob:")) URL.revokeObjectURL(referencePreview);
@@ -750,6 +948,356 @@ export default function Home() {
     }
     setGeneratedAsset(null);
     setNotice(`Reference A 교체 · ${category === "character" ? `${direction} · ` : ""}${file.name}`);
+  }
+
+  async function referenceToBlob(reference: DirectionReference) {
+    if (reference.file) return reference.file;
+    const response = await fetch(reference.preview);
+    if (!response.ok) throw new Error(`${reference.name} 기준 이미지를 읽을 수 없습니다.`);
+    return response.blob();
+  }
+
+  async function requestCharacterAsset({
+    reference,
+    targetDirection,
+    targetAction,
+    targetFrameIndex,
+    seed,
+    bundleId,
+    directionReference = false,
+    mirrorRight = false,
+  }: {
+    reference: DirectionReference;
+    targetDirection: Direction;
+    targetAction: string;
+    targetFrameIndex: number;
+    seed: number;
+    bundleId?: string;
+    directionReference?: boolean;
+    mirrorRight?: boolean;
+  }) {
+    const targetActionPreset = ACTIONS.find((item) => item.id === targetAction) ?? ACTIONS[0];
+    const phases = makeFramePhases(targetActionPreset, targetDirection);
+    const targetFrame = directionReference
+      ? { id: `Idle_${DIRECTION_EXPORT_NAMES[targetDirection]}_01`, label: "기본 대기", prompt: "idle" }
+      : phases[Math.min(targetFrameIndex, phases.length - 1)];
+    const referenceBlob = await referenceToBlob(reference);
+    const guide = await createLayoutGuide(family.visualX, family.visualY, "character", targetDirection, directionReference ? "idle" : targetAction, targetFrameIndex);
+    const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height, guide.frame);
+    const requestPrompt = directionReference ? directionReferencePrompt(targetDirection) : characterActionPrompt(targetDirection, targetActionPreset, targetFrame);
+    const form = new FormData();
+    form.append("image", normalizedReference, reference.name);
+    form.append("image", guide.blob, `reference-b-character-${targetDirection}-${targetFrame.id}.png`);
+    form.set("prompt", requestPrompt);
+    const directionNegative = targetDirection === "back"
+      ? ", visible face, visible eyes"
+      : targetDirection === "left" || targetDirection === "right"
+        ? ", front view, three-quarter view, two visible eyes"
+        : "";
+    form.set("negativePrompt", `different character, redesign, extra limbs, drawn frame, border lines, guide marks, outside frame, floating feet, shadow, ground, text, scenery${directionNegative}`);
+    form.set("size", `${guide.width}x${guide.height}`);
+    form.set("seed", String(seed));
+    form.set("numInferenceSteps", "40");
+    form.set("trueCfgScale", "4");
+    form.set("guidanceScale", "1");
+    form.set("frameX", String(guide.frame.frameX));
+    form.set("frameY", String(guide.frame.frameY));
+    form.set("frameWidth", String(guide.frame.frameWidth));
+    form.set("frameHeight", String(guide.frame.frameHeight));
+    form.set("baselineY", String(guide.frame.baselineY));
+    form.set("strokeWidth", String(guide.frame.strokeWidth));
+    form.set("outputFrameMode", "guide-only");
+    form.set("targetWidth", String(targetWidth));
+    form.set("targetHeight", String(targetHeight));
+    form.set("category", "character");
+    form.set("direction", targetDirection);
+    form.set("action", directionReference ? "direction_reference" : targetAction);
+    form.set("frameId", targetFrame.id);
+    form.set("frameIndex", String(targetFrameIndex));
+    if (bundleId) {
+      form.set("assetBundle", bundleId);
+      form.set("assetName", targetFrame.id);
+    }
+    if (mirrorRight && targetDirection === "left") {
+      form.set("mirrorDirection", "right");
+      form.set("mirrorAssetName", targetFrame.id.replace("_Left_", "_Right_"));
+    }
+
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      debugLog("BATCH_REQUEST_SEND", { bundleId, direction: targetDirection, action: targetAction, frameId: targetFrame.id, prompt: requestPrompt, seed, attempt });
+      try {
+        const response = await fetch("/api/runpod/edit", { method: "POST", body: form });
+        const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+        if (!response.ok) throw new Error(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`);
+        const result = body as GeneratedAsset;
+        debugLog("BATCH_REQUEST_COMPLETE", { bundleId, generationId: result.generationId, direction: targetDirection, frameId: targetFrame.id, assetUrl: result.assetUrl, attempt });
+        return result;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error("생성 실패");
+        debugLog("BATCH_REQUEST_RETRY", { bundleId, direction: targetDirection, frameId: targetFrame.id, attempt, message: lastError.message });
+        if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, attempt * 1_500));
+      }
+    }
+    throw lastError ?? new Error("생성 실패");
+  }
+
+  async function loadStoredCharacterAsset(bundleId: string, targetDirection: Direction, frameId: string) {
+    const assetUrl = `/assets/generated/${bundleId}/${targetDirection}/${frameId}.png`;
+    const assetMetadataUrl = `/assets/generated/${bundleId}/${targetDirection}/${frameId}.json`;
+    const response = await fetch(assetMetadataUrl, { cache: "no-store" });
+    if (!response.ok) return null;
+    const metadata = await response.json() as {
+      generationId?: string;
+      requestId?: string;
+      model?: string;
+      selection?: GeneratedAsset["selection"];
+      layout?: GeneratedAsset["layout"];
+      settings?: { seed?: number };
+      output?: { bytes?: number; size?: string };
+    };
+    if (!metadata.generationId || !metadata.selection) return null;
+    return {
+      generationId: metadata.generationId,
+      requestId: metadata.requestId ?? metadata.generationId,
+      model: metadata.model ?? endpoint.model ?? "stored-asset",
+      imageUrl: assetUrl,
+      metadataUrl: assetMetadataUrl,
+      assetUrl,
+      assetMetadataUrl,
+      elapsedMs: 0,
+      outputBytes: metadata.output?.bytes ?? 0,
+      size: metadata.output?.size ?? `${targetWidth}x${targetHeight}`,
+      seed: metadata.settings?.seed ?? optionSeed,
+      layout: metadata.layout,
+      selection: metadata.selection,
+    } satisfies GeneratedAsset;
+  }
+
+  function batchHistoryItem(result: GeneratedAsset): HistoryItem {
+    return {
+      id: result.generationId,
+      asset: `${result.selection?.direction}.${result.selection?.frameId}`,
+      detail: `${result.assetUrl ? "PNG 후처리 완료" : "원본 생성"} · seed ${result.seed}`,
+      job: "완료",
+      assetState: result.assetUrl ? "시트 생성" : "후처리",
+      time: "방금",
+    };
+  }
+
+  function mirroredRightResult(result: GeneratedAsset): GeneratedAsset {
+    if (!result.mirroredImageUrl || !result.mirroredAssetUrl) throw new Error("우측 반전 에셋 응답이 없습니다.");
+    return {
+      ...result,
+      generationId: `${result.generationId}-mirror`,
+      imageUrl: result.mirroredImageUrl,
+      assetUrl: result.mirroredAssetUrl,
+      assetMetadataUrl: result.mirroredAssetMetadataUrl,
+      selection: result.selection ? { ...result.selection, direction: "right", frameId: result.selection.frameId.replace("_Left_", "_Right_") } : result.selection,
+    };
+  }
+
+  async function loadLatestDirectionReferences() {
+    if (isGenerating) return;
+    setNotice("최근 생성한 방향 기준을 불러오는 중입니다.");
+    try {
+      const response = await fetch("/api/assets/manifest");
+      const body = await response.json() as { error?: string; bundleId?: string; references?: Partial<Record<Direction, string>> };
+      if (!response.ok || !body.bundleId || !body.references?.back || !body.references.left || !body.references.right) {
+        throw new Error(body.error || "완전한 방향 기준 묶음이 없습니다.");
+      }
+      setDirectionReferences((current) => ({
+        front: current.front,
+        back: { file: null, preview: body.references!.back!, name: `${body.bundleId}.back.ref` },
+        left: { file: null, preview: body.references!.left!, name: `${body.bundleId}.left.ref` },
+        right: { file: null, preview: body.references!.right!, name: `${body.bundleId}.right.ref` },
+      }));
+      setDirectionApprovals({ front: true, back: false, left: false, right: false });
+      setBatchProgress({ status: "review", bundleId: body.bundleId, completed: 2, total: 2, current: "불러온 방향 기준 검수·승인 필요" });
+      setDirection("front");
+      setNotice(`${body.bundleId} 방향 기준을 불러왔습니다. 검수 후 승인하세요.`);
+      debugLog("DIRECTION_BUNDLE_LOADED", { bundleId: body.bundleId, references: body.references });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "방향 기준 불러오기 실패";
+      setNotice(message);
+      debugLog("DIRECTION_BUNDLE_LOAD_FAILED", { message });
+    }
+  }
+
+  async function generateDirectionReferences() {
+    if (isGenerating || endpoint.status !== "연결됨") return;
+    const frontReference = directionReferences.front;
+    if (!frontReference.preview) {
+      setNotice("정면 승인 기준 이미지가 필요합니다.");
+      return;
+    }
+
+    const bundleId = `character-farmer-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
+    const total = 2;
+    const results: GeneratedAsset[] = [];
+    let completed = 0;
+    setIsGenerating(true);
+    setBatchResults([]);
+    setBatchProgress({ status: "direction", bundleId, completed, total, current: "후면 방향 기준" });
+    setDirectionApprovals({ front: true, back: false, left: false, right: false });
+    setNotice(`방향 기준 생성 시작 · ${bundleId}`);
+
+    try {
+      for (const target of DIRECTIONS.filter((item) => item.id === "back" || item.id === "left")) {
+        setDirection(target.id);
+        setAction("walk_empty");
+        setFrameIndex(0);
+        const current = `${target.label} 기본 대기 이미지`;
+        setBatchProgress({ status: "direction", bundleId, completed, total, current });
+        setNotice(`${completed + 1}/${total} · 정면 기준으로 ${current} 생성 중`);
+        const result = await requestCharacterAsset({
+          reference: frontReference,
+          targetDirection: target.id,
+          targetAction: "walk_empty",
+          targetFrameIndex: 0,
+          seed: optionSeed,
+          bundleId,
+          directionReference: true,
+          mirrorRight: target.id === "left",
+        });
+        const generatedReference = { file: null, preview: result.imageUrl, name: `${target.id}.ref.${result.generationId}.png` };
+        setDirectionReferences((currentReferences) => ({ ...currentReferences, [target.id]: generatedReference }));
+        results.push(result);
+        completed += 1;
+        setGeneratedAsset(result);
+        setBatchResults([...results]);
+        setHistory((currentHistory) => [batchHistoryItem(result), ...currentHistory].slice(0, 8));
+        if (target.id === "left") {
+          const mirrored = mirroredRightResult(result);
+          const mirroredReference = { file: null, preview: mirrored.imageUrl, name: `right.ref.${mirrored.generationId}.png` };
+          setDirectionReferences((currentReferences) => ({ ...currentReferences, right: mirroredReference }));
+          results.push(mirrored);
+          setBatchResults([...results]);
+          setHistory((currentHistory) => [batchHistoryItem(mirrored), ...currentHistory].slice(0, 8));
+        }
+      }
+      setBatchProgress({ status: "review", bundleId, completed, total, current: "방향 기준 검수·승인 필요" });
+      setNotice("후면·좌·우 기준 생성 완료 · 눈·얼굴 방향과 접지선을 확인하고 승인하세요.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "방향 기준 생성 실패";
+      setBatchProgress({ status: "failed", bundleId, completed, total, current: message });
+      setNotice(`${completed}/${total}에서 중단 · ${message}`);
+      debugLog("BATCH_FAILED", { bundleId, completed, message });
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function regenerateDirectionReference(targetDirection: Direction) {
+    if (targetDirection === "front" || isGenerating || endpoint.status !== "연결됨") return;
+    const sourceDirection: Direction = targetDirection === "right" ? "left" : targetDirection;
+    const frontReference = directionReferences.front;
+    const bundleId = batchProgress.bundleId || `character-farmer-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
+    setIsGenerating(true);
+    setDirection(sourceDirection);
+    setDirectionApprovals((current) => sourceDirection === "left" ? { ...current, left: false, right: false } : { ...current, [sourceDirection]: false });
+    setBatchProgress({ status: "direction", bundleId, completed: 0, total: 1, current: `${sourceDirection} 기준 다시 생성` });
+    setNotice(`${sourceDirection} 기준을 다시 생성 중입니다.${sourceDirection === "left" ? " 우측은 자동 반전합니다." : ""}`);
+    try {
+      const result = await requestCharacterAsset({ reference: frontReference, targetDirection: sourceDirection, targetAction: "walk_empty", targetFrameIndex: 0, seed: optionSeed, bundleId, directionReference: true, mirrorRight: sourceDirection === "left" });
+      const generatedReference = { file: null, preview: result.imageUrl, name: `${sourceDirection}.ref.${result.generationId}.png` };
+      setDirectionReferences((current) => ({ ...current, [sourceDirection]: generatedReference }));
+      const replacements = [result];
+      if (sourceDirection === "left") {
+        const mirrored = mirroredRightResult(result);
+        replacements.push(mirrored);
+        setDirectionReferences((current) => ({ ...current, left: generatedReference, right: { file: null, preview: mirrored.imageUrl, name: `right.ref.${mirrored.generationId}.png` } }));
+      }
+      setBatchResults((current) => [...current.filter((item) => !(item.selection?.action === "direction_reference" && replacements.some((replacement) => replacement.selection?.direction === item.selection?.direction))), ...replacements]);
+      setGeneratedAsset(result);
+      setHistory((current) => [...replacements.map(batchHistoryItem), ...current].slice(0, 8));
+      setBatchProgress({ status: "review", bundleId, completed: 1, total: 1, current: `${sourceDirection} 기준 검수 필요` });
+      setNotice(`${sourceDirection} 기준 재생성 완료${sourceDirection === "left" ? " · 우측 반전 완료" : ""} · 방향과 접지선을 확인하세요.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "방향 기준 재생성 실패";
+      setBatchProgress({ status: "failed", bundleId, completed: 0, total: 1, current: message });
+      setNotice(`재생성 실패 · ${message}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function generateAllCharacterActions() {
+    if (isGenerating || endpoint.status !== "연결됨") return;
+    if (DIRECTIONS.some((item) => !directionReferences[item.id].preview || !directionApprovals[item.id])) {
+      setNotice("4방향 기준 이미지를 모두 검수·승인해야 동작 생성을 시작할 수 있습니다.");
+      return;
+    }
+    const bundleId = batchProgress.bundleId || `character-farmer-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
+    const runpodDirections = DIRECTIONS.filter((item) => item.id !== "right");
+    const total = runpodDirections.length * ACTIONS.reduce((sum, item) => sum + item.frames, 0);
+    const results = batchResults.filter((item) => item.selection?.action === "direction_reference");
+    let completed = 0;
+    setIsGenerating(true);
+    setBatchResults([...results]);
+    setBatchProgress({ status: "actions", bundleId, completed, total, current: "Walk_Down_01" });
+    setNotice(`승인된 방향 기준으로 동작 68프레임 생성 시작 · ${bundleId}`);
+    try {
+      for (const target of runpodDirections) {
+        const reference = directionReferences[target.id];
+        for (const targetAction of ACTIONS) {
+          for (let targetFrameIndex = 0; targetFrameIndex < targetAction.frames; targetFrameIndex += 1) {
+            const targetFrame = makeFramePhases(targetAction, target.id)[targetFrameIndex];
+            setDirection(target.id);
+            setAction(targetAction.id);
+            setFrameIndex(targetFrameIndex);
+            setBatchProgress({ status: "actions", bundleId, completed, total, current: targetFrame.id });
+            setNotice(`${completed + 1}/${total} · ${targetFrame.id} 생성 중`);
+            const existingResult = await loadStoredCharacterAsset(bundleId, target.id, targetFrame.id);
+            const mirroredFrameId = targetFrame.id.replace("_Left_", "_Right_");
+            const existingMirror = target.id === "left" ? await loadStoredCharacterAsset(bundleId, "right", mirroredFrameId) : null;
+            if (existingResult && (target.id !== "left" || existingMirror)) {
+              results.push(existingResult);
+              if (existingMirror) results.push(existingMirror);
+              completed += 1;
+              setGeneratedAsset(existingResult);
+              setBatchResults([...results]);
+              setBatchProgress({ status: "actions", bundleId, completed, total, current: `${targetFrame.id} · 기존 PNG 사용` });
+              debugLog("BATCH_ASSET_REUSED", { bundleId, direction: target.id, frameId: targetFrame.id, completed, total });
+              continue;
+            }
+            const result = await requestCharacterAsset({ reference, targetDirection: target.id, targetAction: targetAction.id, targetFrameIndex, seed: optionSeed, bundleId, mirrorRight: target.id === "left" });
+            results.push(result);
+            if (target.id === "left") results.push(mirroredRightResult(result));
+            completed += 1;
+            setGeneratedAsset(result);
+            setBatchResults([...results]);
+            setHistory((currentHistory) => [batchHistoryItem(result), ...currentHistory].slice(0, 8));
+          }
+        }
+      }
+
+      const manifest = {
+        schemaVersion: 1,
+        bundleId,
+        createdAt: new Date().toISOString(),
+        type: "character-animation-set",
+        sourceReference: directionReferences.front.name,
+        model: endpoint.model,
+        unity: { pixelsPerUnit: scale.pixels, frameWidth: targetWidth, frameHeight: targetHeight, pivot: { x: 0.5, y: 0 } },
+        directions: Object.fromEntries(DIRECTIONS.map((item) => [item.id, DIRECTION_EXPORT_NAMES[item.id]])),
+        actions: ACTIONS.map((item) => ({ id: item.id, frames: item.frames })),
+        assets: results.map((result) => ({ generationId: result.generationId, direction: result.selection?.direction, action: result.selection?.action, frameId: result.selection?.frameId, seed: result.seed, rawUrl: result.imageUrl, assetUrl: result.assetUrl, metadataUrl: result.assetMetadataUrl, size: `${targetWidth}x${targetHeight}` })),
+      };
+      const manifestResponse = await fetch("/api/assets/manifest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bundleId, manifest }) });
+      const manifestBody = await manifestResponse.json();
+      if (!manifestResponse.ok) throw new Error(manifestBody.error || "manifest 저장 실패");
+      setBatchProgress({ status: "complete", bundleId, completed, total, current: "완료", manifestUrl: manifestBody.manifestUrl });
+      setNotice(`RunPod 51프레임 + 우측 반전 17프레임 생성·후처리 완료 · ${manifestBody.manifestUrl}`);
+      debugLog("BATCH_COMPLETE", { bundleId, completed, manifestUrl: manifestBody.manifestUrl });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "동작 생성 실패";
+      setBatchProgress({ status: "failed", bundleId, completed, total, current: message });
+      setNotice(`${completed}/${total}에서 중단 · ${message}`);
+      debugLog("BATCH_FAILED", { bundleId, completed, message });
+    } finally {
+      setIsGenerating(false);
+    }
   }
 
   async function runImageEdit() {
@@ -773,12 +1321,12 @@ export default function Home() {
             return response.blob();
           });
       const guide = await createLayoutGuide(family.visualX, family.visualY, category, direction, action, frameIndex);
-      const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height);
+      const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height, category === "character" ? guide.frame : undefined);
       const form = new FormData();
       form.append("image", normalizedReference, activeReference.name);
       form.append("image", guide.blob, `reference-b-${category}-${direction}-${action}-${framePhase.id}.png`);
       form.set("prompt", generationPrompt);
-      form.set("negativePrompt", "redesign, added detail, added item, missing border, outside frame, floating feet, text, scenery");
+      form.set("negativePrompt", "different character, redesign, extra limbs, missing border, outside frame, floating feet, text, scenery");
       form.set("size", `${guide.width}x${guide.height}`);
       form.set("seed", String(optionSeed));
       form.set("numInferenceSteps", "40");
@@ -790,6 +1338,8 @@ export default function Home() {
       form.set("frameHeight", String(guide.frame.frameHeight));
       form.set("baselineY", String(guide.frame.baselineY));
       form.set("strokeWidth", String(guide.frame.strokeWidth));
+      form.set("targetWidth", String(targetWidth));
+      form.set("targetHeight", String(targetHeight));
       form.set("category", category);
       form.set("direction", direction);
       form.set("action", action);
@@ -847,6 +1397,7 @@ export default function Home() {
   const guideContent = category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} /> : category === "tile" ? <TileGuide topology={topology} /> : <ObjectSchematic family={family} />;
   const sentReferenceA = generatedAsset?.referenceImages?.[0]?.url ?? activeReference.preview;
   const sentReferenceB = generatedAsset?.referenceImages?.[1]?.url;
+  const allDirectionReferencesApproved = DIRECTIONS.every((item) => Boolean(directionReferences[item.id].preview) && directionApprovals[item.id]);
   const pipelineDirection = generatedAsset?.selection?.direction ?? direction;
   const pipelineFrameId = generatedAsset?.selection?.frameId ?? framePhase.id;
   const pipelineCanvas = generatedAsset?.size ?? `${guideSize.width}x${guideSize.height}`;
@@ -923,7 +1474,7 @@ export default function Home() {
                 <div className="guide-rulers"><span>WHITE CANVAS / SAFE AREA</span><span>BLACK CROP OUTLINE / {ratioLabel}</span></div>
                 <div className="guide-canvas" data-testid="guide-canvas" data-content-policy="contained"><div className="grid-overlay" /><div className="layout-frame" style={{ width: frameSize.width, height: frameSize.height }} data-testid="layout-frame" data-ratio={ratioLabel} data-output={`${targetWidth}x${targetHeight}`} data-crop="outline-bounds" data-ground-edge={category === "tile" ? "adjacency" : "bottom"}>{guideContent}</div></div>
                 <div className="canvas-ground-note"><i aria-hidden="true" />{category === "tile" ? "검은 윤곽 = seamless adjacency 경계 · 모든 타일 픽셀은 안쪽 유지" : "검은 윤곽 아랫변 = 접지선 · 모든 포즈·장비·오브젝트 픽셀은 안쪽 유지"}</div>
-                {category === "character" && <div className="direction-layout-note" data-testid="direction-layout-note"><strong>{DIRECTIONS.find((item) => item.id === direction)?.label} 레이아웃</strong><span>크롭 rect {ratioLabel} 고정</span><span>점유폭 {directionLayout.occupancy}</span><span>좌우 안전 여백 {directionLayout.safeMargin}</span><p>{directionLayout.note}</p></div>}
+                {category === "character" && <div className="direction-layout-note" data-testid="direction-layout-note"><strong>{DIRECTIONS.find((item) => item.id === direction)?.label} 레이아웃</strong><span>크롭 rect {ratioLabel} 고정</span><span>4방향 공통 높이 {directionLayout.height} · 위·아래 변 접촉</span><span>점유폭 {directionLayout.occupancy}</span><span>좌우 안전 여백 {directionLayout.safeMargin}</span><p>{directionLayout.note}</p></div>}
                 <div className="postprocess-flow"><span><small>01 GUIDE</small>{category === "character" ? `${direction} 방향 점유·포즈` : category === "tile" ? `${topology} mask` : `${family.name} 범위`}</span><i>→</i><span><small>02 CROP</small>검은 윤곽 내부만 절삭</span><i>→</i><span><small>03 RESIZE</small>{targetWidth} × {targetHeight}px</span></div>
 
                 {category === "character" && <section className="frame-phase-strip" data-testid="frame-phase-strip"><div className="option-heading"><span>생성 프레임</span><span className="field-note">{framePhase.id}</span></div><div>{framePhases.map((phase, index) => <button key={phase.id} type="button" role="checkbox" aria-checked={frameIndex === index} className={frameIndex === index ? "frame-phase is-checked" : "frame-phase"} onClick={() => changeFrame(index)} disabled={isGenerating} data-testid={`frame-${index + 1}`}><PoseGuide action={action} direction={direction} frameIndex={index} compact /><span><strong>{phase.id}</strong><small>{phase.label}</small></span></button>)}</div></section>}
@@ -935,18 +1486,28 @@ export default function Home() {
                     <b>+</b>
                     <article data-testid="reference-b"><span className="source-label">REFERENCE B {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-guide sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceB ? <img src={sentReferenceB} alt="실제 전송 Reference B" onLoad={(event) => debugLog("REFERENCE_B_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <div className="mini-layout-frame">{category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} compact /> : category === "tile" ? <TileGuide topology={topology} compact /> : <ObjectSchematic family={family} compact />}</div>}</div><strong>{sentReferenceB ? "실제 전송 이미지 B" : "자동 레이아웃 가이드"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[1]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[1]?.name ?? `${ratioLabel} · ${category === "character" ? `${framePhase.id} · ${directionLayout.occupancy}` : category === "tile" ? topology : family.footprint}`}</small></article>
                     <b>→</b>
-                    <article className={generatedAsset ? "output-plan has-result" : "output-plan"} data-testid="output-layout"><span className="source-label">OUTPUT</span>{generatedAsset ? <><div className="result-canvas-shell" style={{ aspectRatio: pipelineAspect }}><img className="generated-result-image" src={`${generatedAsset.imageUrl}?v=${generatedAsset.generationId}`} alt="RunPod 생성 결과" onLoad={(event) => debugLog("OUTPUT_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /></div><strong>{generatedAsset.generationId}</strong><small>canvas {generatedAsset.size}</small><small>{generatedAsset.selection?.frameId ?? pipelineFrameId}</small>{generatedAsset.layout && <small>frame {generatedAsset.layout.frameWidth}×{generatedAsset.layout.frameHeight} · x{generatedAsset.layout.frameX} y{generatedAsset.layout.frameY} · baseline {generatedAsset.layout.baselineY}</small>}<small>{(generatedAsset.elapsedMs / 1000).toFixed(1)}초</small></> : <><div className="frame-output-title">{isGenerating ? "RUNPOD 생성 중…" : category === "character" ? framePhase.id : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} className={category === "character" && index === frameIndex ? "is-current" : ""} />)}</div></>}</article>
+                    <article className={generatedAsset ? "output-plan has-result" : "output-plan"} data-testid="output-layout"><span className="source-label">OUTPUT</span>{generatedAsset ? <><div className="result-canvas-shell" style={{ aspectRatio: pipelineAspect }}><img className="generated-result-image" src={`${generatedAsset.imageUrl}?v=${generatedAsset.generationId}`} alt="RunPod 생성 결과" onLoad={(event) => debugLog("OUTPUT_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /><span className="result-crop-overlay" aria-label="고정 crop bounds 오버레이" /></div><strong>{generatedAsset.generationId}</strong><small>canvas {generatedAsset.size}</small><small>{generatedAsset.selection?.frameId ?? pipelineFrameId}</small>{generatedAsset.layout && <small>frame {generatedAsset.layout.frameWidth}×{generatedAsset.layout.frameHeight} · x{generatedAsset.layout.frameX} y{generatedAsset.layout.frameY} · baseline {generatedAsset.layout.baselineY}</small>}<small>{(generatedAsset.elapsedMs / 1000).toFixed(1)}초</small></> : <><div className="frame-output-title">{isGenerating ? "RUNPOD 생성 중…" : category === "character" ? framePhase.id : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} className={category === "character" && index === frameIndex ? "is-current" : ""} />)}</div></>}</article>
                   </div>
                 </section>
               </div>
 
-              {category === "character" && <div className="direction-reference-strip" data-testid="direction-reference-strip"><div className="option-heading"><span>방향별 무동작 기준 이미지</span><span className="field-note">ACTION은 같은 방향 REF 사용</span></div><div>{DIRECTIONS.map((item) => <button key={item.id} type="button" className={`${direction === item.id ? "is-active" : ""}${directionReferences[item.id].preview ? " is-approved" : " is-missing"}`} onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-${item.id}`}><PoseGuide action="idle" direction={item.id} compact /><span>{item.label}<small>{directionReferences[item.id].preview ? "승인 기준" : "미등록"}</small></span></button>)}</div></div>}
+              {category === "character" && <div className="direction-reference-strip" data-testid="direction-reference-strip"><div className="option-heading"><span>방향별 무동작 기준 이미지</span><button type="button" onClick={loadLatestDirectionReferences} disabled={isGenerating} data-testid="load-latest-direction-references">최근 기준 불러오기</button></div><div>{DIRECTIONS.map((item) => {
+                const reference = directionReferences[item.id];
+                const approved = directionApprovals[item.id];
+                return <article key={item.id} className={`${direction === item.id ? "is-active" : ""}${approved ? " is-approved" : reference.preview ? " is-review" : " is-missing"}`} data-testid={`direction-reference-${item.id}`}><div className="direction-reference-preview">{reference.preview ? <img src={reference.preview} alt={`${item.label} 기준 이미지`} /> : <PoseGuide action="idle" direction={item.id} compact />}</div><strong>{item.label}</strong><small>{approved ? "승인됨" : reference.preview ? "검수 필요" : "미등록"}</small><div className="direction-reference-actions"><button type="button" onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-${item.id}`}>보기</button>{item.id !== "front" && reference.preview && <button type="button" className={approved ? "is-approved" : ""} onClick={() => setDirectionApprovals((current) => ({ ...current, [item.id]: !current[item.id] }))} disabled={isGenerating} data-testid={`approve-direction-${item.id}`}>{approved ? "승인 취소" : "승인"}</button>}{item.id !== "front" && <button type="button" onClick={() => regenerateDirectionReference(item.id)} disabled={isGenerating || endpoint.status !== "연결됨"} data-testid={`regenerate-direction-${item.id}`}>재생성</button>}</div></article>;
+              })}</div></div>}
 
               {category === "character" && <div className="variant-controls"><section className="variant-section"><div className="option-heading"><span>방향</span><span className="field-note">LAYOUT OVERRIDE</span></div><div className="direction-grid">{DIRECTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={direction === item.id} className={direction === item.id ? "check-option is-checked" : "check-option"} onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-control-${item.id}`}><span className="check-box">{direction === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section><section className="variant-section"><div className="option-heading"><span>동작 7종</span><span className="field-note">CLICK TO DEBUG</span></div><div className="action-grid">{ACTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={action === item.id} className={action === item.id ? "check-option is-checked" : "check-option"} onClick={() => changeAction(item.id)} disabled={isGenerating} data-testid={`action-${item.id}`}><span className="check-box">{action === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section></div>}
             </>
           )}
 
           <div className="prompt-preview"><div className="prompt-heading"><span>PROMPT PREVIEW</span><span>OPTION SEED {optionSeed}</span></div><p>{toolMode === "i2i" ? generationPrompt : prompt}</p></div>
+          {toolMode === "i2i" && category === "character" && <section className="batch-generation" data-testid="character-batch-generation">
+            <div className="batch-generation-heading"><div><span>4-DIRECTION CHARACTER ASSETS</span><strong>정면 기준 → 후면·좌측 생성 + 우측 반전 → 방향 검수·승인 → 동작 68프레임</strong><small>RunPod 51프레임 + 우측 반전 17프레임 · crop · {targetWidth}×{targetHeight}px · Unity pivot (0.5, 0)</small></div><div className="batch-buttons"><button type="button" onClick={generateDirectionReferences} disabled={endpoint.status !== "연결됨" || isGenerating || !directionReferences.front.preview} data-testid="generate-direction-references">{isGenerating && batchProgress.status === "direction" ? `${batchProgress.completed}/${batchProgress.total} 방향 생성 중` : "후면·좌측 생성 + 우측 반전"}</button><button type="button" onClick={generateAllCharacterActions} disabled={endpoint.status !== "연결됨" || isGenerating || !allDirectionReferencesApproved} data-testid="generate-all-character-assets">{isGenerating && batchProgress.status === "actions" ? `${batchProgress.completed}/${batchProgress.total} RunPod 생성 중` : allDirectionReferencesApproved ? "승인 기준으로 68개 에셋 생성" : "4방향 승인 필요"}</button></div></div>
+            <div className="batch-progress" data-status={batchProgress.status}><i style={{ width: `${batchProgress.total ? (batchProgress.completed / batchProgress.total) * 100 : 0}%` }} /><span>{batchProgress.status === "idle" ? "대기" : `${batchProgress.completed}/${batchProgress.total} · ${batchProgress.current}`}</span></div>
+            {batchProgress.bundleId && <div className="batch-bundle"><strong>{batchProgress.bundleId}</strong>{batchProgress.manifestUrl && <a href={batchProgress.manifestUrl} target="_blank" rel="noreferrer">manifest.json</a>}</div>}
+            {batchResults.length > 0 && <div className="batch-result-grid" data-testid="batch-result-grid">{batchResults.map((result) => <article key={result.generationId}><div>{result.assetUrl ? <img src={result.assetUrl} alt={result.selection?.frameId ?? result.generationId} /> : <span>RAW</span>}</div><strong>{result.selection?.frameId}</strong><small>{result.selection?.direction} · {result.selection?.action}</small></article>)}</div>}
+          </section>}
           {toolMode === "i2i" && <div className="runpod-generation-bar" data-testid="runpod-generation"><div><span>QWEN-IMAGE-EDIT-2511</span><strong>{endpoint.status === "연결됨" ? endpoint.model : endpoint.message ?? "Endpoint 확인 중"}</strong><small>{hasActiveReference ? "Reference A + 자동 생성 Reference B" : `${direction}.ref 등록 필요`} · 40 steps · CFG 4 · guidance 1 · seed {optionSeed}</small></div><button type="button" onClick={runImageEdit} disabled={endpoint.status !== "연결됨" || isGenerating || !hasActiveReference} data-testid="runpod-generate">{isGenerating ? "이미지 생성 중…" : hasActiveReference ? "실제 이미지 생성" : `${direction}.ref 등록 필요`}</button></div>}
         </section>
 

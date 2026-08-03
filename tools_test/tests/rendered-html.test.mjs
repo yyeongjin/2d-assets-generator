@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
-const [page, css, editRoute, runpodServer] = await Promise.all([
+const [page, css, editRoute, runpodServer, manifestRoute, healthRoute] = await Promise.all([
   source("../app/page.tsx"),
   source("../app/globals.css"),
   source("../app/api/runpod/edit/route.ts"),
   source("../lib/runpod-server.ts"),
+  source("../app/api/assets/manifest/route.ts"),
+  source("../app/api/runpod/health/route.ts"),
 ]);
 
 test("T2I와 I2I 화면을 분리한다", () => {
@@ -31,7 +33,7 @@ test("레이아웃과 모든 발을 검은 크롭 범위의 바닥선에 맞춘�
   assert.match(page, /data-crop="outline-bounds"/);
   assert.match(page, /data-ground-contact="aligned"/);
   assert.match(css, /\.layout-frame\s*\{[^}]*overflow:\s*hidden/s);
-  assert.match(css, /\.pose-guide \{ inset: 4% 11% 0;/);
+  assert.match(css, /\.pose-guide \{ inset: 0 11% 0;/);
   assert.match(css, /\.pose-walk_empty \.pose-leg \{[^}]*bottom: 0;[^}]*transform-origin: 50% 100%;/);
   for (const index of [0, 1, 2, 3]) {
     assert.match(css, new RegExp(`\\.pose-walk_empty\\.frame-${index} \\.pose-leg-left`));
@@ -72,13 +74,43 @@ test("정면·후면·측면은 서로 다른 점유 규격과 방향별 기준�
   assert.match(page, /back: \{ occupancy: "76%"/);
   assert.match(page, /left: \{ occupancy: "56%"/);
   assert.match(page, /right: \{ occupancy: "56%"/);
+  assert.match(page, /CHARACTER_HEIGHT_OCCUPANCY = "100%"/);
+  assert.match(page, /4방향 공통 높이 \{directionLayout\.height\} · 위·아래 변 접촉/);
   assert.match(page, /같은 방향 기준 A \+ 방향·동작 가이드 B/);
   assert.match(page, /activeReference\.name/);
   assert.match(page, /INITIAL_DIRECTION_REFERENCES/);
   assert.match(page, /back: \{ file: null, preview: "", name: "back\.ref 미등록" \}/);
   assert.match(page, /DIRECTION_REFERENCE_REGISTERED/);
   assert.match(page, /isGenerating \|\| !hasActiveReference/);
-  assert.match(css, /\.pose-guide\.direction-left, \.pose-guide\.direction-right \{ inset: 4% 22% 0; \}/);
+  assert.match(page, /directionReferencePrompt/);
+  assert.match(page, /정면 기준으로 \$\{current\} 생성 중/);
+  assert.match(page, /Strict full left profile\. Nose points left\. Exactly one eye visible/);
+  assert.match(page, /Strict full right profile\. Nose points right\. Exactly one eye visible/);
+  assert.match(page, /Strict back view\. No face or eyes visible/);
+  assert.match(css, /\.pose-guide\.direction-left, \.pose-guide\.direction-right \{ inset: 0 22% 0; \}/);
+});
+
+test("RunPod가 방향 기준 3종과 4방향 동작 68프레임을 생성하고 에셋으로 후처리한다", () => {
+  assert.match(page, /generateDirectionReferences/);
+  assert.match(page, /generateAllCharacterActions/);
+  assert.match(page, /directionApprovals/);
+  assert.match(page, /data-testid="generate-direction-references"/);
+  assert.match(page, /data-testid="generate-all-character-assets"/);
+  assert.match(page, /data-testid="load-latest-direction-references"/);
+  assert.match(page, /data-testid=\{`approve-direction-\$\{item\.id\}`\}/);
+  assert.match(page, /requestCharacterAsset/);
+  assert.match(page, /assetBundle/);
+  assert.match(page, /assetName/);
+  assert.match(editRoute, /sharp\(imageBuffer\)/);
+  assert.match(editRoute, /\.extract\(/);
+  assert.match(editRoute, /kernel: sharp\.kernel\.nearest/);
+  assert.match(editRoute, /ASSET_EXPORTED/);
+  assert.match(page, /BATCH_REQUEST_RETRY/);
+  assert.match(page, /BATCH_ASSET_REUSED/);
+  assert.match(page, /loadStoredCharacterAsset/);
+  assert.match(manifestRoute, /export async function GET/);
+  assert.match(manifestRoute, /Idle_Right_01\.png/);
+  assert.match(css, /\.batch-progress/);
 });
 
 test("타일 I2I는 캐릭터 포즈가 아닌 topology 가이드를 쓴다", () => {
@@ -97,6 +129,8 @@ test("RunPod 설정은 환경변수만 사용하고 두 참조 이미지를 edit
   assert.match(editRoute, /form\.getAll\("image"\)/);
   assert.match(editRoute, /pngDimensions/);
   assert.match(editRoute, /referenceImages/);
+  assert.match(page, /body\.ok !== true/);
+  assert.match(healthRoute, /status: health\.ok \? 200 : 503/);
 });
 
 test("A·B·OUTPUT의 실제 캔버스와 브라우저 디버그 로그를 표시한다", () => {
@@ -113,7 +147,8 @@ test("A·B·OUTPUT의 실제 캔버스와 브라우저 디버그 로그를 표�
 });
 
 test("I2I 프롬프트는 정체성·포즈·프레임 내부·접지만 지시한다", () => {
-  assert.match(page, /Keep image 1 unchanged\. Match only this pose from image 2/);
-  assert.match(page, /Put the character inside the black frame\. Feet touch the bottom line\./);
-  assert.doesNotMatch(page, /Keep image 1 unchanged[^`\n]*ratio/i);
+  assert.match(page, /Keep image 1 colors, face, hair, clothing, and proportions exact\./);
+  assert.match(page, /Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge\./);
+  assert.match(page, /Strict full left profile/);
+  assert.doesNotMatch(page, /Keep image 1[^`\n]*ratio/i);
 });

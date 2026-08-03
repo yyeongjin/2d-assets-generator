@@ -1,0 +1,43 @@
+{
+  "generationId": "RUNPOD-20260803065757-86c3840a",
+  "requestId": "local-d14c39fd-780e-4a29-bd20-9e0669c4a720",
+  "model": "/workspace/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-03T06:57:57.512Z",
+  "selection": {
+    "category": "character",
+    "direction": "front",
+    "action": "weapon_2h",
+    "frameId": "Weapon2H_Down_01",
+    "frameIndex": 0
+  },
+  "layout": {
+    "frameX": 3,
+    "frameY": 6,
+    "frameWidth": 506,
+    "frameHeight": 1012,
+    "baselineY": 1018,
+    "strokeWidth": 6
+  },
+  "settings": {
+    "prompt": "Keep image 1 colors, face, hair, clothing, and proportions exact. Change only direction and pose. Strict front view. Both eyes aligned. Match pose Weapon2H_Down_01 from image 2. Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge. Keep everything inside. Hold one weapon with both hands. Remove guide marks.",
+    "negativePrompt": "different character, redesign, extra limbs, drawn frame, border lines, guide marks, outside frame, floating feet, shadow, ground, text, scenery",
+    "size": "512x1024",
+    "seed": 4821,
+    "numInferenceSteps": 20,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "crop": {
+    "left": 3,
+    "top": 6,
+    "width": 506,
+    "height": 1012
+  },
+  "output": {
+    "filename": "Weapon2H_Down_01.png",
+    "bytes": 590,
+    "size": "32x64",
+    "format": "png"
+  }
+}

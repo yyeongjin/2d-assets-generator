@@ -1,0 +1,43 @@
+{
+  "generationId": "RUNPOD-20260803064204-3e1d7d29",
+  "requestId": "local-e62a0dd1-c790-4735-a78a-b49f5bdebd10",
+  "model": "/workspace/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-03T06:42:04.390Z",
+  "selection": {
+    "category": "character",
+    "direction": "back",
+    "action": "direction_reference",
+    "frameId": "Idle_Up_01",
+    "frameIndex": 0
+  },
+  "layout": {
+    "frameX": 3,
+    "frameY": 6,
+    "frameWidth": 506,
+    "frameHeight": 1012,
+    "baselineY": 1018,
+    "strokeWidth": 6
+  },
+  "settings": {
+    "prompt": "Keep image 1 colors, face, hair, clothing, and proportions exact. Change only direction. Strict back view. No face or eyes visible. Match the idle pose from image 2. Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge. Keep everything inside. Remove guide marks.",
+    "negativePrompt": "different character, redesign, extra limbs, drawn frame, border lines, guide marks, outside frame, floating feet, shadow, ground, text, scenery, visible face, visible eyes",
+    "size": "512x1024",
+    "seed": 4821,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "crop": {
+    "left": 3,
+    "top": 6,
+    "width": 506,
+    "height": 1012
+  },
+  "output": {
+    "filename": "Idle_Up_01.png",
+    "bytes": 334,
+    "size": "32x64",
+    "format": "png"
+  }
+}

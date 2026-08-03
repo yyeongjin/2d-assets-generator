@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "bundleId": "character-farmer-20260803064029",
+  "status": "interrupted",
+  "planned": {
+    "runpodFrames": 51,
+    "mirroredRightFrames": 17,
+    "totalAssets": 68
+  },
+  "completed": {
+    "runpodFrames": 9,
+    "mirroredRightFrames": 0,
+    "directionReferences": 3
+  },
+  "nextFrame": "ToolSwing_Down_02",
+  "lastError": {
+    "type": "upstream-unavailable",
+    "status": 404,
+    "message": "RunPod proxy and Pod API returned not found"
+  },
+  "resume": {
+    "reuseExistingPngAndJson": true,
+    "requestRetriesPerFrame": 3,
+    "instruction": "Restore the same bundle, approve directions, and run the action batch again after the endpoint is available."
+  }
+}

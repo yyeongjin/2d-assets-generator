@@ -1,0 +1,43 @@
+{
+  "generationId": "RUNPOD-20260803065526-481b6975",
+  "requestId": "local-555b17a1-a6f2-4ce9-bef5-c8877e3d621c",
+  "model": "/workspace/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-03T06:55:26.227Z",
+  "selection": {
+    "category": "character",
+    "direction": "front",
+    "action": "walk_empty",
+    "frameId": "Walk_Down_04",
+    "frameIndex": 3
+  },
+  "layout": {
+    "frameX": 3,
+    "frameY": 6,
+    "frameWidth": 506,
+    "frameHeight": 1012,
+    "baselineY": 1018,
+    "strokeWidth": 6
+  },
+  "settings": {
+    "prompt": "Keep image 1 colors, face, hair, clothing, and proportions exact. Change only direction and pose. Strict front view. Both eyes aligned. Match pose Walk_Down_04 from image 2. Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge. Keep everything inside. Empty hands. Remove guide marks.",
+    "negativePrompt": "different character, redesign, extra limbs, drawn frame, border lines, guide marks, outside frame, floating feet, shadow, ground, text, scenery",
+    "size": "512x1024",
+    "seed": 4821,
+    "numInferenceSteps": 20,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "crop": {
+    "left": 3,
+    "top": 6,
+    "width": 506,
+    "height": 1012
+  },
+  "output": {
+    "filename": "Walk_Down_04.png",
+    "bytes": 456,
+    "size": "32x64",
+    "format": "png"
+  }
+}
