@@ -114,6 +114,8 @@ flowchart LR
 - UI 프레임워크: 미정
 - Unity 연동: 생성된 이미지와 메타데이터를 로컬 Unity 디버깅 도구에서 확인
 
+RunPod에서 `Qwen/Qwen-Image-Edit-2511`을 다운로드하고 vLLM Omni로 실행하는 전체 명령은 [RunPod Qwen-Image-Edit 실행 가이드](docs/RUNPOD_QWEN_IMAGE_EDIT.md)에 정리되어 있습니다.
+
 ## 문서
 
 - [제품 기획서](docs/PRODUCT_PLAN.md)
@@ -121,5 +123,6 @@ flowchart LR
 - [타일 카탈로그](docs/TILE_CATALOG.md)
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
+- [RunPod Qwen-Image-Edit-2511 실행 가이드](docs/RUNPOD_QWEN_IMAGE_EDIT.md)
 
 세부 입력 옵션, RunPod 요청 구조, 레이아웃 규격과 Unity 디버깅 방식은 제품 기획서에 기록합니다.
