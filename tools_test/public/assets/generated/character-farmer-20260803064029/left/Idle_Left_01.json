@@ -1,0 +1,43 @@
+{
+  "generationId": "RUNPOD-20260803064338-968c34d1",
+  "requestId": "local-fc50bf82-6ef0-4161-9faf-380a9a30789c",
+  "model": "/workspace/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-03T06:43:38.890Z",
+  "selection": {
+    "category": "character",
+    "direction": "left",
+    "action": "direction_reference",
+    "frameId": "Idle_Left_01",
+    "frameIndex": 0
+  },
+  "layout": {
+    "frameX": 3,
+    "frameY": 6,
+    "frameWidth": 506,
+    "frameHeight": 1012,
+    "baselineY": 1018,
+    "strokeWidth": 6
+  },
+  "settings": {
+    "prompt": "Keep image 1 colors, face, hair, clothing, and proportions exact. Change only direction. Strict full left profile. Nose points left. Exactly one eye visible. No right eye. Match the idle pose from image 2. Fill the black rectangle vertically: head touches the top edge and feet touch the bottom edge. Keep everything inside. Remove guide marks.",
+    "negativePrompt": "different character, redesign, extra limbs, drawn frame, border lines, guide marks, outside frame, floating feet, shadow, ground, text, scenery, front view, three-quarter view, two visible eyes",
+    "size": "512x1024",
+    "seed": 4821,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "crop": {
+    "left": 3,
+    "top": 6,
+    "width": 506,
+    "height": 1012
+  },
+  "output": {
+    "filename": "Idle_Left_01.png",
+    "bytes": 302,
+    "size": "32x64",
+    "format": "png"
+  }
+}

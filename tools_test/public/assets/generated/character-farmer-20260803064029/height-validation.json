@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "bundleId": "character-farmer-20260803064029",
+  "status": "passed",
+  "sourceCanvas": {
+    "size": "512x1024",
+    "crop": {
+      "left": 3,
+      "top": 6,
+      "width": 506,
+      "height": 1012,
+      "ratio": "1:2"
+    }
+  },
+  "output": {
+    "size": "32x64",
+    "requiredTop": 0,
+    "requiredBottom": 63,
+    "requiredHeight": 64
+  },
+  "directions": {
+    "front": {
+      "referenceBounds": [74, 6, 438, 1017],
+      "referenceHeight": 1012
+    },
+    "back": {
+      "asset": "back/Idle_Up_01.png",
+      "bounds": [4, 0, 27, 63],
+      "height": 64
+    },
+    "left": {
+      "asset": "left/Idle_Left_01.png",
+      "bounds": [6, 0, 25, 63],
+      "height": 64
+    },
+    "right": {
+      "asset": "right/Idle_Right_01.png",
+      "bounds": [6, 0, 25, 63],
+      "height": 64,
+      "transform": "horizontal-flip-of-left"
+    }
+  }
+}
