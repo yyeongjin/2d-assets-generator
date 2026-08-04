@@ -1,0 +1,31 @@
+{
+  "generationId": "OBJECT-20260804111300-303b7d82",
+  "requestId": "local-0c942786-74b8-4699-bd4a-1d324a992036",
+  "model": "/data/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-04T11:13:00.078Z",
+  "elapsedMs": 69558,
+  "phase": "base-asset",
+  "postprocessed": false,
+  "category": "object",
+  "assetName": "온실",
+  "input": {
+    "filename": "OBJECT-20260804111300-303b7d82-input.png",
+    "size": "1024x1024",
+    "bytes": 5353
+  },
+  "settings": {
+    "prompt": "Create one isolated 2D game sprite of a glass greenhouse with transparent glass wall panels, glass double doors, and a glass gabled roof, no opaque walls or barn doors. Flat orthographic front elevation only, centered on white, fully visible. Show only the front wall and front roof. No side wall, side roof, ground, path, plants, scenery, perspective, text, shadow, border, or cropping.",
+    "negativePrompt": "text, labels, watermark, frame, border, cropped subject, multiple unrelated subjects",
+    "size": "1024x1024",
+    "seed": 4821,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "output": {
+    "filename": "OBJECT-20260804111300-303b7d82.png",
+    "size": "1024x1024",
+    "bytes": 3147861
+  }
+}

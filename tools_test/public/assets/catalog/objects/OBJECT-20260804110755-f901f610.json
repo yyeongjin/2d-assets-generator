@@ -1,0 +1,31 @@
+{
+  "generationId": "OBJECT-20260804110755-f901f610",
+  "requestId": "local-54c45d6d-53fe-419e-b641-a3f1f114ca34",
+  "model": "/data/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-04T11:07:55.685Z",
+  "elapsedMs": 69362,
+  "phase": "base-asset",
+  "postprocessed": false,
+  "category": "object",
+  "assetName": "농가",
+  "input": {
+    "filename": "OBJECT-20260804110755-f901f610-input.png",
+    "size": "1024x1024",
+    "bytes": 5353
+  },
+  "settings": {
+    "prompt": "Create one isolated 2D game sprite of a small farmhouse with a front door and house windows, not a barn. Flat orthographic front elevation only, centered on white, fully visible. Show only the front wall and front roof. No side wall, side roof, ground, path, plants, scenery, perspective, text, shadow, border, or cropping.",
+    "negativePrompt": "text, labels, watermark, frame, border, cropped subject, multiple unrelated subjects",
+    "size": "1024x1024",
+    "seed": 4821,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "output": {
+    "filename": "OBJECT-20260804110755-f901f610.png",
+    "size": "1024x1024",
+    "bytes": 3147861
+  }
+}

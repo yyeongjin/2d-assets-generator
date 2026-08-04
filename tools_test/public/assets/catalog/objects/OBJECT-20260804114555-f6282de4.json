@@ -1,0 +1,31 @@
+{
+  "generationId": "OBJECT-20260804114555-f6282de4",
+  "requestId": "local-2b3f72dc-7cdd-4437-9b49-3c1922d0da86",
+  "model": "/data/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-04T11:45:55.588Z",
+  "elapsedMs": 68145,
+  "phase": "base-asset",
+  "postprocessed": false,
+  "category": "object",
+  "assetName": "허수아비",
+  "input": {
+    "filename": "OBJECT-20260804114555-f6282de4-input.png",
+    "size": "1024x1024",
+    "bytes": 5353
+  },
+  "settings": {
+    "prompt": "Create one clean 2D game asset of a farm scarecrow. True straight-on front view, centered on white, fully visible. No side view, three-quarter angle, perspective, character, text, shadow, border, or cropping.",
+    "negativePrompt": "text, labels, watermark, frame, border, cropped subject, multiple unrelated subjects",
+    "size": "1024x1024",
+    "seed": 141771001,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "output": {
+    "filename": "OBJECT-20260804114555-f6282de4.png",
+    "size": "1024x1024",
+    "bytes": 3147861
+  }
+}

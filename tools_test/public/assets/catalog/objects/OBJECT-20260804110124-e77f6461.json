@@ -1,0 +1,31 @@
+{
+  "generationId": "OBJECT-20260804110124-e77f6461",
+  "requestId": "local-f6be52cb-1a44-4512-b16d-dea7e208f60c",
+  "model": "/data/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-04T11:01:24.068Z",
+  "elapsedMs": 68827,
+  "phase": "base-asset",
+  "postprocessed": false,
+  "category": "object",
+  "assetName": "일반 나무",
+  "input": {
+    "filename": "OBJECT-20260804110124-e77f6461-input.png",
+    "size": "1024x1024",
+    "bytes": 5353
+  },
+  "settings": {
+    "prompt": "Create one clean 2D game asset of a mature farm tree. True straight-on front view, centered on white, fully visible. No side view, three-quarter angle, perspective, character, text, shadow, border, or cropping.",
+    "negativePrompt": "text, labels, watermark, frame, border, cropped subject, multiple unrelated subjects",
+    "size": "1024x1024",
+    "seed": 4821,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "output": {
+    "filename": "OBJECT-20260804110124-e77f6461.png",
+    "size": "1024x1024",
+    "bytes": 3147861
+  }
+}

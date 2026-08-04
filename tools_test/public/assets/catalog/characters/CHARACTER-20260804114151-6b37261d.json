@@ -1,0 +1,35 @@
+{
+  "generationId": "CHARACTER-20260804114151-6b37261d",
+  "requestId": "local-c2ed90d6-ab7f-4be2-a678-5488898ba216",
+  "model": "/data/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-04T11:41:51.828Z",
+  "elapsedMs": 69168,
+  "phase": "four-direction-character-reference",
+  "postprocessed": false,
+  "input": {
+    "filename": "CHARACTER-20260804114151-6b37261d-input.png",
+    "size": "1024x1024",
+    "bytes": 5353
+  },
+  "settings": {
+    "prompt": "Create one 2x2 turnaround sheet of one full-body shopkeeper, masculine, middle-aged, tall and lean, short dark hair, red short coat, charcoal trousers, black boots, straw hat on a plain white background. Top-left: front view. Top-right: back view. Bottom-left: right profile facing right. Bottom-right: left profile facing left. Show each character head-to-toe at equal height with feet on the same line. Keep identity, clothes, colors, and proportions identical. No text, borders, handheld items, shadows, or cropping.",
+    "negativePrompt": "different characters, inconsistent clothes, inconsistent scale, cropped body, text, panel borders",
+    "size": "1024x1024",
+    "seed": 141771001,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "output": {
+    "filename": "CHARACTER-20260804114151-6b37261d.png",
+    "size": "1024x1024",
+    "bytes": 3147861
+  },
+  "cells": [
+    "front",
+    "back",
+    "right",
+    "left"
+  ]
+}

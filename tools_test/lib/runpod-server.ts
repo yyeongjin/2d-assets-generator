@@ -125,6 +125,7 @@ export async function checkRunPodHealth() {
 }
 
 export async function requestImageEdit(images: File[], settings: ImageEditSettings): Promise<ImageEditResult> {
+  const startedAt = Date.now();
   const config = getRunPodConfig();
   const model = await discoverModel(config);
   const requestIdFallback = `local-${randomUUID()}`;
@@ -148,6 +149,7 @@ export async function requestImageEdit(images: File[], settings: ImageEditSettin
     model,
     references: images.map((image) => ({ name: image.name, type: image.type, bytes: image.size })),
     size: settings.size,
+    promptCharacters: settings.prompt.length,
     seed: settings.seed,
     steps: settings.numInferenceSteps,
   });
@@ -178,6 +180,7 @@ export async function requestImageEdit(images: File[], settings: ImageEditSettin
     outputFormat: responseBody.output_format ?? settings.outputFormat,
     size: responseBody.size ?? settings.size,
     base64Characters: first.b64_json.length,
+    elapsedMs: Date.now() - startedAt,
   });
   return {
     requestId,
