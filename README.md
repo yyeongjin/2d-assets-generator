@@ -6,6 +6,10 @@
 
 현재 결과물은 생성 품질이나 일관성이 검증된 완성본이 아닙니다. RunPod와 `Qwen-Image-Edit-2511`을 연결해 캐릭터·오브젝트·생명체 생성을 시도한 과정과 출력 결과를 기록용으로 남긴 상태입니다.
 
+영상 단계에서는 `Wan2.2-TI2V-5B-Diffusers`에 한 방향 셀을 보내 제자리 걷기를 검사하고 있습니다. `81 frames`, `50 steps`, `guidance 4`, `flow_shift 12` 조합으로 오른쪽 측면 좌우 발 교대는 한 차례 확인했지만, 네 방향과 다른 캐릭터·생명체에서의 재현성은 아직 검증 전입니다.
+
+![Wan2.2 오른쪽 측면 제자리 걷기 실험](tools_test/public/screenshots/wan-right-walk-official-sampling.gif)
+
 README의 GIF와 에셋 갤러리도 잘 작동하는 성공 사례를 의미하지 않습니다. 방향별 외형 일관성, 크기, 정면 표현, 프레임 구성 등 현재 확인된 결과와 문제를 비교하기 위한 실험 기록입니다.
 
 ![Asset Forge 브라우저 디버깅 과정](tools_test/public/screenshots/asset-forge-browser-debug.gif)
@@ -72,6 +76,9 @@ README의 GIF와 에셋 갤러리도 잘 작동하는 성공 사례를 의미하
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
 - [RunPod Qwen-Image-Edit-2511 실행 가이드](docs/RUNPOD_QWEN_IMAGE_EDIT.md)
+- [RunPod Wan2.2 걷기 영상 실행 가이드](docs/RUNPOD_WAN_VIDEO.md)
+
+동작 영상과 프레임 선택 흐름은 [acatovic/ai-game-studio](https://github.com/acatovic/ai-game-studio)의 `기준 스프라이트 → I2V job polling → 영상 저장 → FFmpeg 프레임 추출 → 프레임 선택` 구조에서 영감을 얻었습니다. 현재 도구에서는 생성 원본을 먼저 검토하기 위해 자동 크로마키·픽셀화·리사이즈는 적용하지 않습니다.
 
 ## 로컬 도구 실행
 
