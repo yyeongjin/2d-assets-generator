@@ -127,9 +127,17 @@ npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:3000`을 열고 `방향 · 상태 · 동작 변형`을 선택합니다. 현재 생성 흐름은 Reference A와 레이아웃 가이드 B를 `/v1/images/edits`로 전송하고, 512×1024 원본을 먼저 저장합니다. 68개 동작 프레임 생성이 모두 끝난 뒤에만 화면의 수동 후처리 버튼을 사용할 수 있습니다.
+브라우저에서 `http://localhost:3000`을 열고 다음 순서로 확인합니다.
 
-## 7. 현재 vLLM Qwen 파이프라인의 레이아웃 제한
+1. `연결 확인`으로 `/health`와 `/v1/models` 응답 확인
+2. 캐릭터 조건과 실제 전송 prompt 확인
+3. 1024×1024 빈 흰 캔버스 1장을 `/v1/images/edits`에 보내 2×2 방향 시트 생성
+4. 정면·후면·오른쪽·왼쪽의 정체성, 크기, 발 위치를 확인하고 Reference A로 승인
+5. 실제 아이템 이미지를 Reference B로 올려 네 방향 착용 결과 생성
+
+1단계의 빈 흰 캔버스는 Edit 모델이 요구하는 이미지 입력이며 레이아웃 가이드가 아닙니다. 1단계에는 Reference B가 없습니다. 2단계의 Reference B는 검은 윤곽 가이드가 아니라 실제 무기·도구·장비 이미지입니다. 두 단계 모두 RunPod 원본을 먼저 저장하며 자동 크롭·리사이즈·픽셀화를 실행하지 않습니다.
+
+## 7. vLLM Qwen 파이프라인의 마스크·레이아웃 제한
 
 vLLM-Omni의 `/v1/images/edits` 요청 규격에 `mask_image` 필드가 있어도 현재 `QwenImageEditPlusPipeline`이 그 필드를 실제 생성 입력으로 사용한다는 뜻은 아닙니다. 확인한 vLLM-Omni 구현에서는 Qwen 파이프라인이 `multi_modal_data["image"]`만 읽고 `mask_image`를 읽지 않습니다. 따라서 현재 도구는 사용되지 않는 마스크를 전송하지 않으며 화면에도 `MASK 미전송`으로 표시합니다.
 
@@ -152,7 +160,9 @@ vLLM-Omni의 `/v1/images/edits` 요청 규격에 `mask_image` 필드가 있어�
 - Diffusers의 `QwenImageEditInpaintPipeline`에서는 흰 영역을 다시 그리고 검은 영역을 보존합니다.
 - 이 규칙을 반전해 바깥을 흰색, 안쪽을 검은색으로 만들면 바깥을 편집하고 캐릭터가 들어갈 안쪽을 잠그므로 목적과 반대입니다.
 
-프레임을 실제로 잠그려면 흰색 내부 편집 영역과 검은색 외부 보존 영역을 사용하는 inpaint 파이프라인이 필요합니다. 현재 구조처럼 외형 기준 A, 포즈 가이드 B, 보존 마스크를 동시에 사용하려면 이 세 입력을 모두 처리하는 별도 endpoint를 구성해야 합니다. 단순히 vLLM 요청에 `mask_image` 필드만 추가하는 것으로는 해결되지 않습니다.
+프레임을 실제로 잠그려면 흰색 내부 편집 영역과 검은색 외부 보존 영역을 사용하는 inpaint 파이프라인이 필요합니다. 단순히 vLLM 요청에 `mask_image` 필드만 추가하는 것으로는 해결되지 않습니다.
+
+현재 캐릭터 검증 구조는 이 제한에 의존하지 않습니다. 첫 요청에서 네 방향을 한 장에 생성하고, 다음 요청은 승인한 네 방향 시트 A와 실제 아이템 B를 사용합니다. 이전 레이아웃 B 실험의 수치는 실패 기록으로만 남겨 두며 현재 생성 입력에는 사용하지 않습니다.
 
 - [vLLM-Omni Image Edit API](https://docs.vllm.ai/projects/vllm-omni/en/latest/serving/image_edit_api/)
 - [Diffusers Qwen Image Edit/Inpaint](https://huggingface.co/docs/diffusers/api/pipelines/qwenimage)

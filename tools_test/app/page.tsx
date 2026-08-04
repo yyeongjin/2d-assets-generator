@@ -1,1680 +1,593 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element -- blob previews and runtime-generated PNG URLs are intentionally shown without optimization. */
+/* eslint-disable @next/next/no-img-element -- RunPod output and local File previews must stay unoptimized for pixel-level inspection. */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-type ToolMode = "t2i" | "i2i";
-type AssetCategory = "tile" | "object" | "character" | "creature" | "item" | "vfx" | "ui" | "guide";
-type Direction = "front" | "back" | "left" | "right";
-type Family = {
-  id: string;
-  name: string;
-  group: string;
-  profile: string;
-  visualX: number;
-  visualY: number;
-  footprint: string;
-};
-type OptionDefinition = { key: string; title: string; values: string[] };
-type HistoryItem = {
-  id: string;
-  asset: string;
-  detail: string;
-  job: "완료" | "대기" | "실패";
-  assetState: "기준 선택" | "후처리" | "시트 생성" | "Unity 확인" | "반려";
-  time: string;
-};
 type EndpointState = {
   status: "확인 중" | "연결됨" | "오류";
   model?: string;
   latencyMs?: number;
   message?: string;
 };
-type GeneratedAsset = {
+
+type CharacterSheetResult = {
+  ok: true;
+  generationId: string;
+  requestId: string;
+  model: string;
+  prompt: string;
+  seed: number;
+  inputImageUrl: string;
+  imageUrl: string;
+  metadataUrl: string;
+  inputSize: string;
+  outputSize: string;
+  elapsedMs: number;
+  cells: string[];
+  postprocessed: false;
+};
+
+type EquipResult = {
   generationId: string;
   requestId: string;
   model: string;
   imageUrl: string;
   metadataUrl: string;
-  bundleImageUrl?: string | null;
-  bundleMetadataUrl?: string | null;
-  mirroredImageUrl?: string | null;
-  mirroredBundleImageUrl?: string | null;
-  mirroredBundleMetadataUrl?: string | null;
   elapsedMs: number;
-  outputBytes: number;
   size: string;
   seed: number;
-  referenceImages?: Array<{ name: string; type: string; bytes: number; filename: string; url: string; width?: number; height?: number; size?: string }>;
-  layout?: { frameX: number; frameY: number; frameWidth: number; frameHeight: number; baselineY: number; strokeWidth: number };
-  selection?: { category: AssetCategory; direction: Direction; action: string; frameId: string; frameIndex: number };
-  layoutValidation?: {
-    ok: boolean;
-    outline: { ok: boolean; coverage: { left: number; top: number; right: number; bottom: number } };
-    content: { left: number; top: number; right: number; bottom: number } | null;
-    overflow: { left: number; top: number; right: number; bottom: number };
-    contact?: { topDelta: number; bottomDelta: number; top: boolean; bottom: boolean };
-  };
-};
-type DirectionReference = { file: File | null; preview: string; name: string; stage: "source" | "generated" };
-type BatchProgress = {
-  status: "idle" | "direction" | "review" | "actions" | "complete" | "failed";
-  bundleId: string;
-  completed: number;
-  total: number;
-  current: string;
-  manifestUrl?: string;
+  referenceImages?: Array<{ name: string; url: string; size?: string }>;
 };
 
-const GUIDE_LONG_EDGE = 1024;
-const GUIDE_FRAME_OCCUPANCY = 0.8;
-const GUIDE_OUTER_MARGIN = "10%";
-const CHARACTER_HEIGHT_OCCUPANCY = "100%";
-
-const INITIAL_DIRECTION_REFERENCES: Record<Direction, DirectionReference> = {
-  front: { file: null, preview: "/test-inputs/reference-character-front.png", name: "reference-character-front.png", stage: "source" },
-  back: { file: null, preview: "", name: "back.ref 미등록", stage: "generated" },
-  left: { file: null, preview: "", name: "left.ref 미등록", stage: "generated" },
-  right: { file: null, preview: "", name: "right.ref 미등록", stage: "generated" },
+type HistoryItem = {
+  id: string;
+  phase: string;
+  imageUrl: string;
+  size: string;
+  seed: number;
+  status: "완료" | "실패";
+  createdAt: string;
 };
 
-const SCALE_PRESETS = [
-  { id: "T16", pixels: 16, description: "고전형" },
-  { id: "T32", pixels: 32, description: "기본" },
-  { id: "T64", pixels: 64, description: "고밀도" },
+type BaseAssetCategory = "tile" | "object" | "creature" | "item" | "vfx" | "ui" | "guide";
+
+type BaseAssetResult = {
+  ok: true;
+  generationId: string;
+  requestId: string;
+  model: string;
+  category: BaseAssetCategory;
+  assetName: string;
+  prompt: string;
+  seed: number;
+  inputImageUrl: string;
+  imageUrl: string;
+  metadataUrl: string;
+  inputSize: string;
+  outputSize: string;
+  elapsedMs: number;
+  postprocessed: false;
+};
+
+type SelectionKey = "role" | "gender" | "age" | "body" | "hair" | "clothes" | "detail";
+type Selections = Record<SelectionKey, string>;
+
+const CHARACTER_OPTIONS: Array<{ key: SelectionKey; label: string; values: Array<{ label: string; prompt: string }> }> = [
+  { key: "role", label: "역할", values: [
+    { label: "농부", prompt: "farm worker" },
+    { label: "여행자", prompt: "traveler" },
+    { label: "대장장이", prompt: "blacksmith" },
+    { label: "상인", prompt: "shopkeeper" },
+  ] },
+  { key: "gender", label: "성별 표현", values: [
+    { label: "남성형", prompt: "masculine" },
+    { label: "여성형", prompt: "feminine" },
+    { label: "중성적", prompt: "androgynous" },
+  ] },
+  { key: "age", label: "연령", values: [
+    { label: "청년", prompt: "young adult" },
+    { label: "중년", prompt: "middle-aged" },
+    { label: "노년", prompt: "older adult" },
+  ] },
+  { key: "body", label: "체형", values: [
+    { label: "보통", prompt: "average height and build" },
+    { label: "작고 단단함", prompt: "short and sturdy" },
+    { label: "크고 마름", prompt: "tall and lean" },
+  ] },
+  { key: "hair", label: "머리", values: [
+    { label: "짧은 흑발", prompt: "short dark hair" },
+    { label: "긴 갈색 머리", prompt: "long brown hair" },
+    { label: "묶은 적갈색 머리", prompt: "tied auburn hair" },
+    { label: "은색 단발", prompt: "silver bob haircut" },
+  ] },
+  { key: "clothes", label: "의상", values: [
+    { label: "파란 작업복", prompt: "blue work shirt, dark trousers, brown boots" },
+    { label: "초록 작업복", prompt: "green work shirt, beige trousers, brown boots" },
+    { label: "갈색 앞치마", prompt: "cream shirt, brown leather apron, dark boots" },
+    { label: "붉은 외투", prompt: "red short coat, charcoal trousers, black boots" },
+  ] },
+  { key: "detail", label: "특징", values: [
+    { label: "없음", prompt: "no accessories" },
+    { label: "밀짚모자", prompt: "straw hat" },
+    { label: "붉은 목도리", prompt: "red scarf" },
+    { label: "둥근 안경", prompt: "round glasses" },
+  ] },
 ];
 
-const CATEGORY_META: Record<AssetCategory, { label: string; short: string; description: string }> = {
-  tile: { label: "타일", short: "TL", description: "지형·물·전이·길·실내·디버그 타일" },
-  object: { label: "오브젝트", short: "OB", description: "자연물·농장·설비·건물·가구·장치" },
-  character: { label: "캐릭터", short: "CH", description: "플레이어·NPC·초상화·장비 레이어" },
-  creature: { label: "생명체", short: "CR", description: "가축·반려동물·야생동물·몬스터" },
-  item: { label: "아이템", short: "IT", description: "도구·무기·재료·음식·장비·퀘스트" },
-  vfx: { label: "VFX", short: "FX", description: "이동·도구·농사·상태·환경 효과" },
-  ui: { label: "UI", short: "UI", description: "HUD·인벤토리·대화·지도·커서" },
-  guide: { label: "가이드", short: "GD", description: "규격·포즈·autotile·footprint 템플릿" },
+const DEFAULT_SELECTIONS: Selections = {
+  role: "farm worker",
+  gender: "masculine",
+  age: "young adult",
+  body: "average height and build",
+  hair: "short dark hair",
+  clothes: "blue work shirt, dark trousers, brown boots",
+  detail: "no accessories",
 };
 
-const T2I_CATEGORIES = Object.keys(CATEGORY_META) as AssetCategory[];
-const I2I_CATEGORIES: AssetCategory[] = ["character", "object", "tile"];
+const ASSET_GROUPS = [
+  ["TL", "타일", "지표·물·길·전이"],
+  ["OB", "오브젝트", "자연물·건물·가구"],
+  ["CH", "캐릭터", "플레이어·NPC·레이어"],
+  ["CR", "생명체", "가축·야생동물·몬스터"],
+  ["IT", "아이템", "도구·무기·재료"],
+  ["FX", "VFX", "타격·채집·날씨"],
+  ["UI", "UI", "아이콘·커서·상태"],
+  ["GD", "가이드", "규격·방향·동작"],
+] as const;
 
-const PROFILE_SHAPES: Record<string, { visualX: number; visualY: number; footprint: string }> = {
-  "tile.1x1": { visualX: 1, visualY: 1, footprint: "1×1" },
-  "character.standard": { visualX: 1, visualY: 2, footprint: "1×1" },
-  "character.large": { visualX: 2, visualY: 3, footprint: "2×1" },
-  "portrait.standard": { visualX: 4, visualY: 4, footprint: "—" },
-  "object.1x1": { visualX: 1, visualY: 1, footprint: "1×1" },
-  "object.1x2": { visualX: 1, visualY: 2, footprint: "1×1" },
-  "object.2x1": { visualX: 2, visualY: 1, footprint: "2×1" },
-  "object.2x2": { visualX: 2, visualY: 2, footprint: "2×2" },
-  "object.2x3": { visualX: 2, visualY: 3, footprint: "2×2" },
-  "nature.tree.3x5": { visualX: 3, visualY: 5, footprint: "1×1" },
-  "crop.1x1": { visualX: 1, visualY: 1, footprint: "1×1" },
-  "crop.1x2": { visualX: 1, visualY: 2, footprint: "1×1" },
-  "crop.2x2": { visualX: 2, visualY: 2, footprint: "2×2" },
-  "machine.1x2": { visualX: 1, visualY: 2, footprint: "1×1" },
-  "machine.2x2": { visualX: 2, visualY: 2, footprint: "2×2" },
-  "machine.2x4": { visualX: 2, visualY: 4, footprint: "2×2" },
-  "furniture.2x1": { visualX: 2, visualY: 1, footprint: "2×1" },
-  "furniture.2x2": { visualX: 2, visualY: 2, footprint: "2×2" },
-  "outdoor.3x2": { visualX: 3, visualY: 2, footprint: "3×2" },
-  "building.6x7": { visualX: 6, visualY: 7, footprint: "6×5" },
-  "creature.2x2": { visualX: 2, visualY: 2, footprint: "1×1" },
-  "item.1x1": { visualX: 1, visualY: 1, footprint: "—" },
-  "vfx.2x2": { visualX: 2, visualY: 2, footprint: "—" },
-  "ui.4x4": { visualX: 4, visualY: 4, footprint: "—" },
-  "guide.2x2": { visualX: 2, visualY: 2, footprint: "—" },
-};
-
-function makeFamilies(prefix: string, group: string, names: string[], profile: string): Family[] {
-  const shape = PROFILE_SHAPES[profile] ?? PROFILE_SHAPES["object.1x1"];
-  return names.map((name, index) => ({ id: `${prefix}-${index}`, name, group, profile, ...shape }));
-}
-const FAMILY_CATALOG: Record<AssetCategory, Family[]> = {
-  tile: [
-    ...makeFamilies("tile-surface", "자연 지표면", ["잔디", "흙", "경작지", "모래", "얕은 물", "깊은 물", "자갈", "암반", "눈", "얼음", "늪·습지", "낙엽·꽃잎", "재·화산"], "tile.1x1"),
-    ...makeFamilies("tile-water", "물·해안", ["해안선", "얕은↔깊은 물", "강물", "연못", "폭포", "관개수로", "독·용암"], "tile.1x1"),
-    ...makeFamilies("tile-height", "전이·높이", ["잔디↔흙", "잔디↔모래", "흙↔암반", "눈↔노출 지면", "절벽", "단독 암주", "옹벽", "자연 계단", "경사로", "동굴 입구", "구멍·void"], "tile.1x1"),
-    ...makeFamilies("tile-path", "길·포장", ["흙길", "나무 길", "돌길", "벽돌길", "마을 도로", "광산 레일", "장식 border"], "tile.1x1"),
-    ...makeFamilies("tile-structure", "구조 연결", ["나무 다리", "돌·밧줄 다리", "계단", "사다리", "부두", "울타리", "벽·담장"], "tile.1x1"),
-    ...makeFamilies("tile-indoor", "실내", ["바닥", "특수 바닥", "벽", "특수 벽", "baseboard·trim", "beam·pillar", "문틀·창틀", "주방 counter", "rug·carpet", "실내 계단·난간", "cutaway mask"], "tile.1x1"),
-    ...makeFamilies("tile-debug", "Gameplay·디버그", ["건축 가능 overlay", "경작 overlay", "interaction trigger", "collision overlay", "NPC path", "spawn", "낚시 구역", "함정·압력판"], "tile.1x1"),
-  ],
-  object: [
-    ...makeFamilies("obj-tree", "나무·식생", ["일반 나무", "과실수"], "nature.tree.3x5"),
-    ...makeFamilies("obj-plant", "나무·식생", ["관목", "풀·잡초", "꽃", "수생 식물", "균류", "특수 식생"], "object.1x1"),
-    ...makeFamilies("obj-rock", "바위·채집", ["작은 돌", "나무 잔해", "잡초 장애물", "광석 노드", "보석·수정", "계절 장애물", "육지 채집물", "해변 채집물"], "object.1x1"),
-    ...makeFamilies("obj-rock-big", "바위·채집", ["큰 바위", "희귀 노드"], "object.2x2"),
-    ...makeFamilies("obj-crop", "작물", ["잎채소", "뿌리채소", "반복 수확", "곡물", "재배 꽃", "과실 관목", "병충해"], "crop.1x1"),
-    ...makeFamilies("obj-crop-tall", "작물", ["지지대 작물"], "crop.1x2"),
-    ...makeFamilies("obj-crop-giant", "작물", ["거대 작물"], "crop.2x2"),
-    ...makeFamilies("obj-farm-small", "농장 경계·배치", ["울타리", "sprinkler", "화단·화분", "벌통", "자동화 장치"], "object.1x1"),
-    ...makeFamilies("obj-farm-tall", "농장 경계·배치", ["표지판", "scarecrow", "횃불·농장등", "사료 설비"], "object.1x2"),
-    ...makeFamilies("obj-farm-wide", "농장 경계·배치", ["울타리 문", "양식장"], "object.2x1"),
-    ...makeFamilies("obj-machine-small", "보관·제작·가공", ["상자", "판매함"], "object.1x1"),
-    ...makeFamilies("obj-machine", "보관·제작·가공", ["용광로", "기본 가공기", "숯가마", "착유기", "양조기", "재봉·방직", "자원 설비"], "machine.1x2"),
-    ...makeFamilies("obj-machine-wide", "보관·제작·가공", ["작업대", "제분기", "염색 설비", "물 설비", "전력 설비"], "machine.2x2"),
-    ...makeFamilies("obj-building-farm", "농장 건물", ["농가", "농가 업그레이드", "축사", "축사 확장", "온실", "풍차", "창고·작업장", "우물", "특수 생산 건물"], "building.6x7"),
-    ...makeFamilies("obj-silo", "농장 건물", ["사일로"], "machine.2x4"),
-    ...makeFamilies("obj-building-town", "마을·공공·상업", ["상점", "대장간", "진료소", "여관·식당", "주민 주택", "공공 시설", "문화 시설", "기능 시설", "축제 건물 장식"], "building.6x7"),
-    ...makeFamilies("obj-outdoor-small", "거리·야외 소품", ["우편·게시", "폐기·보관", "도로 소품", "장식"], "object.1x2"),
-    ...makeFamilies("obj-outdoor", "거리·야외 소품", ["휴식 시설", "조명", "조경", "시장", "운반 소품", "기념물"], "outdoor.3x2"),
-    ...makeFamilies("obj-indoor-small", "실내 구조·가구", ["문", "창문", "수직 이동", "수납 가구", "주방", "작업", "난방·조명", "욕실", "장식"], "object.1x2"),
-    ...makeFamilies("obj-indoor", "실내 구조·가구", ["침대", "테이블·의자", "거실", "상업 가구"], "furniture.2x2"),
-    ...makeFamilies("obj-mine", "광산·동굴·던전", ["출입 장치", "광산 운송", "지지 구조", "광원", "파괴 용기", "보상", "함정", "환경 장식", "보스 장치"], "object.2x2"),
-    ...makeFamilies("obj-device", "이동수단·월드 장치", ["수상 이동", "육상 이동", "차량", "승강 장치", "포털", "제어 장치", "작동 구조", "시간·날씨 장치"], "outdoor.3x2"),
-  ],
-  character: [
-    ...makeFamilies("char-main", "캐릭터 family", ["플레이어", "주요 NPC", "서비스 NPC", "주민", "방문객·축제 NPC", "비인간형"], "character.standard"),
-    ...makeFamilies("char-large", "캐릭터 family", ["대형 인간형"], "character.large"),
-    ...makeFamilies("char-portrait", "초상화·레이어", ["대화 초상화"], "portrait.standard"),
-    ...makeFamilies("char-layer", "초상화·레이어", ["body·skin", "hair front·back", "의상", "신발", "모자·액세서리", "held item·tool·weapon", "shadow"], "character.standard"),
-  ],
-  creature: [
-    ...makeFamilies("creature", "동물·몬스터", ["가축", "가축 확장", "반려동물", "야생동물", "기본 몬스터", "몬스터 확장", "elite·boss"], "creature.2x2"),
-  ],
-  item: [
-    ...makeFamilies("item", "아이템 표현", ["농기구", "무기", "농사", "자원", "채집·낚시", "가공품", "소비품", "장비", "퀘스트", "특수"], "item.1x1"),
-  ],
-  vfx: [
-    ...makeFamilies("vfx", "VFX", ["이동", "도구", "농사", "제작", "상태", "환경", "자연", "연출"], "vfx.2x2"),
-  ],
-  ui: [
-    ...makeFamilies("ui", "UI", ["HUD", "인벤토리", "패널", "대화", "입력·커서", "지도", "알림", "관계", "디버그 overlay"], "ui.4x4"),
-  ],
-  guide: [
-    ...makeFamilies("guide", "생성 가이드", ["실제 규격 프레임", "공통 바닥선", "캐릭터·오브젝트 점유", "방향 포즈", "동작 포즈", "공통 점유", "오브젝트 상태", "타일 edge·corner·blob", "건물 footprint"], "guide.2x2"),
-  ],
-};
-
-const OPTION_GROUPS: Record<AssetCategory, OptionDefinition[]> = {
-  tile: [
-    { key: "environment", title: "환경", values: ["농장", "마을", "광산", "실내", "해안"] },
-    { key: "season", title: "계절", values: ["봄", "여름", "가을", "겨울"] },
-    { key: "weather", title: "날씨", values: ["맑음", "젖음", "눈", "안개"] },
-    { key: "topology", title: "연결", values: ["center", "edge", "outer corner", "inner corner", "transition", "47-tile blob"] },
-    { key: "state", title: "상태", values: ["기본", "손상", "애니메이션", "계절 overlay"] },
-    { key: "physics", title: "물리", values: ["walkable", "farmable", "fishable", "collision"] },
-  ],
-  object: [
-    { key: "material", title: "소재", values: ["목재", "석재", "금속", "천", "유리", "자연 소재"] },
-    { key: "environment", title: "배치 환경", values: ["농장", "마을", "실내", "광산", "물가"] },
-    { key: "state", title: "상태", values: ["기본", "열림", "작동 중", "완료", "가득 참", "손상"] },
-    { key: "facing", title: "방향 수", values: ["고정", "2방향", "4방향"] },
-  ],
-  character: [
-    { key: "gender", title: "성별 표현", values: ["여성", "남성", "중성"] },
-    { key: "age", title: "연령대", values: ["어린이", "청년", "성인", "노년"] },
-    { key: "height", title: "키", values: ["작음", "보통", "큼"] },
-    { key: "build", title: "체형", values: ["슬림", "보통", "탄탄", "큰 체형"] },
-    { key: "skin", title: "피부색", values: ["밝음", "중간", "짙음", "비인간색"] },
-    { key: "face", title: "얼굴·표정", values: ["둥근 얼굴", "각진 얼굴", "기본 표정", "미소"] },
-    { key: "hair", title: "머리", values: ["단발 흑발", "장발 갈색", "곱슬 은발", "묶은 적갈색", "수염"] },
-    { key: "outfit", title: "의상", values: ["농부 작업복", "대장장이 앞치마", "여행자 코트", "마을 평상복"] },
-    { key: "role", title: "역할", values: ["플레이어", "농부", "상인", "대장장이", "의사", "주민"] },
-    { key: "feature", title: "특징", values: ["없음", "모자", "안경", "직업 소품", "좌우 비대칭"] },
-  ],
-  creature: [
-    { key: "archetype", title: "체형", values: ["조류", "사족보행", "비행", "수중", "인간형", "슬라임형"] },
-    { key: "age", title: "성장", values: ["baby", "adult", "elite"] },
-    { key: "state", title: "기본 동작", values: ["idle", "walk", "eat", "sleep", "attack"] },
-    { key: "variant", title: "변형", values: ["기본색", "밝은색", "어두운색", "희귀색"] },
-  ],
-  item: [
-    { key: "representation", title: "표현", values: ["inventory icon", "world drop", "held-front", "held-overhead", "equipped overlay"] },
-    { key: "tier", title: "등급", values: ["기본", "구리", "철", "금", "희귀"] },
-    { key: "material", title: "소재", values: ["목재", "석재", "금속", "식물", "음식", "천"] },
-    { key: "state", title: "상태", values: ["기본", "사용 중", "손상", "고급"] },
-  ],
-  vfx: [
-    { key: "timing", title: "재생", values: ["one-shot", "loop", "hold"] },
-    { key: "direction", title: "방향", values: ["무방향", "4방향", "방사형", "진행 방향"] },
-    { key: "blend", title: "합성", values: ["alpha", "additive", "emissive"] },
-    { key: "intensity", title: "강도", values: ["약함", "보통", "강함"] },
-  ],
-  ui: [
-    { key: "state", title: "상태", values: ["normal", "hover", "selected", "disabled", "warning"] },
-    { key: "layout", title: "구조", values: ["icon", "nine-slice", "atlas", "marker", "glyph"] },
-    { key: "scale", title: "UI 배율", values: ["1x", "2x", "4x"] },
-    { key: "theme", title: "테마", values: ["농장", "마을", "광산", "축제"] },
-  ],
-  guide: [
-    { key: "guideType", title: "가이드 종류", values: ["layout", "pose", "autotile", "footprint", "building"] },
-    { key: "cells", title: "점유", values: ["1×1", "1×2", "2×1", "2×2", "3×2"] },
-    { key: "mark", title: "표시", values: ["outline", "baseline", "joint", "anchor", "motion path"] },
-  ],
-};
-
-const DIRECTIONS: Array<{ id: Direction; label: string }> = [
-  { id: "front", label: "정면" },
-  { id: "back", label: "후면" },
-  { id: "left", label: "좌측" },
-  { id: "right", label: "우측" },
+const BASE_ASSET_CATALOG: Array<{
+  id: BaseAssetCategory;
+  code: string;
+  label: string;
+  summary: string;
+  items: string[];
+}> = [
+  { id: "tile", code: "TL", label: "타일", summary: "지표·물·전이·길·실내", items: ["잔디 center", "흙 center", "경작지", "모래", "얕은 물", "깊은 물", "해안선", "잔디-흙 전이", "절벽", "흙길", "나무 길", "돌길", "나무 다리", "계단", "실내 목재 바닥", "실내 석조 벽"] },
+  { id: "object", code: "OB", label: "오브젝트", summary: "자연물·농장·설비·건물·가구", items: ["일반 나무", "과실수", "관목", "작은 돌", "큰 바위", "작물", "울타리", "울타리 문", "허수아비", "스프링클러", "상자", "작업대", "용광로", "농가", "축사", "온실", "우편함", "침대", "테이블", "의자"] },
+  { id: "creature", code: "CR", label: "생명체", summary: "가축·반려동물·야생동물·몬스터", items: ["닭", "소", "양", "돼지", "개", "고양이", "새", "개구리", "물고기", "슬라임", "비행 몬스터", "사족 몬스터"] },
+  { id: "item", code: "IT", label: "아이템", summary: "도구·무기·재료·음식·장비", items: ["괭이", "물뿌리개", "도끼", "곡괭이", "낚싯대", "낫", "망치", "한손검", "양손검", "둔기", "창", "활", "방패", "씨앗 주머니", "목재", "돌", "광석", "음식", "모자"] },
+  { id: "vfx", code: "FX", label: "VFX", summary: "이동·도구·농사·환경·날씨", items: ["먼지", "잔디 파편", "물 튀김", "눈 발자국", "휘두르기 궤적", "타격 불꽃", "수확 효과", "회복 효과", "비", "눈", "낙엽", "물결", "불꽃", "연기"] },
+  { id: "ui", code: "UI", label: "UI", summary: "HUD·인벤토리·패널·대화·커서", items: ["체력 아이콘", "스태미나 아이콘", "시간 아이콘", "날씨 아이콘", "인벤토리 슬롯", "선택 슬롯", "대화 상자", "상점 패널", "제작 패널", "기본 커서", "상호작용 커서", "지도 마커", "관계 하트"] },
+  { id: "guide", code: "GD", label: "가이드", summary: "규격·방향·동작·점유·autotile", items: ["1x1 점유", "1x2 점유", "2x1 점유", "2x2 점유", "3x2 점유", "4방향 배치", "걷기 접촉 포즈", "한손 무기 포즈", "양손 무기 포즈", "도구 휘두르기 포즈", "활쏘기 포즈", "타일 edge-corner guide"] },
 ];
 
-const DIRECTION_LAYOUTS: Record<Direction, { occupancy: string; height: string; safeMargin: string; reference: string; note: string }> = {
-  front: { occupancy: "78%", height: CHARACTER_HEIGHT_OCCUPANCY, safeMargin: "11%", reference: "character.farmer.front.ref", note: "어깨·양팔·양발이 보이는 정면 실루엣" },
-  back: { occupancy: "76%", height: CHARACTER_HEIGHT_OCCUPANCY, safeMargin: "12%", reference: "character.farmer.back.ref", note: "얼굴 없이 등·후두부 중심의 후면 실루엣" },
-  left: { occupancy: "56%", height: CHARACTER_HEIGHT_OCCUPANCY, safeMargin: "22%", reference: "character.farmer.left.ref", note: "몸통 폭을 줄이고 겹친 팔다리를 표시하는 측면 실루엣" },
-  right: { occupancy: "56%", height: CHARACTER_HEIGHT_OCCUPANCY, safeMargin: "22%", reference: "character.farmer.right.ref", note: "좌측 기준을 수평 반전해 동일 픽셀로 저장" },
-};
-
-const ACTIONS = [
-  { id: "walk_empty", label: "빈손 걷기", frames: 4 },
-  { id: "weapon_1h", label: "한손 무기 들기", frames: 2 },
-  { id: "weapon_2h", label: "양손 무기 들기", frames: 2 },
-  { id: "tool_swing", label: "도구 휘두르기", frames: 4 },
-  { id: "bow_shoot", label: "활 쏘기", frames: 3 },
-  { id: "carry_front", label: "물건을 앞에 들기", frames: 1 },
-  { id: "carry_overhead", label: "물건을 머리 위에 들기", frames: 1 },
+const DIRECTIONS = [
+  { id: "front", label: "정면", order: "1" },
+  { id: "back", label: "후면", order: "2" },
+  { id: "right", label: "오른쪽", order: "3" },
+  { id: "left", label: "왼쪽", order: "4" },
 ];
 
-const ACTION_EXPORT_PREFIX: Record<string, string> = {
-  weapon_1h: "Weapon1H",
-  weapon_2h: "Weapon2H",
-  tool_swing: "ToolSwing",
-  bow_shoot: "BowShoot",
-  carry_front: "CarryFront",
-  carry_overhead: "CarryOverhead",
+function buildPrompt(selections: Selections) {
+  const description = Object.values(selections).join(", ");
+  return [
+    `Create one 2x2 turnaround sheet of one full-body ${description} on a plain white background.`,
+    "Top-left: front view. Top-right: back view. Bottom-left: right profile facing right. Bottom-right: left profile facing left.",
+    "Show each character head-to-toe at equal height with feet on the same line.",
+    "Keep identity, clothes, colors, and proportions identical. No text, borders, handheld items, shadows, or cropping.",
+  ].join(" ");
+}
+
+const ASSET_PROMPT_NAMES: Record<string, string> = {
+  "잔디 center": "grass terrain center tile", "흙 center": "soil terrain center tile", "경작지": "tilled farmland tile", "모래": "sand terrain tile", "얕은 물": "shallow water tile", "깊은 물": "deep water tile", "해안선": "water shoreline tile", "잔디-흙 전이": "grass to soil transition tile", "절벽": "cliff terrain tile", "흙길": "dirt path tile", "나무 길": "wood plank path tile", "돌길": "stone path tile", "나무 다리": "wooden bridge tile", "계단": "outdoor stairs tile", "실내 목재 바닥": "indoor wooden floor tile", "실내 석조 벽": "indoor stone wall tile",
+  "일반 나무": "mature farm tree", "과실수": "fruit tree", "관목": "farm shrub", "작은 돌": "small field rock", "큰 바위": "large boulder", "작물": "mature farm crop", "울타리": "wooden farm fence", "울타리 문": "wooden farm gate", "허수아비": "farm scarecrow", "스프링클러": "farm sprinkler", "상자": "wooden storage chest", "작업대": "crafting workbench", "용광로": "small smelting furnace", "농가": "small farmhouse with a front door and house windows, not a barn", "축사": "small barn", "온실": "glass greenhouse with transparent glass wall panels, glass double doors, and a glass gabled roof, no opaque walls or barn doors", "우편함": "rural mailbox", "침대": "wooden single bed", "테이블": "wooden table", "의자": "wooden chair",
+  "닭": "chicken", "소": "cow", "양": "sheep", "돼지": "pig", "개": "farm dog", "고양이": "farm cat", "새": "small wild bird", "개구리": "frog", "물고기": "freshwater fish", "슬라임": "friendly slime creature", "비행 몬스터": "small flying monster", "사족 몬스터": "small quadruped monster",
+  "괭이": "farming hoe", "물뿌리개": "watering can", "도끼": "woodcutting axe", "곡괭이": "mining pickaxe", "낚싯대": "fishing rod", "낫": "farming sickle", "망치": "crafting hammer", "한손검": "one-handed sword", "양손검": "two-handed sword", "둔기": "one-handed mace", "창": "spear", "활": "wooden bow", "방패": "round shield", "씨앗 주머니": "seed pouch", "목재": "bundle of wood", "돌": "stone resource", "광석": "ore chunk", "음식": "farm meal", "모자": "straw hat",
+  "먼지": "dust puff effect", "잔디 파편": "grass debris effect", "물 튀김": "water splash effect", "눈 발자국": "snow footprint effect", "휘두르기 궤적": "weapon swing trail effect", "타격 불꽃": "impact spark effect", "수확 효과": "harvest pickup effect", "회복 효과": "healing effect", "비": "rain effect", "눈": "snowfall effect", "낙엽": "falling leaves effect", "물결": "water ripple effect", "불꽃": "small flame effect", "연기": "small smoke effect",
+  "체력 아이콘": "health icon", "스태미나 아이콘": "stamina icon", "시간 아이콘": "time icon", "날씨 아이콘": "weather icon", "인벤토리 슬롯": "inventory slot", "선택 슬롯": "selected inventory slot", "대화 상자": "dialogue box", "상점 패널": "shop panel", "제작 패널": "crafting panel", "기본 커서": "default game cursor", "상호작용 커서": "interaction cursor", "지도 마커": "map marker", "관계 하트": "relationship heart icon",
+  "1x1 점유": "one by one cell footprint guide", "1x2 점유": "one by two cell footprint guide", "2x1 점유": "two by one cell footprint guide", "2x2 점유": "two by two cell footprint guide", "3x2 점유": "three by two cell footprint guide", "4방향 배치": "four-direction turnaround placement guide", "걷기 접촉 포즈": "walk contact pose guide", "한손 무기 포즈": "one-handed weapon pose guide", "양손 무기 포즈": "two-handed weapon pose guide", "도구 휘두르기 포즈": "tool swing pose guide", "활쏘기 포즈": "bow shooting pose guide", "타일 edge-corner guide": "terrain tile edge and corner guide",
 };
 
-const ACTION_INSTRUCTIONS: Record<string, string> = {
-  walk_empty: "Empty hands.",
-  weapon_1h: "Hold one one-handed weapon.",
-  weapon_2h: "Hold one weapon with both hands.",
-  tool_swing: "Swing one tool.",
-  bow_shoot: "Shoot one bow.",
-  carry_front: "Hold one object in front.",
-  carry_overhead: "Hold one object overhead.",
-};
+const FRONT_ELEVATION_OBJECTS = new Set(["농가", "축사", "온실"]);
 
-type ActionPreset = (typeof ACTIONS)[number];
-type FramePhase = { id: string; label: string; prompt: string };
-
-const DIRECTION_EXPORT_NAMES: Record<Direction, string> = {
-  front: "Down",
-  back: "Up",
-  left: "Left",
-  right: "Right",
-};
-
-const DIRECTION_PROMPT_RULES: Record<Direction, string> = {
-  front: "Strict front view. Both eyes aligned.",
-  back: "Strict back view. No face or eyes visible.",
-  left: "Strict full left profile. Nose points left. Exactly one eye visible. No right eye.",
-  right: "Strict full right profile. Nose points right. Exactly one eye visible. No left eye.",
-};
-
-function makeFramePhases(actionPreset: ActionPreset, direction: Direction): FramePhase[] {
-  if (actionPreset.id === "walk_empty") {
-    const side = direction === "left" || direction === "right";
-    const labels = side ? ["앞발 전진", "중간", "뒷발 전진", "중간"] : ["화면 왼쪽 발 전진", "중간", "화면 오른쪽 발 전진", "중간"];
-    return labels.map((label, index) => ({
-      id: `Walk_${DIRECTION_EXPORT_NAMES[direction]}_${String(index + 1).padStart(2, "0")}`,
-      label,
-      prompt: label,
-    }));
-  }
-  const exportPrefix = ACTION_EXPORT_PREFIX[actionPreset.id] ?? actionPreset.id;
-  return Array.from({ length: actionPreset.frames }, (_, index) => ({
-    id: `${exportPrefix}_${DIRECTION_EXPORT_NAMES[direction]}_${String(index + 1).padStart(2, "0")}`,
-    label: `프레임 ${index + 1}`,
-    prompt: `frame ${index + 1}`,
-  }));
+function buildBaseAssetPrompt(category: BaseAssetCategory, item: string) {
+  const subject = ASSET_PROMPT_NAMES[item] ?? item;
+  if (category === "tile") return `Create one seamless square top-down 2D game tile of ${subject}. Fill edge to edge with a uniform repeating distribution. Flat painted color and simplified shapes. No center composition, vignette, objects, text, border, perspective, or photorealism.`;
+  if (category === "object" && FRONT_ELEVATION_OBJECTS.has(item)) return `Create one isolated 2D game sprite of a ${subject}. Flat orthographic front elevation only, centered on white, fully visible. Show only the front wall and front roof. No side wall, side roof, ground, path, plants, scenery, perspective, text, shadow, border, or cropping.`;
+  if (category === "object") return `Create one clean 2D game asset of a ${subject}. True straight-on front view, centered on white, fully visible. No side view, three-quarter angle, perspective, character, text, shadow, border, or cropping.`;
+  if (category === "creature") return `Create one 2x2 turnaround sheet of the same full-body ${subject} on white. Top-left true front: symmetric chest and both eyes visible. Top-right true rear: back and tail visible, no face. Bottom-left exact right profile facing right. Bottom-right exact left profile facing left. Equal size and foot line. No text, border, shadow, or cropping.`;
+  if (category === "vfx") return `Create one 2x2 keyframe sheet of the same 2D game ${subject} on white. Top-left small forming, top-right medium expanding, bottom-left large peak, bottom-right fading particles. One effect only per cell, flat illustrated shapes. No objects, scenery, text, border, or photorealism.`;
+  if (category === "ui") return `Create one clean 2D game ${subject}, centered on white with generous margin. Front-facing, simple readable shape. No text, border, shadow, or extra icons.`;
+  if (category === "guide") return `Create one clean black-line ${subject} on a white canvas. Keep all marks inside the canvas. No color, shading, text, or decoration.`;
+  if (category === "item") return `Create one clean 2D game asset of a ${subject}, small and centered on white with wide empty margin, fully visible and upright. No character, hand, text, border, shadow, or cropping.`;
+  return `Create one clean 2D game asset of a ${subject}, centered on white, fully visible and isolated. No character, text, border, shadow, or cropping.`;
 }
 
-function characterActionPrompt(direction: Direction, actionPreset: ActionPreset, frame: FramePhase) {
-  return `Keep image 1's character unchanged. Match only image 2's gray pose ${frame.id}. Preserve face, hair, clothes, colors, and proportions. Keep image 2's inner black frame visible at its exact position and size; do not move or scale it to the canvas edges. Place the character only inside that frame. Hair touches the top; soles touch the bottom. ${DIRECTION_PROMPT_RULES[direction]} ${ACTION_INSTRUCTIONS[actionPreset.id]}`;
+const DEFAULT_EQUIP_PROMPT = [
+  "Keep image 1 unchanged.",
+  "Add exactly one image 2 sword to each character's right hand.",
+  "Front and back: sword points straight down beside the right leg.",
+  "Side views: sword points forward.",
+  "Exactly 4 swords, all touching hands.",
+  "Clean white background. No loose swords or marks.",
+].join(" ");
+
+function randomChoice<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)];
 }
 
-function directionReferencePrompt(direction: Direction) {
-  if (direction === "front") {
-    return "Keep image 1's character unchanged. Preserve face, hair, clothes, colors, and proportions. Keep image 2's inner black frame visible at its exact position and size; do not move or scale it to the canvas edges. Place the character only inside that frame. Hair touches the top; soles touch the bottom.";
-  }
-  return `Keep image 1's character unchanged. Change only its direction to match image 2's gray guide. Preserve face, hair, clothes, colors, and proportions. Keep image 2's inner black frame visible at its exact position and size; do not move or scale it to the canvas edges. Place the character only inside that frame. Hair touches the top; soles touch the bottom. ${DIRECTION_PROMPT_RULES[direction]}`;
-}
-
-function guideCanvasSize(visualX: number, visualY: number) {
-  const unit = Math.max(128, Math.floor(GUIDE_LONG_EDGE / Math.max(visualX, visualY) / 64) * 64);
-  return { width: visualX * unit, height: visualY * unit };
-}
-
-function guideFrameGeometry(visualX: number, visualY: number) {
-  const { width, height } = guideCanvasSize(visualX, visualY);
-  const strokeWidth = Math.max(12, Math.min(width, height) * 0.024);
-  const availableWidth = width * GUIDE_FRAME_OCCUPANCY;
-  const availableHeight = height * GUIDE_FRAME_OCCUPANCY;
-  const frameUnit = Math.floor(Math.min(availableWidth / visualX, availableHeight / visualY));
-  const frameWidth = visualX * frameUnit;
-  const frameHeight = visualY * frameUnit;
-  const frameX = (width - frameWidth) * 0.5;
-  const frameY = (height - frameHeight) * 0.5;
-  return {
-    width,
-    height,
-    frame: {
-      frameX: Math.round(frameX),
-      frameY: Math.round(frameY),
-      frameWidth: Math.round(frameWidth),
-      frameHeight: Math.round(frameHeight),
-      baselineY: Math.round(frameY + frameHeight),
-      strokeWidth: Math.round(strokeWidth),
-    },
-  };
-}
-
-const DEFAULT_HISTORY: HistoryItem[] = [
-  { id: "GEN-024", asset: "character.farmer_02", detail: "T32 · front.ref · tool_swing", job: "완료", assetState: "기준 선택", time: "방금" },
-  { id: "GEN-023", asset: "object.furnace", detail: "32×64 · processing", job: "완료", assetState: "Unity 확인", time: "12분 전" },
-  { id: "GEN-022", asset: "tile.grass", detail: "32×32 · transition", job: "완료", assetState: "후처리", time: "28분 전" },
-  { id: "GEN-021", asset: "object.market_stall", detail: "96×64 · closed", job: "실패", assetState: "반려", time: "41분 전" },
-];
-
-const INITIAL_SELECTIONS = Object.fromEntries(
-  Object.entries(OPTION_GROUPS).flatMap(([category, groups]) => groups.map((group) => [`${category}.${group.key}`, group.values[0]])),
-);
-
-function pick<T>(values: T[]) {
-  return values[Math.floor(Math.random() * values.length)];
-}
-
-function debugLog(event: string, details: Record<string, unknown> = {}) {
-  console.info(`[AssetForge][${event}]`, details);
-}
-
-class GenerationRequestError extends Error {
-  retryable: boolean;
-
-  constructor(message: string, retryable = true) {
-    super(message);
-    this.name = "GenerationRequestError";
-    this.retryable = retryable;
-  }
-}
-
-function OptionGroup({
-  category,
-  definition,
-  selected,
-  locked,
-  onSelect,
-  onRandom,
-  onLock,
-}: {
-  category: AssetCategory;
-  definition: OptionDefinition;
-  selected: string;
-  locked: boolean;
-  onSelect: (value: string) => void;
-  onRandom: () => void;
-  onLock: () => void;
-}) {
-  return (
-    <section className="option-group" data-testid={`option-group-${category}-${definition.key}`}>
-      <div className="option-heading">
-        <span>{definition.title}</span>
-        <div className="option-tools">
-          <button type="button" className="micro-button" onClick={onRandom} disabled={locked}>랜덤</button>
-          <button type="button" className={locked ? "lock-button is-locked" : "lock-button"} onClick={onLock} aria-pressed={locked}>{locked ? "잠금됨" : "잠금"}</button>
-        </div>
-      </div>
-      <div className="check-grid">
-        {definition.values.map((value) => (
-          <button key={value} type="button" role="checkbox" aria-checked={selected === value} className={selected === value ? "check-option is-checked" : "check-option"} onClick={() => onSelect(value)}>
-            <span className="check-box" aria-hidden="true">{selected === value ? "✓" : ""}</span><span>{value}</span>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function PoseGuide({ action, direction, frameIndex = 0, compact = false }: { action: string; direction: Direction; frameIndex?: number; compact?: boolean }) {
-  return (
-    <div className={`pose-guide direction-${direction} pose-${action} frame-${frameIndex}${compact ? " is-compact" : ""}`} aria-label={`${direction} ${action} frame ${frameIndex + 1} 포즈 가이드`} data-testid="asset-pose" data-direction={direction} data-action={action} data-frame={frameIndex} data-ground-contact="aligned" data-occupancy={DIRECTION_LAYOUTS[direction].occupancy}>
-      <span className="pose-back-shape" />
-      <span className="pose-head" />
-      <span className="pose-face-mark" />
-      <span className="pose-torso" />
-      <span className="pose-arm pose-arm-left" />
-      <span className="pose-arm pose-arm-right" />
-      <span className="pose-leg pose-leg-left" />
-      <span className="pose-leg pose-leg-right" />
-      <span className="pose-equipment" />
-      <span className="pose-item" />
-    </div>
-  );
-}
-
-function objectSchematicKind(family: Family) {
-  if (family.profile.includes("tree")) return "tree";
-  if (family.profile.includes("2x4") || family.profile.includes("building")) return "silo";
-  if (family.profile.includes("furniture") || family.profile.includes("outdoor")) return "table";
-  if (family.profile.includes("machine")) return "furnace";
-  return "chest";
-}
-
-function ObjectSchematic({ family, compact = false }: { family: Family; compact?: boolean }) {
-  const kind = objectSchematicKind(family);
-  return (
-    <div className={`object-schematic schematic-${kind}${compact ? " is-compact" : ""}`} aria-label={`${family.name} 배치 가이드`} data-testid="asset-object" data-family={family.id} data-ground-contact="aligned">
-      <span className="schematic-part part-a" /><span className="schematic-part part-b" /><span className="schematic-part part-c" />
-    </div>
-  );
-}
-
-function TileGuide({ topology, compact = false }: { topology: string; compact?: boolean }) {
-  return (
-    <div className={`tile-guide topology-${topology.replaceAll(" ", "-")}${compact ? " is-compact" : ""}`} data-testid="asset-tile" data-topology={topology}>
-      {Array.from({ length: 9 }, (_, index) => <span key={index} className={`tile-cell tile-cell-${index}`} />)}
-    </div>
-  );
-}
-
-async function createLayoutGuide(
-  visualX: number,
-  visualY: number,
-  category: AssetCategory,
-  direction: Direction,
-  action: string,
-  frameIndex: number,
-): Promise<{ blob: Blob; width: number; height: number; frame: NonNullable<GeneratedAsset["layout"]> }> {
-  const { width, height, frame } = guideFrameGeometry(visualX, visualY);
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas 2D context를 만들 수 없습니다.");
-
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, width, height);
-  const { frameX, frameY, frameWidth, frameHeight, baselineY: baseline, strokeWidth } = frame;
-  context.strokeStyle = "#555555";
-  context.fillStyle = "#555555";
-  context.lineWidth = Math.max(8, Math.min(width, height) * 0.025);
-  context.lineCap = "round";
-  context.lineJoin = "round";
-
-  if (category === "character" && action === "idle" && direction === "front") {
-    // 정면 기준은 포즈 변형이 없으므로 검은 배치 외곽선만 전송한다.
-  } else if (category === "character") {
-    const side = direction === "left" || direction === "right";
-    const centerX = frameX + frameWidth * 0.5;
-    const headRadius = frameWidth * (side ? 0.105 : 0.135);
-    const headY = frameY + headRadius;
-    const shoulderY = frameY + frameHeight * 0.35;
-    const hipY = frameY + frameHeight * 0.61;
-    const stride = action === "walk_empty" ? frameWidth * (side ? 0.18 : 0.24) : frameWidth * 0.13;
-    let leftFootOffset = -stride;
-    let rightFootOffset = stride;
-    if (action === "walk_empty") {
-      if (side) {
-        const forward = direction === "left" ? -1 : 1;
-        const phases = [
-          [forward * stride, -forward * stride * 0.35],
-          [-forward * stride * 0.12, forward * stride * 0.12],
-          [-forward * stride, forward * stride * 0.35],
-          [forward * stride * 0.12, -forward * stride * 0.12],
-        ];
-        [leftFootOffset, rightFootOffset] = phases[frameIndex % phases.length];
-      } else {
-        const phases = [
-          [-stride, stride * 0.25],
-          [-stride * 0.12, stride * 0.12],
-          [-stride * 0.25, stride],
-          [stride * 0.12, -stride * 0.12],
-        ];
-        [leftFootOffset, rightFootOffset] = phases[frameIndex % phases.length];
-      }
-    }
-
-    let leftHandX = centerX - frameWidth * (side ? 0.12 : 0.25);
-    let leftHandY = frameY + frameHeight * 0.5;
-    let rightHandX = centerX + frameWidth * (side ? 0.11 : 0.25);
-    let rightHandY = frameY + frameHeight * 0.48;
-    const phase = frameIndex % Math.max(1, ACTIONS.find((item) => item.id === action)?.frames ?? 1);
-
-    if (action === "weapon_1h") {
-      rightHandX = centerX + frameWidth * 0.3;
-      rightHandY = frameY + frameHeight * (phase === 0 ? 0.39 : 0.48);
-    } else if (action === "weapon_2h" || action === "tool_swing") {
-      const raised = action === "tool_swing" && phase < 2;
-      leftHandX = centerX - frameWidth * 0.15;
-      rightHandX = centerX + frameWidth * 0.15;
-      leftHandY = rightHandY = frameY + frameHeight * (raised ? 0.28 : 0.43);
-    } else if (action === "bow_shoot") {
-      leftHandX = centerX + frameWidth * 0.24;
-      rightHandX = centerX - frameWidth * (phase === 2 ? 0.08 : 0.2);
-      leftHandY = rightHandY = frameY + frameHeight * 0.4;
-    } else if (action === "carry_front") {
-      leftHandX = centerX - frameWidth * 0.2;
-      rightHandX = centerX + frameWidth * 0.2;
-      leftHandY = rightHandY = frameY + frameHeight * 0.49;
-    } else if (action === "carry_overhead") {
-      leftHandX = centerX - frameWidth * 0.18;
-      rightHandX = centerX + frameWidth * 0.18;
-      leftHandY = rightHandY = frameY + frameHeight * 0.16;
-    }
-
-    context.beginPath();
-    context.arc(centerX, headY, headRadius, 0, Math.PI * 2);
-    context.stroke();
-    if (direction === "left" || direction === "right") {
-      const facing = direction === "left" ? -1 : 1;
-      context.beginPath();
-      context.moveTo(centerX + facing * headRadius * 0.9, headY - headRadius * 0.1);
-      context.lineTo(centerX + facing * headRadius * 1.35, headY + headRadius * 0.12);
-      context.lineTo(centerX + facing * headRadius * 0.88, headY + headRadius * 0.25);
-      context.stroke();
-      context.beginPath();
-      context.arc(centerX + facing * headRadius * 0.45, headY - headRadius * 0.18, context.lineWidth * 0.48, 0, Math.PI * 2);
-      context.fill();
-    }
-    context.beginPath();
-    context.moveTo(centerX, headY + headRadius);
-    context.lineTo(centerX, hipY);
-    context.moveTo(centerX, shoulderY);
-    context.lineTo(leftHandX, leftHandY);
-    context.moveTo(centerX, shoulderY);
-    context.lineTo(rightHandX, rightHandY);
-    context.moveTo(centerX, hipY);
-    context.lineTo(centerX + leftFootOffset, baseline);
-    context.moveTo(centerX, hipY);
-    context.lineTo(centerX + rightFootOffset, baseline);
-    context.moveTo(centerX + leftFootOffset - frameWidth * 0.05, baseline);
-    context.lineTo(centerX + leftFootOffset + frameWidth * 0.08, baseline);
-    context.moveTo(centerX + rightFootOffset - frameWidth * 0.05, baseline);
-    context.lineTo(centerX + rightFootOffset + frameWidth * 0.08, baseline);
-    context.stroke();
-    context.beginPath();
-    context.arc(centerX, hipY, context.lineWidth * 0.7, 0, Math.PI * 2);
-    context.fill();
-
-    context.lineWidth = Math.max(6, Math.min(width, height) * 0.018);
-    if (action === "weapon_1h") {
-      context.beginPath();
-      context.moveTo(rightHandX, rightHandY);
-      context.lineTo(rightHandX + frameWidth * 0.18, rightHandY - frameHeight * 0.19);
-      context.stroke();
-    } else if (action === "weapon_2h") {
-      context.beginPath();
-      context.moveTo(centerX - frameWidth * 0.34, leftHandY + frameHeight * 0.1);
-      context.lineTo(centerX + frameWidth * 0.34, rightHandY - frameHeight * 0.1);
-      context.stroke();
-    } else if (action === "tool_swing") {
-      const angle = [-0.32, -0.1, 0.16, 0.34][phase] ?? 0;
-      context.beginPath();
-      context.moveTo(centerX - frameWidth * angle, leftHandY - frameHeight * 0.08);
-      context.lineTo(centerX + frameWidth * angle, frameY + frameHeight * 0.67);
-      context.stroke();
-      context.beginPath();
-      context.moveTo(centerX + frameWidth * angle - frameWidth * 0.12, frameY + frameHeight * 0.67);
-      context.lineTo(centerX + frameWidth * angle + frameWidth * 0.12, frameY + frameHeight * 0.67);
-      context.stroke();
-    } else if (action === "bow_shoot") {
-      const bowX = centerX + frameWidth * 0.28;
-      context.beginPath();
-      context.arc(bowX, leftHandY, frameWidth * 0.19, Math.PI * 0.5, Math.PI * 1.5);
-      context.stroke();
-      context.beginPath();
-      context.moveTo(bowX, leftHandY - frameWidth * 0.19);
-      context.lineTo(rightHandX, rightHandY);
-      context.lineTo(bowX, leftHandY + frameWidth * 0.19);
-      context.moveTo(rightHandX, rightHandY);
-      context.lineTo(bowX + frameWidth * 0.18, leftHandY);
-      context.stroke();
-    } else if (action === "carry_front" || action === "carry_overhead") {
-      const itemWidth = frameWidth * 0.42;
-      const itemHeight = frameHeight * 0.16;
-      const itemY = action === "carry_overhead" ? frameY + frameHeight * 0.035 : frameY + frameHeight * 0.43;
-      context.strokeRect(centerX - itemWidth * 0.5, itemY, itemWidth, itemHeight);
-    }
-  } else if (category === "tile") {
-    const cellWidth = frameWidth / 3;
-    const cellHeight = frameHeight / 3;
-    for (let row = 0; row < 3; row += 1) {
-      for (let column = 0; column < 3; column += 1) {
-        context.globalAlpha = row === 1 || column === 1 ? 0.5 : 0.15;
-        context.fillRect(frameX + column * cellWidth, frameY + row * cellHeight, cellWidth, cellHeight);
-      }
-    }
-    context.globalAlpha = 1;
-  } else {
-    const objectWidth = frameWidth * 0.72;
-    const objectHeight = frameHeight * 0.62;
-    context.strokeRect(frameX + (frameWidth - objectWidth) * 0.5, baseline - objectHeight, objectWidth, objectHeight);
-    context.beginPath();
-    context.moveTo(frameX + frameWidth * 0.22, baseline - objectHeight * 0.55);
-    context.lineTo(frameX + frameWidth * 0.78, baseline - objectHeight * 0.55);
-    context.stroke();
-  }
-
-  // The crop outline is the fixed target boundary, so draw it last in front of every pose/object guide.
-  context.globalAlpha = 1;
-  context.strokeStyle = "#000000";
-  context.lineWidth = strokeWidth;
-  context.lineCap = "butt";
-  context.lineJoin = "miter";
-  context.strokeRect(frameX - strokeWidth * 0.5, frameY - strokeWidth * 0.5, frameWidth + strokeWidth, frameHeight + strokeWidth);
-
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((value) => value ? resolve(value) : reject(new Error("레이아웃 PNG 생성 실패")), "image/png");
-  });
-  debugLog("GUIDE_CREATED", {
-    category,
-    direction,
-    action,
-    frameIndex,
-    canvas: `${width}x${height}`,
-    frame: `${Math.round(frameWidth)}x${Math.round(frameHeight)}@${Math.round(frameX)},${Math.round(frameY)}`,
-    baseline: Math.round(baseline),
-  });
-  return {
-    blob,
-    width,
-    height,
-    frame,
-  };
-}
-
-async function normalizeReferenceOnWhite(
-  source: Blob,
-  targetWidth: number,
-  targetHeight: number,
-  fillFrame?: NonNullable<GeneratedAsset["layout"]>,
-) {
-  const bitmap = await createImageBitmap(source);
-  const sourceCanvas = document.createElement("canvas");
-  sourceCanvas.width = bitmap.width;
-  sourceCanvas.height = bitmap.height;
-  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
-  if (!sourceContext) {
-    bitmap.close();
-    throw new Error("Reference A 외곽 분석 실패");
-  }
-  sourceContext.fillStyle = "#ffffff";
-  sourceContext.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-  sourceContext.drawImage(bitmap, 0, 0);
-
-  let sourceX = 0;
-  let sourceY = 0;
-  let sourceWidth = bitmap.width;
-  let sourceHeight = bitmap.height;
-  if (fillFrame) {
-    const pixels = sourceContext.getImageData(0, 0, bitmap.width, bitmap.height).data;
-    let minX = bitmap.width;
-    let minY = bitmap.height;
-    let maxX = -1;
-    let maxY = -1;
-    for (let y = 0; y < bitmap.height; y += 1) {
-      for (let x = 0; x < bitmap.width; x += 1) {
-        const offset = (y * bitmap.width + x) * 4;
-        const foreground = pixels[offset + 3] > 16 && (pixels[offset] < 245 || pixels[offset + 1] < 245 || pixels[offset + 2] < 245);
-        if (!foreground) continue;
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
-      }
-    }
-    if (maxX >= minX && maxY >= minY) {
-      sourceX = minX;
-      sourceY = minY;
-      sourceWidth = maxX - minX + 1;
-      sourceHeight = maxY - minY + 1;
-    }
-  }
-
-  const canvas = document.createElement("canvas");
-  canvas.width = targetWidth;
-  canvas.height = targetHeight;
-  const context = canvas.getContext("2d");
-  if (!context) {
-    bitmap.close();
-    throw new Error("Reference A 흰 배경 합성 실패");
-  }
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  const targetFrame = fillFrame ?? { frameX: 0, frameY: 0, frameWidth: targetWidth, frameHeight: targetHeight, baselineY: targetHeight, strokeWidth: 0 };
-  const scale = Math.min(targetFrame.frameWidth / sourceWidth, targetFrame.frameHeight / sourceHeight);
-  const width = Math.round(sourceWidth * scale);
-  const height = Math.round(sourceHeight * scale);
-  const drawX = Math.round(targetFrame.frameX + (targetFrame.frameWidth - width) * 0.5);
-  const drawY = Math.round(targetFrame.frameY + targetFrame.frameHeight - height);
-  context.imageSmoothingEnabled = false;
-  context.drawImage(bitmap, sourceX, sourceY, sourceWidth, sourceHeight, drawX, drawY, width, height);
-  if (fillFrame) {
-    context.strokeStyle = "#000000";
-    context.lineWidth = fillFrame.strokeWidth;
-    context.strokeRect(
-      fillFrame.frameX - fillFrame.strokeWidth * 0.5,
-      fillFrame.frameY - fillFrame.strokeWidth * 0.5,
-      fillFrame.frameWidth + fillFrame.strokeWidth,
-      fillFrame.frameHeight + fillFrame.strokeWidth,
-    );
-  }
-  debugLog("REFERENCE_A_NORMALIZED", {
-    source: `${bitmap.width}x${bitmap.height}`,
-    foreground: `${sourceWidth}x${sourceHeight}@${sourceX},${sourceY}`,
-    target: `${targetWidth}x${targetHeight}`,
-    drawn: `${width}x${height}@${drawX},${drawY}`,
-    frame: fillFrame ? `${fillFrame.frameWidth}x${fillFrame.frameHeight}@${fillFrame.frameX},${fillFrame.frameY}` : "canvas",
-  });
-  bitmap.close();
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Reference A PNG 변환 실패")), "image/png");
-  });
+function nowLabel() {
+  return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date());
 }
 
 export default function Home() {
-  const [toolMode, setToolMode] = useState<ToolMode>("t2i");
-  const [category, setCategory] = useState<AssetCategory>("tile");
-  const [scaleId, setScaleId] = useState("T32");
-  const [familyByCategory, setFamilyByCategory] = useState<Record<AssetCategory, string>>(() => Object.fromEntries(T2I_CATEGORIES.map((item) => [item, FAMILY_CATALOG[item][0].id])) as Record<AssetCategory, string>);
-  const [activeGroup, setActiveGroup] = useState(FAMILY_CATALOG.tile[0].group);
-  const [direction, setDirection] = useState<Direction>("front");
-  const [action, setAction] = useState("walk_empty");
-  const [frameIndex, setFrameIndex] = useState(0);
-  const [selections, setSelections] = useState<Record<string, string>>(INITIAL_SELECTIONS);
-  const [lockedFields, setLockedFields] = useState<string[]>(["character.gender"]);
-  const [optionSeed, setOptionSeed] = useState(4821);
-  const [history, setHistory] = useState<HistoryItem[]>(DEFAULT_HISTORY);
-  const [notice, setNotice] = useState("RunPod 연결 상태를 확인 중입니다.");
   const [endpoint, setEndpoint] = useState<EndpointState>({ status: "확인 중" });
-  const [referenceFile, setReferenceFile] = useState<File | null>(null);
-  const [referencePreview, setReferencePreview] = useState("/test-inputs/reference-character-front.png");
-  const [frontSourceReference, setFrontSourceReference] = useState<DirectionReference>(INITIAL_DIRECTION_REFERENCES.front);
-  const [directionReferences, setDirectionReferences] = useState<Record<Direction, DirectionReference>>(INITIAL_DIRECTION_REFERENCES);
-  const [directionApprovals, setDirectionApprovals] = useState<Record<Direction, boolean>>({ front: false, back: false, left: false, right: false });
-  const [generatedAsset, setGeneratedAsset] = useState<GeneratedAsset | null>(null);
+  const [selections, setSelections] = useState<Selections>(DEFAULT_SELECTIONS);
+  const [prompt, setPrompt] = useState(() => buildPrompt(DEFAULT_SELECTIONS));
+  const [seed, setSeed] = useState(4821);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [batchProgress, setBatchProgress] = useState<BatchProgress>({ status: "idle", bundleId: "", completed: 0, total: 3, current: "" });
-  const [batchResults, setBatchResults] = useState<GeneratedAsset[]>([]);
-  const [isPostprocessing, setIsPostprocessing] = useState(false);
-  const [postprocessManifestUrl, setPostprocessManifestUrl] = useState("");
-  const [preparedReferenceA, setPreparedReferenceA] = useState("");
-  const [preparedReferenceB, setPreparedReferenceB] = useState("");
+  const [notice, setNotice] = useState("RunPod 연결 확인 버튼을 눌러 주세요.");
+  const [sheet, setSheet] = useState<CharacterSheetResult | null>(null);
+  const [approved, setApproved] = useState(false);
+  const [itemFile, setItemFile] = useState<File | null>(null);
+  const [itemPreview, setItemPreview] = useState("");
+  const [equipResult, setEquipResult] = useState<EquipResult | null>(null);
+  const [equipPrompt, setEquipPrompt] = useState(DEFAULT_EQUIP_PROMPT);
+  const [isEquipping, setIsEquipping] = useState(false);
+  const [catalogCategory, setCatalogCategory] = useState<BaseAssetCategory>("item");
+  const [catalogItem, setCatalogItem] = useState("한손검");
+  const [catalogPrompt, setCatalogPrompt] = useState(() => buildBaseAssetPrompt("item", "한손검"));
+  const [catalogResult, setCatalogResult] = useState<BaseAssetResult | null>(null);
+  const [generatedItem, setGeneratedItem] = useState<BaseAssetResult | null>(null);
+  const [isGeneratingBase, setIsGeneratingBase] = useState(false);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
 
-  useEffect(() => {
-    debugLog("BOOT", { location: window.location.href, devicePixelRatio: window.devicePixelRatio });
-  }, []);
+  const activeCatalog = useMemo(() => BASE_ASSET_CATALOG.find((group) => group.id === catalogCategory) ?? BASE_ASSET_CATALOG[0], [catalogCategory]);
 
-  useEffect(() => {
-    const saved = window.localStorage.getItem("asset-forge-history");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as HistoryItem[];
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setHistory(parsed.map((item) => item.detail.includes("PNG 후처리 완료")
-          ? { ...item, detail: item.detail.replace("PNG 후처리 완료", "기존 구조 후처리 결과") }
-          : item));
-      } catch {
-        window.localStorage.removeItem("asset-forge-history");
-      }
-    }
-  }, []);
+  const selectedLabels = useMemo(() => CHARACTER_OPTIONS.map((group) => {
+    const selected = group.values.find((value) => value.prompt === selections[group.key]);
+    return { label: group.label, value: selected?.label ?? selections[group.key] };
+  }), [selections]);
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/runpod/health", { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok || body.ok !== true) throw new Error(body.message || `Endpoint 상태 확인 실패 · HTTP ${body.status ?? response.status}`);
-        if (active) {
-          setEndpoint({ status: "연결됨", model: body.model, latencyMs: body.latencyMs });
-          setNotice(`RunPod 연결 완료 · ${body.model}`);
-        }
-      })
-      .catch((error: Error) => {
-        if (active) {
-          setEndpoint({ status: "오류", message: error.message });
-          setNotice(`RunPod 연결 오류 · ${error.message}`);
-        }
-      });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem("asset-forge-history", JSON.stringify(history));
-  }, [history]);
-
-  const availableCategories = toolMode === "t2i" ? T2I_CATEGORIES : I2I_CATEGORIES;
-  const currentFamilies = FAMILY_CATALOG[category];
-  const family = currentFamilies.find((item) => item.id === familyByCategory[category]) ?? currentFamilies[0];
-  const catalogGroups = Array.from(new Set(currentFamilies.map((item) => item.group)));
-  const visibleFamilies = currentFamilies.filter((item) => item.group === activeGroup);
-  const scale = SCALE_PRESETS.find((item) => item.id === scaleId) ?? SCALE_PRESETS[1];
-  const targetWidth = family.visualX * scale.pixels;
-  const targetHeight = family.visualY * scale.pixels;
-  const ratioLabel = `${family.visualX}:${family.visualY}`;
-  const actionPreset = ACTIONS.find((item) => item.id === action) ?? ACTIONS[0];
-  const framePhases = useMemo(() => makeFramePhases(actionPreset, direction), [actionPreset, direction]);
-  const framePhase = framePhases[Math.min(frameIndex, framePhases.length - 1)];
-  const directionLayout = DIRECTION_LAYOUTS[direction];
-  const activeReference = category === "character"
-    ? directionReferences[direction]
-    : { file: referenceFile, preview: referencePreview, name: referenceFile?.name ?? "reference-a.png" };
-  const hasActiveReference = Boolean(activeReference.preview);
-  const topology = selections["tile.topology"];
-  const objectState = selections["object.state"];
-  const guideSize = guideCanvasSize(family.visualX, family.visualY);
-
-  const frameSize = useMemo(() => {
-    const maxWidth = 230;
-    const maxHeight = 250;
-    const unit = Math.min(maxWidth / family.visualX, maxHeight / family.visualY);
-    return { width: family.visualX * unit, height: family.visualY * unit };
-  }, [family.visualX, family.visualY]);
-
-  const prompt = useMemo(() => {
-    const optionText = OPTION_GROUPS[category].map((group) => selections[`${category}.${group.key}`]).join(", ");
-    if (toolMode === "t2i") {
-      const frontRule = category === "character" ? ", front view, neutral standing reference" : "";
-      return `${CATEGORY_META[category].label} 기준 에셋, ${family.name}, ${optionText}${frontRule}, ${family.profile}`;
-    }
-    if (category === "character") {
-      return `approved ${direction} direction reference, ${direction}, ${actionPreset.id}, preserve identity, ${targetWidth}x${targetHeight}px, occupancy ${directionLayout.occupancy}, feet on crop bottom`;
-    }
-    if (category === "tile") return `tile variant, ${family.name}, ${topology}, seamless adjacency, ${targetWidth}x${targetHeight}px`;
-    return `object variant, ${family.name}, ${objectState}, ${targetWidth}x${targetHeight}px, ${family.profile}, base on crop bottom`;
-  }, [actionPreset.id, category, direction, directionLayout.occupancy, family, objectState, selections, targetHeight, targetWidth, toolMode, topology]);
-
-  const generationPrompt = useMemo(() => {
-    if (category === "character") {
-      return characterActionPrompt(direction, actionPreset, framePhase);
-    }
-    if (category === "tile") {
-      return `Keep image 1's tile unchanged. Match only image 2's ${topology} guide. Keep image 2's black frame unchanged and every tile pixel inside it.`;
-    }
-    return `Keep image 1's object unchanged. Match only image 2's ${objectState} guide. Keep image 2's black frame unchanged. Keep every object pixel inside; its base touches the bottom border.`;
-  }, [actionPreset, category, direction, framePhase, objectState, topology]);
-
-  useEffect(() => {
-    if (toolMode !== "i2i" || !activeReference.preview) return;
-    let cancelled = false;
-    let referenceAUrl = "";
-    let referenceBUrl = "";
-
-    async function prepareReferencePipeline() {
-      const referenceBlob = activeReference.file
-        ? activeReference.file
-        : await fetch(activeReference.preview).then((response) => {
-          if (!response.ok) throw new Error(`${activeReference.name} 기준 이미지를 읽을 수 없습니다.`);
-          return response.blob();
-        });
-      const guide = await createLayoutGuide(family.visualX, family.visualY, category, direction, action, frameIndex);
-      const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height, category === "character" ? guide.frame : undefined);
-      referenceAUrl = URL.createObjectURL(normalizedReference);
-      referenceBUrl = URL.createObjectURL(guide.blob);
-      if (cancelled) {
-        URL.revokeObjectURL(referenceAUrl);
-        URL.revokeObjectURL(referenceBUrl);
-        return;
-      }
-      setPreparedReferenceA(referenceAUrl);
-      setPreparedReferenceB(referenceBUrl);
-      debugLog("REFERENCE_PIPELINE_PREPARED", {
-        reference: activeReference.name,
-        category,
-        direction,
-        action,
-        frameIndex,
-        canvas: `${guide.width}x${guide.height}`,
-        frame: `${guide.frame.frameWidth}x${guide.frame.frameHeight}@${guide.frame.frameX},${guide.frame.frameY}`,
-      });
-    }
-
-    prepareReferencePipeline().catch((error: Error) => {
-      debugLog("REFERENCE_PIPELINE_PREPARE_FAILED", { message: error.message });
-    });
-    return () => {
-      cancelled = true;
-      if (referenceAUrl) URL.revokeObjectURL(referenceAUrl);
-      if (referenceBUrl) URL.revokeObjectURL(referenceBUrl);
-    };
-  }, [activeReference.file, activeReference.name, activeReference.preview, action, category, direction, family.visualX, family.visualY, frameIndex, toolMode]);
-
-  function changeTool(next: ToolMode) {
-    setToolMode(next);
-    setGeneratedAsset(null);
-    if (next === "i2i" && !I2I_CATEGORIES.includes(category)) changeCategory("character");
-    setNotice(next === "t2i" ? "T2I 전체 카탈로그의 기준 에셋 조건을 편집합니다." : "승인된 방향별 기준 이미지로 I2I 변형을 편집합니다.");
-  }
-
-  function changeCategory(next: AssetCategory) {
-    setCategory(next);
-    setGeneratedAsset(null);
-    const selected = FAMILY_CATALOG[next].find((item) => item.id === familyByCategory[next]) ?? FAMILY_CATALOG[next][0];
-    setActiveGroup(selected.group);
-  }
-
-  function selectFamily(next: Family) {
-    setFamilyByCategory((current) => ({ ...current, [category]: next.id }));
-    setGeneratedAsset(null);
-    setNotice(`${CATEGORY_META[category].label} / ${next.name} family를 선택했습니다.`);
-  }
-
-  function updateOption(key: string, value: string) {
-    setSelections((current) => ({ ...current, [`${category}.${key}`]: value }));
-    setGeneratedAsset(null);
-  }
-
-  function changeScale(next: string) {
-    setScaleId(next);
-    setGeneratedAsset(null);
-  }
-
-  function changeDirection(next: Direction) {
-    debugLog("DIRECTION_SELECTED", { from: direction, to: next });
-    setDirection(next);
-    setFrameIndex(0);
-    setGeneratedAsset(null);
-  }
-
-  function changeAction(next: string) {
-    debugLog("ACTION_SELECTED", { from: action, to: next });
-    setAction(next);
-    setFrameIndex(0);
-    setGeneratedAsset(null);
-  }
-
-  function changeFrame(next: number) {
-    debugLog("FRAME_SELECTED", { from: framePhase.id, to: framePhases[next]?.id, index: next });
-    setFrameIndex(next);
-    setGeneratedAsset(null);
-  }
-
-  function randomizeField(definition: OptionDefinition) {
-    const key = `${category}.${definition.key}`;
-    if (lockedFields.includes(key)) return;
-    updateOption(definition.key, pick(definition.values));
-    setOptionSeed(Math.floor(Math.random() * 9000) + 1000);
+  function updateSelection(key: SelectionKey, value: string) {
+    const next = { ...selections, [key]: value };
+    setSelections(next);
+    setPrompt(buildPrompt(next));
+    setApproved(false);
   }
 
   function randomizeAll() {
-    setSelections((current) => {
-      const next = { ...current };
-      OPTION_GROUPS[category].forEach((definition) => {
-        const key = `${category}.${definition.key}`;
-        if (!lockedFields.includes(key)) next[key] = pick(definition.values);
-      });
-      return next;
-    });
-    setOptionSeed(Math.floor(Math.random() * 9000) + 1000);
-    setNotice(`${CATEGORY_META[category].label}의 잠기지 않은 조건을 랜덤 선택했습니다.`);
+    const next = CHARACTER_OPTIONS.reduce((current, group) => ({
+      ...current,
+      [group.key]: randomChoice(group.values).prompt,
+    }), {} as Selections);
+    setSelections(next);
+    setPrompt(buildPrompt(next));
+    setSeed(Math.floor(Math.random() * 2_000_000_000));
+    setApproved(false);
+    setNotice("캐릭터 조건과 seed를 랜덤 선택했습니다.");
   }
 
-  function toggleLock(definition: OptionDefinition) {
-    const key = `${category}.${definition.key}`;
-    setLockedFields((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+  function changeCatalogCategory(category: BaseAssetCategory) {
+    const group = BASE_ASSET_CATALOG.find((entry) => entry.id === category) ?? BASE_ASSET_CATALOG[0];
+    const item = group.items[0];
+    setCatalogCategory(category);
+    setCatalogItem(item);
+    setCatalogPrompt(buildBaseAssetPrompt(category, item));
+    setCatalogResult(null);
+    setNotice(`${group.label} 기준 에셋 목록을 열었습니다.`);
   }
 
-  function saveSnapshot() {
-    const detail = toolMode === "t2i" ? `${scaleId} · ${family.profile} · T2I 기준` : category === "character" ? `${scaleId} · ${direction}.ref · ${actionPreset.id}` : `${targetWidth}×${targetHeight} · ${category === "tile" ? topology : objectState}`;
-    const item: HistoryItem = { id: `LOCAL-${String(Date.now()).slice(-5)}`, asset: `${category}.${family.id}`, detail, job: "대기", assetState: "후처리", time: "방금" };
-    setHistory((current) => [item, ...current].slice(0, 8));
-    setNotice("현재 설정을 로컬 히스토리에 저장했습니다.");
+  function changeCatalogItem(item: string) {
+    setCatalogItem(item);
+    setCatalogPrompt(buildBaseAssetPrompt(catalogCategory, item));
   }
 
-  function changeReference(file: File | null) {
-    if (!file) return;
-    const preview = URL.createObjectURL(file);
-    if (category === "character") {
-      const previous = frontSourceReference.preview;
-      if (previous.startsWith("blob:")) URL.revokeObjectURL(previous);
-      const source = { file, preview, name: file.name, stage: "source" as const };
-      setFrontSourceReference(source);
-      setDirectionReferences({
-        front: source,
-        back: { file: null, preview: "", name: "back.ref 미등록", stage: "generated" },
-        left: { file: null, preview: "", name: "left.ref 미등록", stage: "generated" },
-        right: { file: null, preview: "", name: "right.ref 미등록", stage: "generated" },
-      });
-      setDirectionApprovals({ front: false, back: false, left: false, right: false });
-      setBatchProgress({ status: "idle", bundleId: "", completed: 0, total: 3, current: "" });
-      setBatchResults([]);
-      setPostprocessManifestUrl("");
-      setDirection("front");
-      debugLog("FRONT_SOURCE_REGISTERED", { name: file.name, bytes: file.size, type: file.type });
-    } else {
-      if (referencePreview.startsWith("blob:")) URL.revokeObjectURL(referencePreview);
-      setReferenceFile(file);
-      setReferencePreview(preview);
-      debugLog("REFERENCE_REGISTERED", { category, name: file.name, bytes: file.size, type: file.type });
-    }
-    setGeneratedAsset(null);
-    setNotice(`Reference A 교체 · ${category === "character" ? "정면 생성 입력 · " : ""}${file.name}`);
+  function randomizeCatalogItem() {
+    const item = randomChoice(activeCatalog.items);
+    setCatalogItem(item);
+    setCatalogPrompt(buildBaseAssetPrompt(catalogCategory, item));
+    setSeed(Math.floor(Math.random() * 2_000_000_000));
+    setNotice(`${activeCatalog.label} 유형과 seed를 랜덤 선택했습니다.`);
   }
 
-  async function referenceToBlob(reference: DirectionReference) {
-    if (reference.file) return reference.file;
-    const response = await fetch(reference.preview);
-    if (!response.ok) throw new Error(`${reference.name} 기준 이미지를 읽을 수 없습니다.`);
-    return response.blob();
-  }
-
-  async function requestCharacterAsset({
-    reference,
-    targetDirection,
-    targetAction,
-    targetFrameIndex,
-    seed,
-    bundleId,
-    directionReference = false,
-    mirrorRight = false,
-  }: {
-    reference: DirectionReference;
-    targetDirection: Direction;
-    targetAction: string;
-    targetFrameIndex: number;
-    seed: number;
-    bundleId?: string;
-    directionReference?: boolean;
-    mirrorRight?: boolean;
-  }) {
-    const targetActionPreset = ACTIONS.find((item) => item.id === targetAction) ?? ACTIONS[0];
-    const phases = makeFramePhases(targetActionPreset, targetDirection);
-    const targetFrame = directionReference
-      ? { id: `Idle_${DIRECTION_EXPORT_NAMES[targetDirection]}_01`, label: "기본 대기", prompt: "idle" }
-      : phases[Math.min(targetFrameIndex, phases.length - 1)];
-    const referenceBlob = await referenceToBlob(reference);
-    const guide = await createLayoutGuide(family.visualX, family.visualY, "character", targetDirection, directionReference ? "idle" : targetAction, targetFrameIndex);
-    const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height, guide.frame);
-    const requestPrompt = directionReference ? directionReferencePrompt(targetDirection) : characterActionPrompt(targetDirection, targetActionPreset, targetFrame);
-    const form = new FormData();
-    form.append("image", normalizedReference, `reference-a-identity-${reference.name}`);
-    form.append("image", guide.blob, `reference-b-layout-character-${targetDirection}-${targetFrame.id}.png`);
-    form.set("prompt", requestPrompt);
-    form.set("negativePrompt", "redesign, restyle, realistic, 3D, shading, changed face, changed hair, changed clothes, changed colors, changed proportions, missing black crop frame, broken crop frame, covered crop frame");
-    form.set("size", `${guide.width}x${guide.height}`);
-    form.set("seed", String(seed));
-    form.set("numInferenceSteps", "40");
-    form.set("trueCfgScale", "4");
-    form.set("guidanceScale", "1");
-    form.set("frameX", String(guide.frame.frameX));
-    form.set("frameY", String(guide.frame.frameY));
-    form.set("frameWidth", String(guide.frame.frameWidth));
-    form.set("frameHeight", String(guide.frame.frameHeight));
-    form.set("baselineY", String(guide.frame.baselineY));
-    form.set("strokeWidth", String(guide.frame.strokeWidth));
-    form.set("category", "character");
-    form.set("direction", targetDirection);
-    form.set("action", directionReference ? "direction_reference" : targetAction);
-    form.set("frameId", targetFrame.id);
-    form.set("frameIndex", String(targetFrameIndex));
-    if (bundleId) {
-      form.set("assetBundle", bundleId);
-      form.set("assetName", targetFrame.id);
-    }
-    if (mirrorRight && targetDirection === "left") {
-      form.set("mirrorDirection", "right");
-      form.set("mirrorAssetName", targetFrame.id.replace("_Left_", "_Right_"));
-    }
-
-    let lastError: Error | null = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      debugLog("BATCH_REQUEST_SEND", { bundleId, direction: targetDirection, action: targetAction, frameId: targetFrame.id, prompt: requestPrompt, seed, attempt });
-      try {
-        const response = await fetch("/api/runpod/edit", { method: "POST", body: form });
-        const body = await response.json().catch(() => ({ error: `HTTP ${response.status}` })) as { error?: string; requestId?: string; retryable?: boolean } & GeneratedAsset;
-        if (!response.ok) {
-          if (body.imageUrl) setGeneratedAsset(body as GeneratedAsset);
-          throw new GenerationRequestError(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`, body.retryable !== false);
-        }
-        const result = body as GeneratedAsset;
-        debugLog("BATCH_REQUEST_COMPLETE", { bundleId, generationId: result.generationId, direction: targetDirection, frameId: targetFrame.id, imageUrl: result.imageUrl, attempt });
-        return result;
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error("생성 실패");
-        debugLog("BATCH_REQUEST_RETRY", { bundleId, direction: targetDirection, frameId: targetFrame.id, attempt, message: lastError.message });
-        if (error instanceof GenerationRequestError && !error.retryable) throw error;
-        if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, attempt * 1_500));
-      }
-    }
-    throw lastError ?? new Error("생성 실패");
-  }
-
-  async function loadStoredCharacterAsset(bundleId: string, targetDirection: Direction, frameId: string) {
-    const bundleImageUrl = `/generated/bundles/${bundleId}/${targetDirection}/${frameId}.png`;
-    const bundleMetadataUrl = `/generated/bundles/${bundleId}/${targetDirection}/${frameId}.json`;
-    let metadataUrl = bundleMetadataUrl;
-    let response = await fetch(metadataUrl, { cache: "no-store" });
-    if (!response.ok) {
-      metadataUrl = `/assets/generated/${bundleId}/${targetDirection}/${frameId}.json`;
-      response = await fetch(metadataUrl, { cache: "no-store" });
-    }
-    if (!response.ok) return null;
-    const metadata = await response.json() as {
-      generationId?: string;
-      sourceGenerationId?: string;
-      requestId?: string;
-      model?: string;
-      selection?: GeneratedAsset["selection"];
-      layout?: GeneratedAsset["layout"];
-      settings?: { seed?: number };
-      output?: { bytes?: number; size?: string };
-    };
-    if (!metadata.generationId || !metadata.selection) return null;
-    const isRawBundle = metadataUrl === bundleMetadataUrl;
-    const rawImageUrl = isRawBundle
-      ? bundleImageUrl
-      : metadata.generationId.endsWith("-mirror") && metadata.sourceGenerationId
-        ? `/generated/runpod/${metadata.sourceGenerationId}-mirror.png`
-        : `/generated/runpod/${metadata.generationId}.png`;
-    return {
-      generationId: metadata.generationId,
-      requestId: metadata.requestId ?? metadata.generationId,
-      model: metadata.model ?? endpoint.model ?? "stored-asset",
-      imageUrl: rawImageUrl,
-      metadataUrl,
-      bundleImageUrl: isRawBundle ? bundleImageUrl : null,
-      bundleMetadataUrl: isRawBundle ? bundleMetadataUrl : null,
-      elapsedMs: 0,
-      outputBytes: metadata.output?.bytes ?? 0,
-      size: isRawBundle ? metadata.output?.size ?? `${guideSize.width}x${guideSize.height}` : `${guideSize.width}x${guideSize.height}`,
-      seed: metadata.settings?.seed ?? optionSeed,
-      layout: metadata.layout,
-      selection: metadata.selection,
-    } satisfies GeneratedAsset;
-  }
-
-  function batchHistoryItem(result: GeneratedAsset): HistoryItem {
-    return {
-      id: result.generationId,
-      asset: `${result.selection?.direction}.${result.selection?.frameId}`,
-      detail: `I2I 원본 생성 · seed ${result.seed}`,
-      job: "완료",
-      assetState: "기준 선택",
-      time: "방금",
-    };
-  }
-
-  function mirroredRightResult(result: GeneratedAsset): GeneratedAsset {
-    if (!result.mirroredImageUrl || !result.mirroredBundleImageUrl) throw new Error("우측 반전 원본 응답이 없습니다.");
-    return {
-      ...result,
-      generationId: `${result.generationId}-mirror`,
-      imageUrl: result.mirroredImageUrl,
-      bundleImageUrl: result.mirroredBundleImageUrl,
-      bundleMetadataUrl: result.mirroredBundleMetadataUrl,
-      selection: result.selection ? { ...result.selection, direction: "right", frameId: result.selection.frameId.replace("_Left_", "_Right_") } : result.selection,
-    };
-  }
-
-  async function loadLatestDirectionReferences() {
-    if (isGenerating) return;
-    setNotice("최근 생성한 방향 기준을 불러오는 중입니다.");
+  async function generateBaseAsset() {
+    if (isGeneratingBase || endpoint.status !== "연결됨") return;
+    setIsGeneratingBase(true);
+    setCatalogResult(null);
+    setNotice(`${activeCatalog.label} · ${catalogItem} 기준 에셋을 RunPod에 요청했습니다.`);
+    console.info("[AssetForge][BASE_ASSET_REQUEST_START]", { category: catalogCategory, assetName: catalogItem, seed, promptCharacters: catalogPrompt.length });
     try {
-      const response = await fetch("/api/assets/manifest");
-      const body = await response.json() as { error?: string; bundleId?: string; references?: Partial<Record<Direction, string>> };
-      if (!response.ok || !body.bundleId || !body.references?.front || !body.references.back || !body.references.left || !body.references.right) {
-        throw new Error(body.error || "완전한 방향 기준 묶음이 없습니다.");
-      }
-      setDirectionReferences({
-        front: { file: null, preview: body.references.front, name: `${body.bundleId}.front.ref`, stage: "generated" },
-        back: { file: null, preview: body.references!.back!, name: `${body.bundleId}.back.ref`, stage: "generated" },
-        left: { file: null, preview: body.references!.left!, name: `${body.bundleId}.left.ref`, stage: "generated" },
-        right: { file: null, preview: body.references!.right!, name: `${body.bundleId}.right.ref`, stage: "generated" },
-      });
-      setFrontSourceReference({ file: null, preview: body.references.front, name: `${body.bundleId}.front.source`, stage: "source" });
-      setDirectionApprovals({ front: false, back: false, left: false, right: false });
-      setBatchProgress({ status: "review", bundleId: body.bundleId, completed: 3, total: 3, current: "불러온 4방향 기준 검수·승인 필요" });
-      setDirection("front");
-      setNotice(`${body.bundleId} 방향 기준을 불러왔습니다. 검수 후 승인하세요.`);
-      debugLog("DIRECTION_BUNDLE_LOADED", { bundleId: body.bundleId, references: body.references });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "방향 기준 불러오기 실패";
-      setNotice(message);
-      debugLog("DIRECTION_BUNDLE_LOAD_FAILED", { message });
-    }
-  }
-
-  async function generateDirectionReferences() {
-    if (isGenerating || endpoint.status !== "연결됨") return;
-    const frontReference = frontSourceReference;
-    if (!frontReference.preview) {
-      setNotice("정면 승인 기준 이미지가 필요합니다.");
-      return;
-    }
-
-    const bundleId = `character-farmer-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
-    const total = 3;
-    const results: GeneratedAsset[] = [];
-    let completed = 0;
-    setIsGenerating(true);
-    setBatchResults([]);
-    setBatchProgress({ status: "direction", bundleId, completed, total, current: "정면 방향 기준" });
-    setDirectionApprovals({ front: false, back: false, left: false, right: false });
-    setNotice(`방향 기준 생성 시작 · ${bundleId}`);
-
-    try {
-      for (const target of DIRECTIONS.filter((item) => item.id === "front" || item.id === "back" || item.id === "left")) {
-        setDirection(target.id);
-        setAction("walk_empty");
-        setFrameIndex(0);
-        const current = `${target.label} 기본 대기 이미지`;
-        setBatchProgress({ status: "direction", bundleId, completed, total, current });
-        setNotice(`${completed + 1}/${total} · 정면 기준으로 ${current} 생성 중`);
-        const result = await requestCharacterAsset({
-          reference: frontReference,
-          targetDirection: target.id,
-          targetAction: "walk_empty",
-          targetFrameIndex: 0,
-          seed: optionSeed,
-          bundleId,
-          directionReference: true,
-          mirrorRight: target.id === "left",
-        });
-        const generatedReference: DirectionReference = { file: null, preview: result.imageUrl, name: `${target.id}.ref.${result.generationId}.png`, stage: "generated" };
-        setDirectionReferences((currentReferences) => ({ ...currentReferences, [target.id]: generatedReference }));
-        results.push(result);
-        completed += 1;
-        setGeneratedAsset(result);
-        setBatchResults([...results]);
-        setHistory((currentHistory) => [batchHistoryItem(result), ...currentHistory].slice(0, 8));
-        if (target.id === "left") {
-          const mirrored = mirroredRightResult(result);
-          const mirroredReference: DirectionReference = { file: null, preview: mirrored.imageUrl, name: `right.ref.${mirrored.generationId}.png`, stage: "generated" };
-          setDirectionReferences((currentReferences) => ({ ...currentReferences, right: mirroredReference }));
-          results.push(mirrored);
-          setBatchResults([...results]);
-          setHistory((currentHistory) => [batchHistoryItem(mirrored), ...currentHistory].slice(0, 8));
-        }
-      }
-      setBatchProgress({ status: "review", bundleId, completed, total, current: "방향 기준 검수·승인 필요" });
-      setNotice("정면·후면·좌측 기준 생성과 우측 원본 반전 완료 · 4방향 모두 사각형 점유와 접지선을 확인하고 승인하세요.");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "방향 기준 생성 실패";
-      setBatchProgress({ status: "failed", bundleId, completed, total, current: message });
-      setNotice(`${completed}/${total}에서 중단 · ${message}`);
-      debugLog("BATCH_FAILED", { bundleId, completed, message });
-    } finally {
-      setIsGenerating(false);
-    }
-  }
-
-  async function regenerateDirectionReference(targetDirection: Direction) {
-    if (isGenerating || endpoint.status !== "연결됨") return;
-    const sourceDirection: Direction = targetDirection === "right" ? "left" : targetDirection;
-    const frontReference = frontSourceReference;
-    const bundleId = batchProgress.bundleId || `character-farmer-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
-    setIsGenerating(true);
-    setDirection(sourceDirection);
-    setDirectionApprovals((current) => sourceDirection === "left" ? { ...current, left: false, right: false } : { ...current, [sourceDirection]: false });
-    setBatchProgress({ status: "direction", bundleId, completed: 0, total: 1, current: `${sourceDirection} 기준 다시 생성` });
-    setNotice(`${sourceDirection} 기준을 다시 생성 중입니다.${sourceDirection === "left" ? " 우측은 자동 반전합니다." : ""}`);
-    try {
-      const result = await requestCharacterAsset({ reference: frontReference, targetDirection: sourceDirection, targetAction: "walk_empty", targetFrameIndex: 0, seed: optionSeed, bundleId, directionReference: true, mirrorRight: sourceDirection === "left" });
-      const generatedReference: DirectionReference = { file: null, preview: result.imageUrl, name: `${sourceDirection}.ref.${result.generationId}.png`, stage: "generated" };
-      setDirectionReferences((current) => ({ ...current, [sourceDirection]: generatedReference }));
-      const replacements = [result];
-      if (sourceDirection === "left") {
-        const mirrored = mirroredRightResult(result);
-        replacements.push(mirrored);
-        setDirectionReferences((current) => ({ ...current, left: generatedReference, right: { file: null, preview: mirrored.imageUrl, name: `right.ref.${mirrored.generationId}.png`, stage: "generated" } }));
-      }
-      setBatchResults((current) => [...current.filter((item) => !(item.selection?.action === "direction_reference" && replacements.some((replacement) => replacement.selection?.direction === item.selection?.direction))), ...replacements]);
-      setGeneratedAsset(result);
-      setHistory((current) => [...replacements.map(batchHistoryItem), ...current].slice(0, 8));
-      setBatchProgress({ status: "review", bundleId, completed: 1, total: 1, current: `${sourceDirection} 기준 검수 필요` });
-      setNotice(`${sourceDirection} 기준 재생성 완료${sourceDirection === "left" ? " · 우측 반전 완료" : ""} · 방향과 접지선을 확인하세요.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "방향 기준 재생성 실패";
-      setBatchProgress({ status: "failed", bundleId, completed: 0, total: 1, current: message });
-      setNotice(`재생성 실패 · ${message}`);
-    } finally {
-      setIsGenerating(false);
-    }
-  }
-
-  async function generateAllCharacterActions() {
-    if (isGenerating || endpoint.status !== "연결됨") return;
-    if (DIRECTIONS.some((item) => !directionReferences[item.id].preview || !directionApprovals[item.id])) {
-      setNotice("4방향 기준 이미지를 모두 검수·승인해야 동작 생성을 시작할 수 있습니다.");
-      return;
-    }
-    const bundleId = batchProgress.bundleId || `character-farmer-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
-    const runpodDirections = DIRECTIONS.filter((item) => item.id !== "right");
-    const total = runpodDirections.length * ACTIONS.reduce((sum, item) => sum + item.frames, 0);
-    const results = batchResults.filter((item) => item.selection?.action === "direction_reference");
-    let completed = 0;
-    setIsGenerating(true);
-    setBatchResults([...results]);
-    setBatchProgress({ status: "actions", bundleId, completed, total, current: "Walk_Down_01" });
-    setNotice(`승인된 방향 기준으로 동작 68프레임 생성 시작 · ${bundleId}`);
-    try {
-      for (const target of runpodDirections) {
-        const reference = directionReferences[target.id];
-        for (const targetAction of ACTIONS) {
-          for (let targetFrameIndex = 0; targetFrameIndex < targetAction.frames; targetFrameIndex += 1) {
-            const targetFrame = makeFramePhases(targetAction, target.id)[targetFrameIndex];
-            setDirection(target.id);
-            setAction(targetAction.id);
-            setFrameIndex(targetFrameIndex);
-            setBatchProgress({ status: "actions", bundleId, completed, total, current: targetFrame.id });
-            setNotice(`${completed + 1}/${total} · ${targetFrame.id} 생성 중`);
-            const existingResult = await loadStoredCharacterAsset(bundleId, target.id, targetFrame.id);
-            const mirroredFrameId = targetFrame.id.replace("_Left_", "_Right_");
-            const existingMirror = target.id === "left" ? await loadStoredCharacterAsset(bundleId, "right", mirroredFrameId) : null;
-            if (existingResult && (target.id !== "left" || existingMirror)) {
-              results.push(existingResult);
-              if (existingMirror) results.push(existingMirror);
-              completed += 1;
-              setGeneratedAsset(existingResult);
-              setBatchResults([...results]);
-              setBatchProgress({ status: "actions", bundleId, completed, total, current: `${targetFrame.id} · 기존 PNG 사용` });
-              debugLog("BATCH_ASSET_REUSED", { bundleId, direction: target.id, frameId: targetFrame.id, completed, total });
-              continue;
-            }
-            const result = await requestCharacterAsset({ reference, targetDirection: target.id, targetAction: targetAction.id, targetFrameIndex, seed: optionSeed, bundleId, mirrorRight: target.id === "left" });
-            results.push(result);
-            if (target.id === "left") results.push(mirroredRightResult(result));
-            completed += 1;
-            setGeneratedAsset(result);
-            setBatchResults([...results]);
-            setHistory((currentHistory) => [batchHistoryItem(result), ...currentHistory].slice(0, 8));
-          }
-        }
-      }
-
-      const manifest = {
-        schemaVersion: 1,
-        bundleId,
-        createdAt: new Date().toISOString(),
-        type: "character-i2i-raw-set",
-        status: "generation-complete",
-        expectedAssets: 68,
-        sourceReference: directionReferences.front.name,
-        model: endpoint.model,
-        canvas: `${guideSize.width}x${guideSize.height}`,
-        directions: Object.fromEntries(DIRECTIONS.map((item) => [item.id, DIRECTION_EXPORT_NAMES[item.id]])),
-        actions: ACTIONS.map((item) => ({ id: item.id, frames: item.frames })),
-        assets: results.filter((result) => result.selection?.action !== "direction_reference").map((result) => ({ generationId: result.generationId, direction: result.selection?.direction, action: result.selection?.action, frameId: result.selection?.frameId, seed: result.seed, rawUrl: result.bundleImageUrl ?? result.imageUrl, metadataUrl: result.bundleMetadataUrl ?? result.metadataUrl, size: result.size })),
-      };
-      const manifestResponse = await fetch("/api/assets/manifest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bundleId, manifest }) });
-      const manifestBody = await manifestResponse.json();
-      if (!manifestResponse.ok) throw new Error(manifestBody.error || "manifest 저장 실패");
-      setBatchProgress({ status: "complete", bundleId, completed, total, current: "완료", manifestUrl: manifestBody.manifestUrl });
-      setPostprocessManifestUrl("");
-      setNotice(`I2I 원본 68프레임 생성 완료 · 검수 후 후처리 시작 버튼을 누르세요. · ${manifestBody.manifestUrl}`);
-      debugLog("BATCH_COMPLETE", { bundleId, completed, manifestUrl: manifestBody.manifestUrl });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "동작 생성 실패";
-      setBatchProgress({ status: "failed", bundleId, completed, total, current: message });
-      setNotice(`${completed}/${total}에서 중단 · ${message}`);
-      debugLog("BATCH_FAILED", { bundleId, completed, message });
-    } finally {
-      setIsGenerating(false);
-    }
-  }
-
-  async function postprocessCompletedBatch() {
-    if (batchProgress.status !== "complete" || !batchProgress.bundleId || isPostprocessing) return;
-    setIsPostprocessing(true);
-    setPostprocessManifestUrl("");
-    setNotice("완료된 68개 원본의 crop·Unity 리사이즈를 시작합니다.");
-    try {
-      const response = await fetch("/api/assets/postprocess", {
+      const response = await fetch("/api/runpod/asset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bundleId: batchProgress.bundleId, targetWidth, targetHeight }),
+        body: JSON.stringify({ category: catalogCategory, assetName: catalogItem, prompt: catalogPrompt, seed, size: "1024x1024" }),
       });
-      const body = await response.json() as { error?: string; processed?: number; manifestUrl?: string };
-      if (!response.ok || !body.manifestUrl) throw new Error(body.error || "후처리 실패");
-      setPostprocessManifestUrl(body.manifestUrl);
-      setNotice(`${body.processed ?? 0}개 프레임 후처리 완료 · ${body.manifestUrl}`);
-      debugLog("POSTPROCESS_COMPLETE", { bundleId: batchProgress.bundleId, processed: body.processed, manifestUrl: body.manifestUrl });
+      const body = await response.json() as BaseAssetResult & { error?: string };
+      if (!response.ok) throw new Error(`${body.error || "기준 에셋 생성 실패"}${body.requestId ? ` · ${body.requestId}` : ""}`);
+      setCatalogResult(body);
+      if (body.category === "item") {
+        setGeneratedItem(body);
+        setItemFile(null);
+        if (itemPreview.startsWith("blob:")) URL.revokeObjectURL(itemPreview);
+        setItemPreview(body.imageUrl);
+      }
+      const historyItem: HistoryItem = { id: body.generationId, phase: `${activeCatalog.label} 기준`, imageUrl: body.imageUrl, size: body.outputSize, seed: body.seed, status: "완료", createdAt: nowLabel() };
+      setHistory((current) => [historyItem, ...current].slice(0, 16));
+      setNotice(`${activeCatalog.label} · ${catalogItem} 생성 완료 · ${body.outputSize} · ${(body.elapsedMs / 1000).toFixed(1)}초`);
+      console.info("[AssetForge][BASE_ASSET_REQUEST_COMPLETE]", { generationId: body.generationId, category: body.category, assetName: body.assetName, size: body.outputSize, elapsedMs: body.elapsedMs });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "후처리 실패";
-      setNotice(`후처리 실패 · ${message}`);
-      debugLog("POSTPROCESS_FAILED", { bundleId: batchProgress.bundleId, message });
+      const message = error instanceof Error ? error.message : "기준 에셋 생성 실패";
+      const historyItem: HistoryItem = { id: `FAILED-${Date.now()}`, phase: `${activeCatalog.label} 기준`, imageUrl: "", size: "-", seed, status: "실패", createdAt: nowLabel() };
+      setHistory((current) => [historyItem, ...current].slice(0, 16));
+      setNotice(`${activeCatalog.label} 생성 실패 · ${message}`);
+      console.error("[AssetForge][BASE_ASSET_REQUEST_FAILED]", { category: catalogCategory, assetName: catalogItem, message });
     } finally {
-      setIsPostprocessing(false);
+      setIsGeneratingBase(false);
     }
   }
 
-  async function runImageEdit() {
-    if (toolMode !== "i2i" || isGenerating) return;
-    if (!hasActiveReference) {
-      const message = `${direction}.ref 승인 기준을 먼저 등록해야 합니다.`;
-      debugLog("REQUEST_BLOCKED", { direction, action, reason: "missing-direction-reference" });
-      setNotice(message);
-      return;
-    }
-    setIsGenerating(true);
-    setGeneratedAsset(null);
-    setNotice("Reference A/B를 PNG로 조립해 RunPod 생성 요청을 보내는 중입니다.");
-    debugLog("REQUEST_PREPARE", { category, direction, action, frameId: framePhase.id, seed: optionSeed });
-
+  async function loadLatestBaseAsset() {
+    setNotice(`저장된 최근 ${activeCatalog.label} 기준을 불러오는 중입니다.`);
     try {
-      const referenceBlob: Blob = activeReference.file
-        ? activeReference.file
-        : await fetch(activeReference.preview).then((response) => {
-            if (!response.ok) throw new Error("기본 Reference A를 읽을 수 없습니다.");
-            return response.blob();
-          });
-      const guide = await createLayoutGuide(family.visualX, family.visualY, category, direction, action, frameIndex);
-      const normalizedReference = await normalizeReferenceOnWhite(referenceBlob, guide.width, guide.height, category === "character" ? guide.frame : undefined);
+      const response = await fetch(`/api/runpod/asset?category=${catalogCategory}`, { cache: "no-store" });
+      const body = await response.json() as BaseAssetResult & { error?: string };
+      if (!response.ok) throw new Error(body.error || "최근 기준 에셋 조회 실패");
+      setCatalogResult(body);
+      setCatalogItem(body.assetName);
+      setCatalogPrompt(body.prompt);
+      setSeed(body.seed);
+      if (body.category === "item") {
+        setGeneratedItem(body);
+        setItemFile(null);
+        if (itemPreview.startsWith("blob:")) URL.revokeObjectURL(itemPreview);
+        setItemPreview(body.imageUrl);
+      }
+      setNotice(`최근 ${activeCatalog.label} 기준 불러옴 · ${body.generationId}`);
+      console.info("[AssetForge][BASE_ASSET_LATEST_LOADED]", { generationId: body.generationId, category: body.category, assetName: body.assetName });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "최근 기준 에셋 조회 실패";
+      setNotice(`최근 ${activeCatalog.label} 불러오기 실패 · ${message}`);
+    }
+  }
+
+  async function checkHealth() {
+    setEndpoint({ status: "확인 중" });
+    setNotice("RunPod 상태를 확인 중입니다.");
+    try {
+      const response = await fetch("/api/runpod/health", { cache: "no-store" });
+      const body = await response.json() as { ok?: boolean; model?: string; latencyMs?: number; message?: string };
+      if (!response.ok || body.ok !== true) throw new Error(body.message || `HTTP ${response.status}`);
+      setEndpoint({ status: "연결됨", model: body.model, latencyMs: body.latencyMs });
+      setNotice(`RunPod 연결 완료 · ${body.model}`);
+      console.info("[AssetForge][HEALTH_OK]", { model: body.model, latencyMs: body.latencyMs });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "연결 실패";
+      setEndpoint({ status: "오류", message });
+      setNotice(`RunPod 연결 실패 · ${message}`);
+      console.error("[AssetForge][HEALTH_FAILED]", { message });
+    }
+  }
+
+  async function generateCharacterSheet() {
+    if (isGenerating) return;
+    setIsGenerating(true);
+    setApproved(false);
+    setEquipResult(null);
+    setNotice("빈 흰 캔버스 1장과 프롬프트를 RunPod에 전송했습니다. 원본 응답을 기다리는 중입니다.");
+    console.info("[AssetForge][CHARACTER_REQUEST_START]", { seed, promptCharacters: prompt.length, size: "1024x1024" });
+    try {
+      const response = await fetch("/api/runpod/character", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, seed, size: "1024x1024" }),
+      });
+      const body = await response.json() as CharacterSheetResult & { error?: string };
+      if (!response.ok) throw new Error(`${body.error || "생성 실패"}${body.requestId ? ` · ${body.requestId}` : ""}`);
+      setSheet(body);
+      setEndpoint({ status: "연결됨", model: body.model });
+      const historyItem: HistoryItem = { id: body.generationId, phase: "4방향 기준", imageUrl: body.imageUrl, size: body.outputSize, seed: body.seed, status: "완료", createdAt: nowLabel() };
+      setHistory((current) => [historyItem, ...current].slice(0, 8));
+      setNotice(`4방향 원본 생성 완료 · ${body.outputSize} · ${(body.elapsedMs / 1000).toFixed(1)}초`);
+      console.info("[AssetForge][CHARACTER_REQUEST_COMPLETE]", { generationId: body.generationId, requestId: body.requestId, outputSize: body.outputSize, elapsedMs: body.elapsedMs });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "생성 실패";
+      const historyItem: HistoryItem = { id: `FAILED-${Date.now()}`, phase: "4방향 기준", imageUrl: "", size: "-", seed, status: "실패", createdAt: nowLabel() };
+      setHistory((current) => [historyItem, ...current].slice(0, 8));
+      setNotice(`4방향 생성 실패 · ${message}`);
+      console.error("[AssetForge][CHARACTER_REQUEST_FAILED]", { message });
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function loadLatestCharacterSheet() {
+    setNotice("저장된 최근 4방향 캐릭터를 불러오는 중입니다.");
+    try {
+      const response = await fetch("/api/runpod/character", { cache: "no-store" });
+      const body = await response.json() as CharacterSheetResult & { error?: string };
+      if (!response.ok) throw new Error(body.error || "최근 캐릭터 조회 실패");
+      setSheet(body);
+      setPrompt(body.prompt);
+      setSeed(body.seed);
+      setApproved(false);
+      setEquipResult(null);
+      setNotice(`최근 4방향 기준 불러옴 · ${body.generationId}`);
+      console.info("[AssetForge][CHARACTER_LATEST_LOADED]", { generationId: body.generationId, size: body.outputSize });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "최근 캐릭터 조회 실패";
+      setNotice(`최근 캐릭터 불러오기 실패 · ${message}`);
+    }
+  }
+
+  function changeItem(file: File | null) {
+    if (!file) return;
+    if (itemPreview.startsWith("blob:")) URL.revokeObjectURL(itemPreview);
+    setItemFile(file);
+    setGeneratedItem(null);
+    setItemPreview(URL.createObjectURL(file));
+    setEquipResult(null);
+    setNotice(`Reference B 아이템 등록 · ${file.name}`);
+    console.info("[AssetForge][ITEM_REFERENCE_SELECTED]", { name: file.name, bytes: file.size, type: file.type });
+  }
+
+  async function equipItem() {
+    if (!approved || !sheet || (!itemFile && !generatedItem) || isEquipping) return;
+    setIsEquipping(true);
+    setEquipResult(null);
+    setNotice("4방향 기준 A와 아이템 B를 RunPod에 전송했습니다.");
+    try {
+      const sheetBlob = await fetch(sheet.imageUrl).then((response) => {
+        if (!response.ok) throw new Error("승인한 Reference A를 읽을 수 없습니다.");
+        return response.blob();
+      });
       const form = new FormData();
-      form.append("image", normalizedReference, `reference-a-identity-${activeReference.name}`);
-      form.append("image", guide.blob, `reference-b-layout-${category}-${direction}-${action}-${framePhase.id}.png`);
-      form.set("prompt", generationPrompt);
-      form.set("negativePrompt", "redesign, restyle, realistic, 3D, shading, changed face, changed hair, changed clothes, changed colors, changed proportions, missing black crop frame, broken crop frame, covered crop frame");
-      form.set("size", `${guide.width}x${guide.height}`);
-      form.set("seed", String(optionSeed));
+      form.append("image", sheetBlob, `${sheet.generationId}-reference-a.png`);
+      if (itemFile) {
+        form.append("image", itemFile, `reference-b-${itemFile.name}`);
+      } else if (generatedItem) {
+        const generatedItemBlob = await fetch(generatedItem.imageUrl).then((response) => {
+          if (!response.ok) throw new Error("생성한 Reference B 아이템을 읽을 수 없습니다.");
+          return response.blob();
+        });
+        form.append("image", generatedItemBlob, `${generatedItem.generationId}-reference-b.png`);
+      }
+      form.set("prompt", equipPrompt);
+      form.set("negativePrompt", "changed character, changed clothes, different scale, missing item, text, borders, cropped body");
+      form.set("size", sheet.outputSize);
+      form.set("seed", String(seed));
       form.set("numInferenceSteps", "40");
       form.set("trueCfgScale", "4");
       form.set("guidanceScale", "1");
-      form.set("frameX", String(guide.frame.frameX));
-      form.set("frameY", String(guide.frame.frameY));
-      form.set("frameWidth", String(guide.frame.frameWidth));
-      form.set("frameHeight", String(guide.frame.frameHeight));
-      form.set("baselineY", String(guide.frame.baselineY));
-      form.set("strokeWidth", String(guide.frame.strokeWidth));
-      form.set("category", category);
-      form.set("direction", direction);
-      form.set("action", action);
-      form.set("frameId", framePhase.id);
-      form.set("frameIndex", String(frameIndex));
+      form.set("category", "equipment_test");
+      form.set("direction", "four-view");
+      form.set("action", "equip-item");
+      form.set("frameId", "Equipped_4Direction_01");
+      form.set("frameIndex", "0");
 
-      debugLog("REQUEST_SEND", {
-        referenceA: `${guide.width}x${guide.height}`,
-        referenceB: `${guide.width}x${guide.height}`,
-        frameId: framePhase.id,
-        prompt: generationPrompt,
-      });
-
+      console.info("[AssetForge][EQUIP_REQUEST_START]", { referenceA: sheet.generationId, referenceB: itemFile?.name ?? generatedItem?.generationId, seed });
       const response = await fetch("/api/runpod/edit", { method: "POST", body: form });
-      const body = await response.json();
-      if (!response.ok) {
-        if (body.imageUrl) setGeneratedAsset(body as GeneratedAsset);
-        throw new Error(`${body.error || "생성 실패"}${body.requestId ? ` · request ${body.requestId}` : ""}`);
-      }
-
-      const result = body as GeneratedAsset;
-      debugLog("REQUEST_COMPLETE", {
-        generationId: result.generationId,
-        requestId: result.requestId,
-        output: result.size,
-        references: result.referenceImages?.map((image) => image.size ?? "unknown"),
-        selection: result.selection,
-      });
-      setGeneratedAsset(result);
-      const completedItem: HistoryItem = {
-        id: result.generationId,
-        asset: `${category}.${family.id}`,
-        detail: `${scaleId} · ${framePhase.id} · seed ${result.seed}`,
-        job: "완료",
-        assetState: "후처리",
-        time: "방금",
-      };
-      setHistory((current) => [completedItem, ...current].slice(0, 8));
-      setNotice(`생성 완료 · ${result.size} · ${(result.elapsedMs / 1000).toFixed(1)}초 · ${result.requestId}`);
+      const body = await response.json() as EquipResult & { error?: string };
+      if (!response.ok) throw new Error(`${body.error || "착용 생성 실패"}${body.requestId ? ` · ${body.requestId}` : ""}`);
+      setEquipResult(body);
+      const historyItem: HistoryItem = { id: body.generationId, phase: "아이템 착용", imageUrl: body.imageUrl, size: body.size, seed: body.seed, status: "완료", createdAt: nowLabel() };
+      setHistory((current) => [historyItem, ...current].slice(0, 8));
+      setNotice(`아이템 착용 원본 생성 완료 · ${body.size} · ${(body.elapsedMs / 1000).toFixed(1)}초`);
+      console.info("[AssetForge][EQUIP_REQUEST_COMPLETE]", { generationId: body.generationId, requestId: body.requestId, size: body.size, elapsedMs: body.elapsedMs });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "알 수 없는 생성 오류";
-      debugLog("REQUEST_FAILED", { message, direction, action, frameId: framePhase.id });
-      setNotice(`생성 실패 · ${message}`);
-      const failedItem: HistoryItem = {
-        id: `FAILED-${String(Date.now()).slice(-6)}`,
-        asset: `${category}.${family.id}`,
-        detail: `${framePhase.id} · ${message}`,
-        job: "실패",
-        assetState: "반려",
-        time: "방금",
-      };
-      setHistory((current) => [failedItem, ...current].slice(0, 8));
+      const message = error instanceof Error ? error.message : "착용 생성 실패";
+      setNotice(`아이템 착용 실패 · ${message}`);
+      console.error("[AssetForge][EQUIP_REQUEST_FAILED]", { message });
     } finally {
-      setIsGenerating(false);
+      setIsEquipping(false);
     }
   }
-
-  const guideContent = category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} /> : category === "tile" ? <TileGuide topology={topology} /> : <ObjectSchematic family={family} />;
-  const sentReferenceA = generatedAsset?.referenceImages?.[0]?.url ?? preparedReferenceA;
-  const sentReferenceB = generatedAsset?.referenceImages?.[1]?.url ?? preparedReferenceB;
-  const allDirectionReferencesApproved = DIRECTIONS.every((item) => Boolean(directionReferences[item.id].preview) && directionApprovals[item.id]);
-  const pipelineDirection = generatedAsset?.selection?.direction ?? direction;
-  const pipelineFrameId = generatedAsset?.selection?.frameId ?? framePhase.id;
-  const pipelineCanvas = generatedAsset?.size ?? `${guideSize.width}x${guideSize.height}`;
-  const pipelineAspect = `${guideSize.width} / ${guideSize.height}`;
-  const pipelineFrameGeometry = guideFrameGeometry(family.visualX, family.visualY);
-  const pipelineFrameStyle = {
-    left: `${(pipelineFrameGeometry.frame.frameX / pipelineFrameGeometry.width) * 100}%`,
-    top: `${(pipelineFrameGeometry.frame.frameY / pipelineFrameGeometry.height) * 100}%`,
-    width: `${(pipelineFrameGeometry.frame.frameWidth / pipelineFrameGeometry.width) * 100}%`,
-    height: `${(pipelineFrameGeometry.frame.frameHeight / pipelineFrameGeometry.height) * 100}%`,
-  };
-  const [generatedCanvasWidth, generatedCanvasHeight] = (generatedAsset?.size ?? pipelineCanvas).split("x").map(Number);
-  const outputCropStyle = generatedAsset?.layout && generatedCanvasWidth > 0 && generatedCanvasHeight > 0 ? {
-    left: `${(generatedAsset.layout.frameX / generatedCanvasWidth) * 100}%`,
-    top: `${(generatedAsset.layout.frameY / generatedCanvasHeight) * 100}%`,
-    width: `${(generatedAsset.layout.frameWidth / generatedCanvasWidth) * 100}%`,
-    height: `${(generatedAsset.layout.frameHeight / generatedCanvasHeight) * 100}%`,
-  } : pipelineFrameStyle;
-  const outputContactDelta = generatedAsset?.layoutValidation?.content && generatedAsset.layout ? {
-    top: generatedAsset.layoutValidation.content.top - generatedAsset.layout.frameY,
-    bottom: generatedAsset.layout.frameY + generatedAsset.layout.frameHeight - 1 - generatedAsset.layoutValidation.content.bottom,
-  } : null;
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand-block"><div className="brand-mark">AF</div><div><p className="eyebrow">2D ASSET WORKBENCH</p><h1>Asset Forge</h1></div></div>
-        <div className="project-summary"><span className="project-name">farm-rpg / catalog-layout-debug</span><span className={`endpoint-state endpoint-${endpoint.status}`}><i /> RUNPOD {endpoint.status}{endpoint.latencyMs ? ` · ${endpoint.latencyMs}ms` : ""}</span></div>
-        <button type="button" className="save-button" onClick={saveSnapshot} data-testid="save-history">현재 설정 저장</button>
+        <div className="brand"><span>AF</span><div><small>2D ASSET GENERATOR</small><h1>Asset Forge</h1></div></div>
+        <div className="runpod-state" data-status={endpoint.status}><i /> <strong>RUNPOD {endpoint.status}</strong>{endpoint.latencyMs ? <span>{endpoint.latencyMs}ms</span> : null}</div>
+        <button type="button" className="secondary-button" onClick={checkHealth} data-testid="check-runpod">연결 확인</button>
       </header>
 
-      <nav className="workflow-rail" aria-label="에셋 생성 도구">
-        <button type="button" className={toolMode === "t2i" ? "workflow-step is-active" : "workflow-step"} onClick={() => changeTool("t2i")} data-testid="tool-t2i"><span>01</span><strong>기준 에셋 생성</strong><small>T2I · 전체 카탈로그 8분류</small></button>
-        <i aria-hidden="true">→</i>
-        <button type="button" className={toolMode === "i2i" ? "workflow-step is-active" : "workflow-step"} onClick={() => changeTool("i2i")} data-testid="tool-i2i"><span>02</span><strong>방향 · 상태 · 동작 변형</strong><small>I2I · 방향별 승인 기준 사용</small></button>
+      <nav className="phase-rail" aria-label="생성 단계">
+        <div className="phase is-active"><span>01</span><div><strong>4방향 기준 캐릭터</strong><small>한 번의 생성 · 정면/후면/오른쪽/왼쪽</small></div></div>
+        <div className={approved ? "phase is-ready" : "phase"}><span>02</span><div><strong>아이템 착용 검증</strong><small>A: 4방향 캐릭터 · B: 아이템</small></div></div>
+        <div className="phase"><span>03</span><div><strong>동작 영상과 프레임</strong><small>방향별 I2V · 이후 연결</small></div></div>
       </nav>
 
       <div className="workspace">
-        <aside className="sidebar panel">
-          <div className="panel-title-row"><div><span className="section-number">01</span><h2>{toolMode === "t2i" ? "전체 에셋 카탈로그" : "변형 기준 입력"}</h2></div>{toolMode === "t2i" && <button type="button" className="random-all" onClick={randomizeAll} data-testid="random-all">유형 랜덤</button>}</div>
-
-          <section className="category-section">
-            <div className="option-heading"><span>에셋 대분류</span><span className="field-note">{availableCategories.length} TYPES</span></div>
-            <div className="category-grid">
-              {availableCategories.map((item) => <button key={item} type="button" className={category === item ? "category-button is-active" : "category-button"} onClick={() => changeCategory(item)} data-testid={`category-${item}`}><span>{CATEGORY_META[item].short}</span>{CATEGORY_META[item].label}</button>)}
-            </div>
-            <p className="category-description">{CATEGORY_META[category].description}</p>
-          </section>
-
-          <section className="option-group scale-options">
-            <div className="option-heading"><span>Unity 기준 해상도</span><span className="field-note">1 CELL = 1 UNIT</span></div>
-            <div className="scale-grid">{SCALE_PRESETS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={scaleId === item.id} className={scaleId === item.id ? "scale-card is-checked" : "scale-card"} onClick={() => changeScale(item.id)} data-testid={`scale-${item.id}`}><span className="check-box">{scaleId === item.id ? "✓" : ""}</span><strong>{item.id}</strong><small>{item.pixels}px · {item.description}</small></button>)}</div>
-          </section>
-
-          {toolMode === "i2i" && (
-            <section className="reference-input" data-testid="reference-input">
-              <div className={(category === "character" ? frontSourceReference.preview : activeReference.preview) ? "reference-input-thumb actual-reference" : "reference-input-thumb reference-missing"}>{(category === "character" ? frontSourceReference.preview : activeReference.preview) ? <img src={category === "character" ? frontSourceReference.preview : activeReference.preview} alt={category === "character" ? "정면 방향 생성 입력 이미지" : "Reference A 승인 기준 이미지"} /> : <PoseGuide action="idle" direction={direction} compact />}</div>
-              <div><span className={(category === "character" ? frontSourceReference.preview : activeReference.preview) ? "approved-badge" : "approved-badge is-missing"}>REFERENCE A</span><strong>{category === "character" ? frontSourceReference.name : activeReference.name}</strong><small>{category === "character" ? `정면 방향 생성 입력 · ${frontSourceReference.preview ? "등록됨" : "등록 필요"}` : `${family.name} · 승인 기준`}</small></div>
-              <label className="reference-upload">교체<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => changeReference(event.target.files?.[0] ?? null)} /></label>
-            </section>
-          )}
-
-          <section className="catalog-picker">
-            <div className="option-heading"><span>Family 목록</span><span className="field-note">{currentFamilies.length} FAMILIES</span></div>
-            <div className="group-tabs">{catalogGroups.map((group) => <button key={group} type="button" className={activeGroup === group ? "is-active" : ""} onClick={() => setActiveGroup(group)}>{group}</button>)}</div>
-            <div className="family-list" data-testid="family-list">
-              {visibleFamilies.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={family.id === item.id} className={family.id === item.id ? "family-option is-checked" : "family-option"} onClick={() => selectFamily(item)} data-testid={`family-${item.id}`}><span className="check-box">{family.id === item.id ? "✓" : ""}</span><span><strong>{item.name}</strong><small>{item.profile}</small></span><em>{item.visualX}T×{item.visualY}T</em></button>)}
-            </div>
-          </section>
-
-          {(toolMode === "t2i" || category !== "character") && <div className="dynamic-options">{OPTION_GROUPS[category].map((definition) => {
-            const key = `${category}.${definition.key}`;
-            return <OptionGroup key={key} category={category} definition={definition} selected={selections[key]} locked={lockedFields.includes(key)} onSelect={(value) => updateOption(definition.key, value)} onRandom={() => randomizeField(definition)} onLock={() => toggleLock(definition)} />;
-          })}</div>}
+        <aside className="panel controls-panel">
+          <div className="panel-heading"><div><small>01 / CHARACTER INPUT</small><h2>캐릭터 조건</h2></div><button type="button" className="random-button" onClick={randomizeAll} data-testid="random-character">전체 랜덤</button></div>
+          <div className="option-list">
+            {CHARACTER_OPTIONS.map((group) => (
+              <section className="option-field" key={group.key}>
+                <div><strong>{group.label}</strong><button type="button" onClick={() => updateSelection(group.key, randomChoice(group.values).prompt)}>랜덤</button></div>
+                <div className="chip-row">
+                  {group.values.map((value) => <button key={value.prompt} type="button" role="checkbox" aria-checked={selections[group.key] === value.prompt} className={selections[group.key] === value.prompt ? "chip is-selected" : "chip"} onClick={() => updateSelection(group.key, value.prompt)} data-testid={`option-${group.key}-${value.label}`}>{value.label}</button>)}
+                </div>
+              </section>
+            ))}
+          </div>
+          <section className="seed-field"><label htmlFor="seed">GENERATION SEED</label><input id="seed" type="number" min="0" max="2147483647" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></section>
+          <section className="prompt-field"><div><label htmlFor="prompt">실제 전송 프롬프트</label><button type="button" onClick={() => setPrompt(buildPrompt(selections))}>옵션으로 복원</button></div><textarea id="prompt" value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={8} data-testid="character-prompt" /><small>{prompt.length}자 · pixel/pixel art 지시 없음</small></section>
         </aside>
 
-        <section className="stage panel">
-          <div className="panel-title-row stage-heading"><div><span className="section-number">02</span><h2>{toolMode === "t2i" ? "기준 이미지 후보" : "I2I 레이아웃 디버거"}</h2></div><div className="live-indicator"><i /> LIVE PREVIEW</div></div>
+        <section className="panel result-panel">
+          <div className="panel-heading"><div><small>RAW MODEL OUTPUT</small><h2>4방향 기준 캐릭터</h2></div><span className="raw-badge">후처리 없음</span></div>
 
-          {toolMode === "t2i" ? (
-            <div className="t2i-candidate-stage" data-testid="t2i-candidates">
-              <div className="coverage-strip">{T2I_CATEGORIES.map((item) => <span key={item} className={category === item ? "is-current" : ""}><b>{CATEGORY_META[item].short}</b>{FAMILY_CATALOG[item].length}</span>)}</div>
-              <div className="candidate-stage-heading"><div><span className="field-note">{CATEGORY_META[category].label.toUpperCase()} REFERENCE CANDIDATES</span><h3>{family.name} 기준 후보</h3><p>1번 도구는 레이아웃 이미지 없이 선택 조건과 프롬프트로 기준 이미지만 생성합니다. 승인 결과가 2번 도구의 기준 입력이 됩니다.</p></div><div className="candidate-spec"><small>OUTPUT</small><strong>{targetWidth} × {targetHeight}px</strong><span>{family.profile}</span></div></div>
-              <div className="selected-option-summary">{OPTION_GROUPS[category].map((definition) => <span key={definition.key}><small>{definition.title}</small>{selections[`${category}.${definition.key}`]}</span>)}</div>
-              <div className="candidate-grid">{["A", "B", "C", "D"].map((item) => <article key={item}><div className="candidate-placeholder"><span>{item}</span><small>T2I MODEL REQUIRED</small></div><strong>후보 {item}</strong><small>현재 Endpoint는 Image Edit 전용</small></article>)}</div>
-              <div className="candidate-note"><i />T2I에는 검은 레이아웃 가이드를 넣지 않습니다. 캐릭터는 정면 중립 기준을 먼저 승인합니다.</div>
+          <div className="selected-summary">{selectedLabels.map((item) => <span key={item.label}><small>{item.label}</small><strong>{item.value}</strong></span>)}</div>
+
+          <section className="request-pipeline" data-testid="character-request-pipeline">
+            <article><span className="source-label">실제 전송 INPUT</span><div className="blank-canvas" aria-label="1024 정사각형 흰 캔버스"><i /></div><strong>빈 흰 캔버스 1장</strong><small>1024×1024 · Edit 모델의 필수 입력</small><small>레이아웃 B가 아님</small></article>
+            <b>+</b>
+            <article className="prompt-card"><span className="source-label">PROMPT</span><p>{prompt}</p><strong>2×2 방향 순서 고정</strong><small>front → back → right → left</small></article>
+            <b>→</b>
+            <article className="output-card"><span className="source-label">RUNPOD OUTPUT</span>{sheet ? <div className="sheet-output"><img src={`${sheet.imageUrl}?v=${sheet.generationId}`} alt="RunPod가 생성한 4방향 캐릭터 원본" onLoad={(event) => console.info("[AssetForge][CHARACTER_OUTPUT_RENDERED]", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}` })} /></div> : <div className="empty-output"><span>{isGenerating ? "생성 중" : "대기"}</span><small>{isGenerating ? "RunPod 응답을 기다립니다" : "생성 결과가 여기에 표시됩니다"}</small></div>}{sheet ? <><strong>{sheet.generationId}</strong><small>{sheet.outputSize} · {(sheet.elapsedMs / 1000).toFixed(1)}초</small><a href={sheet.metadataUrl} target="_blank" rel="noreferrer">metadata JSON</a></> : null}</article>
+          </section>
+
+          <div className="direction-map" data-testid="direction-cell-order">{DIRECTIONS.map((direction) => <div key={direction.id}><span>{direction.order}</span><strong>{direction.label}</strong><small>{direction.id}</small></div>)}</div>
+
+          <div className="generation-actions">
+            <div><strong>{notice}</strong><small>{endpoint.model ?? endpoint.message ?? "연결 확인 후 생성할 수 있습니다."}</small></div>
+            <div className="action-button-row"><button type="button" className="load-latest-button" onClick={loadLatestCharacterSheet} disabled={isGenerating} data-testid="load-latest-character">최근 결과</button><button type="button" onClick={generateCharacterSheet} disabled={isGenerating || endpoint.status !== "연결됨" || !prompt.trim()} data-testid="generate-character-sheet">{isGenerating ? "4방향 생성 중…" : sheet ? "다시 생성" : "4방향 캐릭터 생성"}</button></div>
+          </div>
+
+          {sheet && <section className={approved ? "approval-bar is-approved" : "approval-bar"}><div><strong>{approved ? "Reference A 승인됨" : "네 방향을 확인하세요"}</strong><small>동일 캐릭터 · 방향 순서 · 신체 전체 · 크기와 발 위치를 확인</small></div><button type="button" onClick={() => setApproved((value) => !value)} data-testid="approve-character-sheet">{approved ? "승인 취소" : "4방향 기준 A로 승인"}</button></section>}
+
+          <section className={approved ? "equip-stage is-ready" : "equip-stage"} data-testid="equip-stage">
+            <div className="equip-heading"><div><small>02 / EQUIPMENT TEST</small><h3>아이템 착용 검증</h3><p>Reference A의 네 캐릭터는 유지하고 Reference B의 아이템만 네 방향에 추가합니다.</p></div><span>{approved ? "입력 가능" : "1단계 승인 필요"}</span></div>
+            <div className="equip-equation">
+              <article><span>REFERENCE A</span><div>{sheet ? <img src={sheet.imageUrl} alt="승인할 4방향 캐릭터 A" /> : <small>4방향 캐릭터 대기</small>}</div><strong>{approved ? "승인한 4방향 기준" : "미승인"}</strong></article>
+              <b>+</b>
+              <article><span>REFERENCE B</span><label className={approved ? "item-upload" : "item-upload is-disabled"}>{itemPreview ? <img src={itemPreview} alt="선택한 아이템 B" /> : <small>아래에서 생성하거나 파일 선택</small>}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={!approved} onChange={(event) => changeItem(event.target.files?.[0] ?? null)} /></label><strong>{itemFile?.name ?? generatedItem?.assetName ?? "아이템 미등록"}</strong></article>
+              <b>→</b>
+              <article><span>RAW OUTPUT</span><div>{equipResult ? <img src={`${equipResult.imageUrl}?v=${equipResult.generationId}`} alt="아이템을 착용한 4방향 캐릭터 원본" /> : <small>착용 결과 대기</small>}</div><strong>{equipResult?.generationId ?? "RunPod 원본"}</strong></article>
             </div>
-          ) : (
-            <>
-              <div className="asset-meta-strip"><span><small>PROFILE</small>{family.profile}</span><span><small>MODEL CANVAS</small>{guideSize.width} × {guideSize.height}px</span><span><small>FRAME RATIO</small>{ratioLabel}</span><span><small>INPUT ORDER</small>IDENTITY A → LAYOUT B</span><span><small>SAVE</small>RAW PNG</span></div>
-              <div className="guide-workspace">
-                <div className="guide-rulers"><span>WHITE CANVAS / SAFE AREA</span><span>BLACK CROP OUTLINE / {ratioLabel}</span></div>
-                <div className="guide-canvas" data-testid="guide-canvas" data-content-policy="contained"><div className="grid-overlay" /><div className="layout-frame" style={{ width: frameSize.width, height: frameSize.height }} data-testid="layout-frame" data-ratio={ratioLabel} data-output={`${targetWidth}x${targetHeight}`} data-crop="outline-bounds" data-ground-edge={category === "tile" ? "adjacency" : "bottom"}>{guideContent}</div></div>
-                <div className="canvas-ground-note"><i aria-hidden="true" />{category === "tile" ? "검은 윤곽 = seamless adjacency 경계 · 모든 타일 픽셀은 안쪽 유지" : "검은 윤곽 아랫변 = 접지선 · 모든 포즈·장비·오브젝트 픽셀은 안쪽 유지"}</div>
-                {category === "character" && <div className="direction-layout-note" data-testid="direction-layout-note"><strong>{DIRECTIONS.find((item) => item.id === direction)?.label} 레이아웃</strong><span>크롭 rect {ratioLabel} 고정</span><span>캔버스 바깥 여백 {GUIDE_OUTER_MARGIN} 고정</span><span>4방향 공통 높이 {directionLayout.height} · 위·아래 변 접촉</span><span>점유폭 {directionLayout.occupancy}</span><span>좌우 안전 여백 {directionLayout.safeMargin}</span><p>{directionLayout.note}</p></div>}
-                <div className="postprocess-flow"><span><small>01 REFERENCE A</small>공통 사각형에 맞춘 외형 기준 이미지</span><i>+</i><span><small>02 REFERENCE B</small>{category === "character" ? `${direction} 방향·포즈 목표 레이아웃` : category === "tile" ? `${topology} 목표 레이아웃` : `${family.name} 상태 목표 레이아웃`}</span><i>→</i><span><small>03 I2I RAW</small>{guideSize.width} × {guideSize.height}px 원본 저장</span></div>
-                {category === "character" && <div className="mask-flow-note is-unsupported"><strong>MASK 미전송</strong><span>현재 Qwen 파이프라인은 mask_image를 사용하지 않음 · B의 안쪽 검은 사각형을 목표로 지시</span></div>}
-
-                {category === "character" && <section className="frame-phase-strip" data-testid="frame-phase-strip"><div className="option-heading"><span>생성 프레임</span><span className="field-note">{framePhase.id}</span></div><div>{framePhases.map((phase, index) => <button key={phase.id} type="button" role="checkbox" aria-checked={frameIndex === index} className={frameIndex === index ? "frame-phase is-checked" : "frame-phase"} onClick={() => changeFrame(index)} disabled={isGenerating} data-testid={`frame-${index + 1}`}><PoseGuide action={action} direction={direction} frameIndex={index} compact /><span><strong>{phase.id}</strong><small>{phase.label}</small></span></button>)}</div></section>}
-
-                <section className="generation-layout" data-testid="generation-layout">
-                  <div className="generation-layout-heading"><div><span className="field-note">ACTUAL REQUEST ORDER</span><strong>{category === "character" ? "외형 기준 A → 목표 레이아웃 B" : category === "tile" ? "승인 타일 A → topology 레이아웃 B" : "승인 오브젝트 A → 상태·규격 레이아웃 B"}</strong></div><small>{category === "character" ? `${pipelineDirection} · ${pipelineFrameId}` : category === "tile" ? topology : objectState}</small></div>
-                  <div className="reference-equation">
-                    <article data-testid="reference-a"><span className="source-label">REFERENCE A {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-asset sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceA ? <img src={sentReferenceA} alt="사각형에 맞춘 실제 전송 외형 기준 A" onLoad={(event) => debugLog("REFERENCE_A_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <PoseGuide action="idle" direction={direction} compact />}<span className="reference-frame-overlay" style={pipelineFrameStyle} aria-label="Reference A 공통 프레임" /></div><strong>{generatedAsset ? "실제 전송 외형 기준 A" : "외형 기준 A"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[0]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[0]?.name ?? (category === "character" ? activeReference.name : `${category}.${family.id}.ref`)}</small></article>
-                    <b>+</b>
-                    <article data-testid="reference-b"><span className="source-label">REFERENCE B {generatedAsset && <em>REQUEST IMAGE</em>}</span><div className="source-preview source-guide sent-reference" style={{ aspectRatio: pipelineAspect }}>{sentReferenceB ? <img src={sentReferenceB} alt="실제 전송 목표 레이아웃 B" onLoad={(event) => debugLog("REFERENCE_B_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /> : <div className="mini-layout-frame">{category === "character" ? <PoseGuide action={action} direction={direction} frameIndex={frameIndex} compact /> : category === "tile" ? <TileGuide topology={topology} compact /> : <ObjectSchematic family={family} compact />}</div>}</div><strong>{generatedAsset ? "실제 전송 목표 레이아웃 B" : "목표 레이아웃 B"}</strong><small>실제 canvas {generatedAsset?.referenceImages?.[1]?.size ?? pipelineCanvas}</small><small>{generatedAsset?.referenceImages?.[1]?.name ?? `${ratioLabel} · ${category === "character" ? `${framePhase.id} · ${directionLayout.occupancy}` : category === "tile" ? topology : family.footprint}`}</small></article>
-                    <b>→</b>
-                    <article className={generatedAsset ? `output-plan has-result${generatedAsset.layoutValidation && !generatedAsset.layoutValidation.ok ? " is-invalid" : ""}` : "output-plan"} data-testid="output-layout"><span className="source-label">OUTPUT</span>{generatedAsset ? <><div className="result-canvas-shell" style={{ aspectRatio: pipelineAspect }}><div className="result-image-area"><img className="generated-result-image" src={`${generatedAsset.imageUrl}?v=${generatedAsset.generationId}`} alt="RunPod 생성 결과" onLoad={(event) => debugLog("OUTPUT_RENDERED", { natural: `${event.currentTarget.naturalWidth}x${event.currentTarget.naturalHeight}`, rendered: `${event.currentTarget.clientWidth}x${event.currentTarget.clientHeight}` })} /><span className="result-crop-overlay" style={outputCropStyle} aria-label="고정 crop bounds 오버레이" /></div></div><strong>{generatedAsset.generationId}</strong><small>canvas {generatedAsset.size}</small><small>{generatedAsset.selection?.frameId ?? pipelineFrameId}</small>{generatedAsset.layout && <small>frame {generatedAsset.layout.frameWidth}×{generatedAsset.layout.frameHeight} · x{generatedAsset.layout.frameX} y{generatedAsset.layout.frameY} · baseline {generatedAsset.layout.baselineY}</small>}{generatedAsset.layoutValidation && !generatedAsset.layoutValidation.ok && <small className="layout-validation-error">윤곽 보존 실패 · L{generatedAsset.layoutValidation.outline.coverage.left.toFixed(2)} T{generatedAsset.layoutValidation.outline.coverage.top.toFixed(2)} R{generatedAsset.layoutValidation.outline.coverage.right.toFixed(2)} B{generatedAsset.layoutValidation.outline.coverage.bottom.toFixed(2)}{!generatedAsset.layoutValidation.outline.ok ? " · 접촉 판정 보류" : outputContactDelta ? ` · 접촉 오차 top ${outputContactDelta.top}px bottom ${outputContactDelta.bottom}px` : ""}</small>}<small>{(generatedAsset.elapsedMs / 1000).toFixed(1)}초</small></> : <><div className="frame-output-title">{isGenerating ? "RUNPOD 생성 중…" : category === "character" ? framePhase.id : category === "tile" ? `${topology} variants` : objectState}</div><div className="frame-slots">{Array.from({ length: category === "character" ? actionPreset.frames : category === "tile" ? 4 : 1 }, (_, index) => <i key={index} className={category === "character" && index === frameIndex ? "is-current" : ""} />)}</div></>}</article>
-                  </div>
-                </section>
-              </div>
-
-              {category === "character" && <div className="direction-reference-strip" data-testid="direction-reference-strip"><div className="option-heading"><span>방향별 무동작 생성 기준</span><button type="button" onClick={loadLatestDirectionReferences} disabled={isGenerating} data-testid="load-latest-direction-references">최근 기준 불러오기</button></div><div>{DIRECTIONS.map((item) => {
-                const reference = directionReferences[item.id];
-                const approved = directionApprovals[item.id];
-                const generated = reference.stage === "generated" && Boolean(reference.preview);
-                return <article key={item.id} className={`${direction === item.id ? "is-active" : ""}${approved ? " is-approved" : generated ? " is-review" : " is-missing"}`} data-testid={`direction-reference-${item.id}`}><div className="direction-reference-preview">{reference.preview ? <img src={reference.preview} alt={`${item.label} 기준 이미지`} /> : <PoseGuide action="idle" direction={item.id} compact />}</div><strong>{item.label}</strong><small>{approved ? "승인됨" : generated ? "생성 결과 검수 필요" : item.id === "front" && reference.preview ? "정면 입력 원본 · 생성 전" : "생성 전"}</small><div className="direction-reference-actions"><button type="button" onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-${item.id}`}>보기</button>{generated && <button type="button" className={approved ? "is-approved" : ""} onClick={() => setDirectionApprovals((current) => ({ ...current, [item.id]: !current[item.id] }))} disabled={isGenerating} data-testid={`approve-direction-${item.id}`}>{approved ? "승인 취소" : "승인"}</button>}<button type="button" onClick={() => regenerateDirectionReference(item.id)} disabled={isGenerating || endpoint.status !== "연결됨"} data-testid={`regenerate-direction-${item.id}`}>재생성</button></div></article>;
-              })}</div></div>}
-
-              {category === "character" && <div className="variant-controls"><section className="variant-section"><div className="option-heading"><span>방향</span><span className="field-note">LAYOUT OVERRIDE</span></div><div className="direction-grid">{DIRECTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={direction === item.id} className={direction === item.id ? "check-option is-checked" : "check-option"} onClick={() => changeDirection(item.id)} disabled={isGenerating} data-testid={`direction-control-${item.id}`}><span className="check-box">{direction === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section><section className="variant-section"><div className="option-heading"><span>동작 7종</span><span className="field-note">CLICK TO DEBUG</span></div><div className="action-grid">{ACTIONS.map((item) => <button key={item.id} type="button" role="checkbox" aria-checked={action === item.id} className={action === item.id ? "check-option is-checked" : "check-option"} onClick={() => changeAction(item.id)} disabled={isGenerating} data-testid={`action-${item.id}`}><span className="check-box">{action === item.id ? "✓" : ""}</span>{item.label}</button>)}</div></section></div>}
-            </>
-          )}
-
-          <div className="prompt-preview"><div className="prompt-heading"><span>PROMPT PREVIEW</span><span>OPTION SEED {optionSeed}</span></div><p>{toolMode === "i2i" ? generationPrompt : prompt}</p></div>
-          {toolMode === "i2i" && category === "character" && <section className="batch-generation" data-testid="character-batch-generation">
-            <div className="batch-generation-heading"><div><span>4-DIRECTION CHARACTER ASSETS</span><strong>정면 외형 기준 A + 목표 레이아웃 B → 정면·후면·좌측 생성 + 우측 원본 반전 → 4방향 승인 → 동작 68프레임 원본 생성</strong><small>정면도 정면 레이아웃 B의 안쪽 사각형을 채워 다시 생성 · 모든 방향과 동작은 {guideSize.width}×{guideSize.height}px 원본 저장 · 후처리는 전 프레임 완료 뒤 수동 실행</small></div><div className="batch-buttons"><button type="button" onClick={generateDirectionReferences} disabled={endpoint.status !== "연결됨" || isGenerating || !frontSourceReference.preview} data-testid="generate-direction-references">{isGenerating && batchProgress.status === "direction" ? `${batchProgress.completed}/${batchProgress.total} 방향 생성 중` : "정면·후면·좌측 생성 + 우측 반전"}</button><button type="button" onClick={generateAllCharacterActions} disabled={endpoint.status !== "연결됨" || isGenerating || !allDirectionReferencesApproved} data-testid="generate-all-character-assets">{isGenerating && batchProgress.status === "actions" ? `${batchProgress.completed}/${batchProgress.total} RunPod 생성 중` : allDirectionReferencesApproved ? "승인 기준으로 68개 원본 생성" : "4방향 승인 필요"}</button><button type="button" onClick={postprocessCompletedBatch} disabled={batchProgress.status !== "complete" || isGenerating || isPostprocessing} data-testid="postprocess-character-assets">{isPostprocessing ? "후처리 중" : postprocessManifestUrl ? "후처리 완료" : "전 프레임 완료 후 후처리 시작"}</button></div></div>
-            <div className="batch-progress" data-status={batchProgress.status}><i style={{ width: `${batchProgress.total ? (batchProgress.completed / batchProgress.total) * 100 : 0}%` }} /><span>{batchProgress.status === "idle" ? "대기" : `${batchProgress.completed}/${batchProgress.total} · ${batchProgress.current}`}</span></div>
-            {batchProgress.bundleId && <div className="batch-bundle"><strong>{batchProgress.bundleId}</strong><span>{batchProgress.manifestUrl && <a href={batchProgress.manifestUrl} target="_blank" rel="noreferrer">원본 manifest</a>}{postprocessManifestUrl && <a href={postprocessManifestUrl} target="_blank" rel="noreferrer">후처리 manifest</a>}</span></div>}
-            {batchResults.length > 0 && <div className="batch-result-grid" data-testid="batch-result-grid">{batchResults.map((result) => <article key={result.generationId}><div><img src={result.imageUrl} alt={`${result.selection?.frameId ?? result.generationId} RunPod 원본`} /></div><strong>{result.selection?.frameId}</strong><small>RunPod 원본 · {result.selection?.direction} · {result.selection?.action}</small></article>)}</div>}
-          </section>}
-          {toolMode === "i2i" && <div className="runpod-generation-bar" data-testid="runpod-generation"><div><span>QWEN-IMAGE-EDIT-2511</span><strong>{endpoint.status === "연결됨" ? endpoint.model : endpoint.message ?? "Endpoint 확인 중"}</strong><small>{hasActiveReference ? "외형 기준 A → 목표 레이아웃 B" : `${direction}.ref 등록 필요`} · 40 steps · true CFG 4 · guidance 1 · seed {optionSeed}</small></div><button type="button" onClick={runImageEdit} disabled={endpoint.status !== "연결됨" || isGenerating || !hasActiveReference} data-testid="runpod-generate">{isGenerating ? "이미지 생성 중…" : hasActiveReference ? "실제 이미지 생성" : `${direction}.ref 등록 필요`}</button></div>}
+            <div className="equip-prompt-row"><label htmlFor="equip-prompt">착용 프롬프트</label><button type="button" onClick={() => setEquipPrompt(DEFAULT_EQUIP_PROMPT)}>기본값</button><textarea id="equip-prompt" rows={3} value={equipPrompt} onChange={(event) => setEquipPrompt(event.target.value)} data-testid="equip-prompt" /><small>{equipPrompt.length}자 · 손에 한 자루만 착용</small></div>
+            <button type="button" onClick={equipItem} disabled={!approved || (!itemFile && !generatedItem) || isEquipping} data-testid="generate-equipped-sheet">{isEquipping ? "착용 이미지 생성 중…" : "아이템 착용 4방향 생성"}</button>
+          </section>
         </section>
 
-        <aside className="history-panel panel">
-          <div className="panel-title-row"><div><span className="section-number">03</span><h2>상태 · 히스토리</h2></div><button type="button" className="filter-button">필터</button></div>
-          <div className="catalog-status"><strong>문서 카탈로그 연결</strong><span>Tile {FAMILY_CATALOG.tile.length}</span><span>Object {FAMILY_CATALOG.object.length}</span><span>전체 {Object.values(FAMILY_CATALOG).reduce((sum, list) => sum + list.length, 0)}</span></div>
-          <div className="status-summary"><div><strong>{history.filter((item) => item.job === "대기").length}</strong><span>대기</span></div><div><strong>0</strong><span>진행</span></div><div><strong>{history.filter((item) => item.job === "완료").length}</strong><span>완료</span></div><div><strong>{history.filter((item) => item.job === "실패").length}</strong><span>실패</span></div></div>
+        <aside className="panel history-panel">
+          <div className="panel-heading"><div><small>03 / STATUS</small><h2>상태 · 히스토리</h2></div><span>{history.length}</span></div>
+          <div className="status-counters"><div><strong>{isGenerating || isEquipping ? 1 : 0}</strong><small>진행</small></div><div><strong>{history.filter((item) => item.status === "완료").length}</strong><small>완료</small></div><div><strong>{history.filter((item) => item.status === "실패").length}</strong><small>실패</small></div></div>
           <div className="notice-box"><i />{notice}</div>
-          <div className="history-list" data-testid="history-list">{history.map((item) => <article className="history-item" key={item.id}><div className="history-thumb"><span>{item.asset.slice(0, 2).toUpperCase()}</span></div><div className="history-copy"><div className="history-id"><strong>{item.id}</strong><time>{item.time}</time></div><p>{item.asset}</p><small>{item.detail}</small><div className="status-tags"><span className={`job-tag job-${item.job}`}>{item.job}</span><span className="asset-tag">{item.assetState}</span></div></div></article>)}</div>
-          <div className={`endpoint-note endpoint-note-${endpoint.status}`}><span className="endpoint-icon">{endpoint.status === "연결됨" ? "✓" : "!"}</span><div><strong>RunPod {endpoint.status}</strong><p>{endpoint.model ?? endpoint.message ?? "서버 상태와 모델을 확인하고 있습니다."}</p></div></div>
+          <div className="history-list" data-testid="history-list">{history.length ? history.map((item) => <article key={item.id}><div className="history-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={`${item.phase} 썸네일`} /> : <span>!</span>}</div><div><strong>{item.phase}</strong><small>{item.id}</small><p>{item.size} · seed {item.seed}</p><span>{item.status} · {item.createdAt}</span></div></article>) : <div className="history-empty">아직 생성 기록이 없습니다.</div>}</div>
+
+          <section className="catalog-scope"><div><small>PLANNED ASSET SCOPE</small><h3>에셋 대분류 8종</h3></div>{ASSET_GROUPS.map((item) => <article key={item[0]} className={item[0] === "CH" ? "is-current" : ""}><span>{item[0]}</span><div><strong>{item[1]}</strong><small>{item[2]}</small></div></article>)}</section>
         </aside>
       </div>
+
+      <section className="catalog-workbench" data-testid="catalog-workbench">
+        <div className="catalog-workbench-heading">
+          <div><small>BASE ASSET CATALOG</small><h2>대분류 기준 에셋 생성</h2><p>문서의 분류를 선택하고 빈 흰 캔버스에서 원본을 생성합니다. 생성 중 자동 후처리는 하지 않습니다.</p></div>
+          <button type="button" className="random-button" onClick={randomizeCatalogItem} data-testid="random-base-asset">현재 분류 랜덤</button>
+        </div>
+
+        <div className="catalog-tabs" role="tablist" aria-label="기준 에셋 대분류">
+          {BASE_ASSET_CATALOG.map((group) => <button key={group.id} type="button" role="tab" aria-selected={catalogCategory === group.id} className={catalogCategory === group.id ? "is-active" : ""} onClick={() => changeCatalogCategory(group.id)} data-testid={`catalog-tab-${group.id}`}><span>{group.code}</span><strong>{group.label}</strong><small>{group.summary}</small></button>)}
+        </div>
+
+        <div className="catalog-generator">
+          <aside>
+            <div className="catalog-list-heading"><div><small>{activeCatalog.code} / {activeCatalog.label}</small><h3>필요 목록 {activeCatalog.items.length}종</h3></div><button type="button" onClick={randomizeCatalogItem}>랜덤</button></div>
+            <div className="catalog-item-grid">{activeCatalog.items.map((item) => <button key={item} type="button" role="checkbox" aria-checked={catalogItem === item} className={catalogItem === item ? "is-selected" : ""} onClick={() => changeCatalogItem(item)}>{item}</button>)}</div>
+          </aside>
+
+          <div className="catalog-request">
+            <label htmlFor="catalog-prompt"><span>실제 전송 프롬프트</span><button type="button" onClick={() => setCatalogPrompt(buildBaseAssetPrompt(catalogCategory, catalogItem))}>선택값으로 복원</button></label>
+            <textarea id="catalog-prompt" rows={5} value={catalogPrompt} onChange={(event) => setCatalogPrompt(event.target.value)} data-testid="base-asset-prompt" />
+            <small>{catalogPrompt.length}자 · pixel/pixel art 지시 없음 · 1024×1024 원본</small>
+            <div className="catalog-run-row"><div><strong>{activeCatalog.label} / {catalogItem}</strong><small>seed {seed} · 빈 흰 캔버스 1장</small></div><div className="action-button-row"><button type="button" className="load-latest-button" onClick={loadLatestBaseAsset} disabled={isGeneratingBase} data-testid="load-latest-base-asset">최근 결과</button><button type="button" onClick={generateBaseAsset} disabled={endpoint.status !== "연결됨" || isGeneratingBase || !catalogPrompt.trim()} data-testid="generate-base-asset">{isGeneratingBase ? `${activeCatalog.label} 생성 중…` : `${activeCatalog.label} 기준 생성`}</button></div></div>
+          </div>
+
+          <article className="catalog-output">
+            <span>RAW RUNPOD OUTPUT</span>
+            <div>{catalogResult ? <img src={`${catalogResult.imageUrl}?v=${catalogResult.generationId}`} alt={`${catalogResult.assetName} 생성 원본`} /> : <small>{isGeneratingBase ? "RunPod 응답을 기다리는 중" : "선택한 분류의 결과가 표시됩니다"}</small>}</div>
+            {catalogResult && catalogCategory === "tile" ? <>
+              <small className="tile-repeat-label">2×2 REPEAT CHECK · 원본 반복 표시</small>
+              <div className="tile-repeat-debug" data-testid="tile-repeat-preview">
+                {[0, 1, 2, 3].map((index) => <img key={index} src={`${catalogResult.imageUrl}?v=${catalogResult.generationId}`} alt="" />)}
+              </div>
+            </> : null}
+            <strong>{catalogResult?.assetName ?? `${activeCatalog.label} 대기`}</strong>
+            {catalogResult ? <><small>{catalogResult.generationId}</small><small>{catalogResult.outputSize} · {(catalogResult.elapsedMs / 1000).toFixed(1)}초</small><a href={catalogResult.metadataUrl} target="_blank" rel="noreferrer">metadata JSON</a></> : null}
+          </article>
+        </div>
+      </section>
     </main>
   );
 }

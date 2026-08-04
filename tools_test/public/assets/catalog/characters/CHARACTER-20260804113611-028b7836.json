@@ -1,0 +1,35 @@
+{
+  "generationId": "CHARACTER-20260804113611-028b7836",
+  "requestId": "local-17680026-2f4d-4f90-90a8-e4acaeed9fa2",
+  "model": "/data/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-04T11:36:11.333Z",
+  "elapsedMs": 69181,
+  "phase": "four-direction-character-reference",
+  "postprocessed": false,
+  "input": {
+    "filename": "CHARACTER-20260804113611-028b7836-input.png",
+    "size": "1024x1024",
+    "bytes": 5353
+  },
+  "settings": {
+    "prompt": "Create one 2x2 turnaround sheet of one full-body traveler, masculine, young adult, short and sturdy, tied auburn hair, green work shirt, beige trousers, brown boots, no accessories on a plain white background. Top-left: front view. Top-right: back view. Bottom-left: right profile facing right. Bottom-right: left profile facing left. Show each character head-to-toe at equal height with feet on the same line. Keep identity, clothes, colors, and proportions identical. No text, borders, handheld items, shadows, or cropping.",
+    "negativePrompt": "different characters, inconsistent clothes, inconsistent scale, cropped body, text, panel borders",
+    "size": "1024x1024",
+    "seed": 1731231649,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "output": {
+    "filename": "CHARACTER-20260804113611-028b7836.png",
+    "size": "1024x1024",
+    "bytes": 3147861
+  },
+  "cells": [
+    "front",
+    "back",
+    "right",
+    "left"
+  ]
+}

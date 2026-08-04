@@ -1,0 +1,31 @@
+{
+  "generationId": "CREATURE-20260804105949-dc5c27de",
+  "requestId": "local-79cf2fb0-ea02-40e8-87bf-0e4443d7a2ef",
+  "model": "/data/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-04T10:59:49.622Z",
+  "elapsedMs": 69345,
+  "phase": "base-asset",
+  "postprocessed": false,
+  "category": "creature",
+  "assetName": "소",
+  "input": {
+    "filename": "CREATURE-20260804105949-dc5c27de-input.png",
+    "size": "1024x1024",
+    "bytes": 5353
+  },
+  "settings": {
+    "prompt": "Create one 2x2 turnaround sheet of the same full-body cow on white. Top-left true front: symmetric chest and both eyes visible. Top-right true rear: back and tail visible, no face. Bottom-left exact right profile facing right. Bottom-right exact left profile facing left. Equal size and foot line. No text, border, shadow, or cropping.",
+    "negativePrompt": "text, labels, watermark, frame, border, cropped subject, multiple unrelated subjects",
+    "size": "1024x1024",
+    "seed": 4821,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "output": {
+    "filename": "CREATURE-20260804105949-dc5c27de.png",
+    "size": "1024x1024",
+    "bytes": 3147861
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "generationId": "CREATURE-20260804112411-a8f02719",
+  "requestId": "local-fbf7ac7c-aeaf-4989-b234-12dea1d6a58a",
+  "model": "/data/models/Qwen-Image-Edit-2511",
+  "createdAt": "2026-08-04T11:24:11.323Z",
+  "elapsedMs": 69048,
+  "phase": "base-asset",
+  "postprocessed": false,
+  "category": "creature",
+  "assetName": "개",
+  "input": {
+    "filename": "CREATURE-20260804112411-a8f02719-input.png",
+    "size": "1024x1024",
+    "bytes": 5353
+  },
+  "settings": {
+    "prompt": "Create one 2x2 turnaround sheet of the same full-body farm dog on white. Top-left true front: symmetric chest and both eyes visible. Top-right true rear: back and tail visible, no face. Bottom-left exact right profile facing right. Bottom-right exact left profile facing left. Equal size and foot line. No text, border, shadow, or cropping.",
+    "negativePrompt": "text, labels, watermark, frame, border, cropped subject, multiple unrelated subjects",
+    "size": "1024x1024",
+    "seed": 4821,
+    "numInferenceSteps": 40,
+    "trueCfgScale": 4,
+    "guidanceScale": 1,
+    "outputFormat": "png"
+  },
+  "output": {
+    "filename": "CREATURE-20260804112411-a8f02719.png",
+    "size": "1024x1024",
+    "bytes": 3147861
+  }
+}
