@@ -1,6 +1,6 @@
 # 로컬 2D 에셋 생성 디버거
 
-RunPod의 `Qwen-Image-Edit-2511`로 4방향 캐릭터, 아이템 착용, 타일, 오브젝트, 생명체, 아이템, VFX, UI 원본을 생성하고 상태와 히스토리를 비교하는 실험 화면입니다. 점유·방향·동작 가이드는 생성 모델을 사용하지 않고 로컬 고정 렌더러로 만듭니다.
+RunPod의 이미지 모델로 만든 기존 4방향 캐릭터·생명체를 `Wan2.2-TI2V-5B-Diffusers`에 보내 방향별 제자리 걷기 영상과 원본 프레임을 확인하는 실험 화면입니다. Qwen 이미지 endpoint가 꺼져 있어도 이미 저장된 시트로 비디오 기능만 검사할 수 있습니다.
 
 ![브라우저에서 직접 클릭한 디버깅 과정](public/screenshots/asset-forge-browser-debug.gif)
 
@@ -21,9 +21,43 @@ RUNPOD_BASE_URL=https://<POD_ID>-8000.proxy.runpod.net
 RUNPOD_API_KEY=
 RUNPOD_MODEL_ID=/data/models/Qwen-Image-Edit-2511
 RUNPOD_REQUEST_TIMEOUT_MS=600000
+
+RUNPOD_VIDEO_BASE_URL=https://<VIDEO_POD_ID>-8000.proxy.runpod.net
+RUNPOD_VIDEO_API_KEY=
+RUNPOD_VIDEO_MODEL_ID=/data/models/Wan2.2-TI2V-5B-Diffusers
+RUNPOD_VIDEO_REQUEST_TIMEOUT_MS=1200000
+RUNPOD_VIDEO_POLL_INTERVAL_MS=3000
 ```
 
 `.env.local`은 커밋하지 않습니다.
+
+## 비디오만 검사하는 순서
+
+1. `비디오 연결 확인`을 눌러 Wan endpoint의 `/health`와 `/v1/models`만 확인합니다.
+2. `최근 캐릭터` 또는 `최근 생명체`를 눌러 로컬에 저장된 2×2 시트를 선택합니다.
+3. 화면의 중앙 십자선을 기준으로 정면·후면·오른쪽·왼쪽 셀이 맞는지 확인합니다.
+4. `실제 이동`, `추적 보행`, `직접 제자리` 중 생성 방식을 선택합니다. 기본은 `직접 제자리`입니다.
+5. 먼저 `오른쪽 이 방향 테스트`를 눌러 옆면에서 좌우 다리 교대와 반대쪽 팔 스윙이 실제로 보이는지 검사합니다.
+6. 걷기 동작이 확인된 뒤 `검증 후 4방향 순차 생성`을 누릅니다.
+7. 각 결과에서 실제 전송 셀, 원본 MP4, FFmpeg로 추출한 원본 프레임을 비교합니다.
+
+초기 `49 frames` 요청은 정지 화면이나 춤 동작으로 수렴했습니다. `Wan2.2-TI2V-5B` 공식 I2V 예시값에 맞춰 `81 frames`, `50 steps`, `guidance 4`, `flow_shift 12`를 적용하고, `Smooth walk cycle in place` 중심의 짧은 prompt로 바꾼 뒤 오른쪽 측면에서 좌우 발 교대가 확인됐습니다. 이 값은 성공을 보장하는 규격이 아니라 현재 endpoint에서 동작이 확인된 실험 기준입니다. 비디오 prompt에는 픽셀화 지시를 넣지 않고, 생성 결과에는 자동 배경 제거·크로마키·리사이즈를 적용하지 않습니다. 한 방향 결과가 이미 있으면 4방향 순차 실행에서 해당 방향을 유지하고 나머지만 생성합니다.
+
+### 2026-08-05 걷기 실험 현황
+
+| 실험 | 설정 | 결과 |
+|---|---|---|
+| 직접 제자리, 짧은 길이 | 33~49 frames, flow shift 미지정 | 거의 정지하거나 춤 동작 |
+| 실제 이동 | 49 frames, flow shift 미지정 | 위치와 다리 변화가 거의 없는 정지 화면 |
+| 직접 제자리, 공식 샘플링 기준 | 81 frames, 50 steps, guidance 4, flow shift 12 | 오른쪽 측면에서 좌우 발 교대 보행 확인 |
+
+확인된 결과 ID는 `WALK-20260804174144-RIGHT-f007af86`이며, 40개 추출 프레임은 브라우저 결과 카드에서 원본 MP4와 함께 확인했습니다. 아직 정면·후면·왼쪽과 다른 캐릭터·생명체의 재현성은 검증 전입니다.
+
+![오른쪽 측면 제자리 걷기 원본 영상 미리보기](public/screenshots/wan-right-walk-official-sampling.gif)
+
+![오른쪽 측면 제자리 걷기 40프레임 검사](public/screenshots/wan-right-walk-official-sampling-frames.png)
+
+이 흐름은 [acatovic/ai-game-studio](https://github.com/acatovic/ai-game-studio)의 `기준 스프라이트 → I2V job polling → 영상 저장 → FFmpeg 프레임 추출 → 프레임 선택` 방식에서 영감을 얻었습니다. RunPod 설정과 API 실행은 [RunPod Wan2.2 걷기 영상 서버 실행 가이드](../docs/RUNPOD_WAN_VIDEO.md)에 정리했습니다.
 
 ## 화면에서 확인하는 순서
 

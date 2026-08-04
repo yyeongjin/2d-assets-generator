@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
-const [page, css, characterRoute, assetRoute, editRoute, runpodServer, healthRoute] = await Promise.all([
+const [page, css, characterRoute, assetRoute, editRoute, runpodServer, healthRoute, videoRoute, videoServer, videoHealthRoute, envExample] = await Promise.all([
   source("../app/page.tsx"),
   source("../app/globals.css"),
   source("../app/api/runpod/character/route.ts"),
@@ -11,6 +11,10 @@ const [page, css, characterRoute, assetRoute, editRoute, runpodServer, healthRou
   source("../app/api/runpod/edit/route.ts"),
   source("../lib/runpod-server.ts"),
   source("../app/api/runpod/health/route.ts"),
+  source("../app/api/runpod/video/route.ts"),
+  source("../lib/runpod-video-server.ts"),
+  source("../app/api/runpod/video/health/route.ts"),
+  source("../.env.example"),
 ]);
 
 test("4방향 기준 캐릭터를 한 번의 요청으로 생성한다", () => {
@@ -113,6 +117,71 @@ test("에셋 대분류 8종과 상태 히스토리를 표시한다", () => {
   assert.match(css, /\.history-list/);
 });
 
+test("Qwen을 호출하지 않고 비디오 endpoint만 확인한다", () => {
+  const healthFunction = page.slice(page.indexOf("async function checkHealth"), page.indexOf("async function generateCharacterSheet"));
+  assert.match(healthFunction, /\/api\/runpod\/video\/health/);
+  assert.doesNotMatch(healthFunction, /\/api\/runpod\/health/);
+  assert.match(page, /status: "꺼짐"/);
+  assert.match(page, /Qwen은 호출하지 않습니다/);
+  assert.match(page, /data-testid="check-video-runpod"/);
+  assert.match(videoHealthRoute, /checkRunPodVideoHealth/);
+});
+
+test("2x2 시트를 중앙에서 정확히 네 방향으로 자른다", () => {
+  assert.match(videoRoute, /const leftWidth = Math\.floor\(width \/ 2\)/);
+  assert.match(videoRoute, /const topHeight = Math\.floor\(height \/ 2\)/);
+  assert.match(videoRoute, /direction === "front".*left: 0, top: 0/s);
+  assert.match(videoRoute, /direction === "back".*left: leftWidth, top: 0/s);
+  assert.match(videoRoute, /direction === "right".*left: 0, top: topHeight/s);
+  assert.match(videoRoute, /left: leftWidth, top: topHeight/);
+  assert.match(videoRoute, /\.extract\(crop\)/);
+  assert.match(page, /중앙 기준으로 4분할/);
+});
+
+test("방향별 제자리 걷기를 순차 생성하고 실제 입력·영상·프레임을 표시한다", () => {
+  assert.match(page, /for \(const \[index, direction\] of DIRECTIONS\.entries\(\)\)/);
+  assert.match(page, /data-testid="generate-four-direction-walks"/);
+  assert.match(page, /referenceImageUrl/);
+  assert.match(page, /<video src=\{result\.videoUrl\}/);
+  assert.match(page, /toggleWalkFrame/);
+  assert.match(page, /data-testid="walk-results"/);
+  assert.match(css, /\.walk-sheet-preview \.split-x/);
+  assert.match(css, /\.walk-frame-grid/);
+});
+
+test("비디오 prompt는 짧은 보행 동작만 요청하고 공식 TI2V 샘플링 값을 전송한다", () => {
+  const promptSource = videoRoute.slice(videoRoute.indexOf("const VIEW_PROMPTS"), videoRoute.indexOf("const settings"));
+  assert.match(promptSource, /Smooth walk cycle in place/);
+  assert.match(promptSource, /clear alternating steps/);
+  assert.match(promptSource, /no camera movement/);
+  assert.match(promptSource, /Keep the same character and white background/);
+  assert.doesNotMatch(promptSource, /pixel/i);
+  assert.match(videoRoute, /numberValue\(form, "numFrames", 81/);
+  assert.match(videoRoute, /numberValue\(form, "flowShift", 12/);
+  assert.match(videoServer, /body\.set\("flow_shift", String\(settings\.flowShift\)\)/);
+  assert.match(videoRoute, /motionMode === "tracking"/);
+  assert.match(page, /data-testid="walk-mode-tracking"/);
+  assert.match(page, /data-testid="walk-mode-travel"/);
+  assert.match(page, /data-testid="walk-mode-in-place"/);
+});
+
+test("vLLM-Omni 비디오 job을 생성·polling·다운로드한다", () => {
+  assert.match(videoServer, /process\.env\.RUNPOD_VIDEO_BASE_URL/);
+  assert.match(videoServer, /process\.env\.RUNPOD_VIDEO_API_KEY/);
+  assert.match(videoServer, /body\.set\("input_reference"/);
+  assert.match(videoServer, /\/v1\/videos`/);
+  assert.match(videoServer, /\/v1\/videos\/\$\{encodeURIComponent\(jobId\)\}`/);
+  assert.match(videoServer, /\/v1\/videos\/\$\{encodeURIComponent\(jobId\)\}\/content/);
+  assert.match(videoServer, /while \(job\.status !== "completed"\)/);
+});
+
+test("영상 출력은 자동 후처리 없이 FFmpeg 프레임만 추출한다", () => {
+  assert.match(videoRoute, /"-vf", `fps=\$\{sampleFps\}`/);
+  assert.match(videoRoute, /visualChanges: false/);
+  assert.match(videoRoute, /operations: \["extract-direction-cell", "extract-frames"\]/);
+  assert.doesNotMatch(videoRoute, /chromakey|colorkey|rembg|pixelate/i);
+});
+
 test("RunPod 설정과 디버그 로그에 비밀을 하드코딩하지 않는다", () => {
   assert.match(runpodServer, /process\.env\.RUNPOD_BASE_URL/);
   assert.match(runpodServer, /process\.env\.RUNPOD_API_KEY/);
@@ -124,4 +193,14 @@ test("RunPod 설정과 디버그 로그에 비밀을 하드코딩하지 않는�
   assert.match(characterRoute, /\[CharacterSheet\]\[REQUEST_COMPLETE\]/);
   assert.match(characterRoute, /\[CharacterSheet\]\[REQUEST_FAILED\]/);
   assert.match(healthRoute, /\[RunPod\]\[HEALTH_OK\]/);
+  const realRunPodProxy = /https:\/\/[a-z0-9]+-8000\.proxy\.runpod\.net/i;
+  assert.doesNotMatch(videoServer, realRunPodProxy);
+  assert.doesNotMatch(videoRoute, realRunPodProxy);
+  assert.doesNotMatch(page, realRunPodProxy);
+  assert.doesNotMatch(envExample, realRunPodProxy);
+  assert.doesNotMatch(videoServer, /rpa_[A-Za-z0-9]+/);
+  assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_START\]/);
+  assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_COMPLETE\]/);
+  assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_FAILED\]/);
+  assert.match(videoHealthRoute, /\[RunPodVideo\]\[HEALTH_OK\]/);
 });
