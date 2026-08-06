@@ -140,7 +140,7 @@ export async function requestWalkVideo(reference: File, settings: VideoGeneratio
   const body = new FormData();
   body.set("model", model);
   body.set("prompt", settings.prompt);
-  body.set("negative_prompt", settings.negativePrompt || "camera movement, zoom, changing subject, changing clothes, changing colors, leaving frame");
+  if (settings.negativePrompt?.trim()) body.set("negative_prompt", settings.negativePrompt.trim());
   body.set("input_reference", reference, reference.name || "walk-reference.png");
   body.set("width", String(settings.width));
   body.set("height", String(settings.height));

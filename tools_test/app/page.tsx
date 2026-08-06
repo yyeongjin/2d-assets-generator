@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- RunPod output and local File previews must stay unoptimized for pixel-level inspection. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type EndpointState = {
   status: "확인 중" | "연결됨" | "오류" | "꺼짐";
@@ -72,6 +72,13 @@ type BaseAssetResult = {
 
 type WalkDirection = "front" | "back" | "right" | "left";
 type WalkMotionMode = "travel" | "tracking" | "in_place";
+const VIDEO_WORKFLOW_REJECTED = true;
+
+function walkKeyframes(frameCount: number) {
+  if (frameCount <= 4) return Array.from({ length: frameCount }, (_, index) => index);
+  const firstCycleFrames = Math.min(frameCount, 16);
+  return [0, 1, 2, 3].map((phase) => Math.min(frameCount - 1, Math.round((phase * firstCycleFrames) / 4)));
+}
 
 type WalkVideoResult = {
   ok: true;
@@ -92,10 +99,18 @@ type WalkVideoResult = {
   metadataUrl: string;
   outputSize: string;
   frameCount: number;
+  validFrameCount: number;
+  uniqueFrameCount: number;
+  suggestedFrameIndexes: number[];
   sampleFps: number;
   elapsedMs: number;
   postprocessed: false;
 };
+
+function suggestedWalkFrames(result: WalkVideoResult) {
+  const valid = result.suggestedFrameIndexes?.filter((index) => Number.isInteger(index) && index >= 0 && index < result.frameCount) ?? [];
+  return valid.length ? [...new Set(valid)].slice(0, 4) : walkKeyframes(result.frameCount);
+}
 
 type SelectionKey = "role" | "gender" | "age" | "body" | "hair" | "clothes" | "detail";
 type Selections = Record<SelectionKey, string>;
@@ -240,7 +255,7 @@ function nowLabel() {
 
 export default function Home() {
   const [endpoint, setEndpoint] = useState<EndpointState>({ status: "꺼짐", message: "이번 걷기 테스트에서는 Qwen을 호출하지 않습니다." });
-  const [videoEndpoint, setVideoEndpoint] = useState<EndpointState>({ status: "확인 중" });
+  const [videoEndpoint, setVideoEndpoint] = useState<EndpointState>({ status: "꺼짐", message: "비디오 방식 기각" });
   const [selections, setSelections] = useState<Selections>(DEFAULT_SELECTIONS);
   const [prompt, setPrompt] = useState(() => buildPrompt(DEFAULT_SELECTIONS));
   const [seed, setSeed] = useState(4821);
@@ -268,6 +283,12 @@ export default function Home() {
   const [selectedWalkFrames, setSelectedWalkFrames] = useState<Partial<Record<WalkDirection, number[]>>>({});
   const [isGeneratingWalk, setIsGeneratingWalk] = useState(false);
   const [walkProgress, setWalkProgress] = useState("4방향 시트를 선택하면 중앙 기준으로 4분할합니다.");
+  const [walkPreviewStep, setWalkPreviewStep] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setWalkPreviewStep((current) => current + 1), 180);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const activeCatalog = useMemo(() => BASE_ASSET_CATALOG.find((group) => group.id === catalogCategory) ?? BASE_ASSET_CATALOG[0], [catalogCategory]);
   const walkSource = walkSourceType === "creature" ? creatureSheet : sheet;
@@ -513,7 +534,7 @@ export default function Home() {
   async function requestWalkDirection(direction: typeof DIRECTIONS[number], sourceBlob: Blob, index: number, retry = false) {
     if (!walkSource) throw new Error("4방향 시트가 선택되지 않았습니다.");
     const sourceLabel = walkSourceType === "creature" ? "생명체" : "캐릭터";
-    setWalkProgress(`${direction.order}/4 · ${direction.label} 제자리 걷기 동작 검증 중`);
+    setWalkProgress(`${direction.order}/4 · ${direction.label} 제자리 달리기 동작 검증 중`);
     console.info("[AssetForge][WALK_DIRECTION_START]", { sourceId: walkSource.generationId, sourceType: walkSourceType, direction: direction.id, order: index + 1 });
     const form = new FormData();
     form.append("image", sourceBlob, `${walkSource.generationId}-four-direction.png`);
@@ -526,7 +547,7 @@ export default function Home() {
     form.set("numFrames", "81");
     form.set("fps", "16");
     form.set("numInferenceSteps", "50");
-    form.set("guidanceScale", "4");
+    form.set("guidanceScale", "5");
     form.set("flowShift", "12");
     form.set("seed", String(Math.min(2_147_483_647, seed + index + (retry ? 7_919 : 0))));
     form.set("sampleFps", "8");
@@ -540,8 +561,8 @@ export default function Home() {
       delete next[direction.id];
       return next;
     });
-    setSelectedWalkFrames((current) => ({ ...current, [direction.id]: body.frameUrls.map((_, frameIndex) => frameIndex) }));
-    const historyItem: HistoryItem = { id: body.generationId, phase: `${sourceLabel} ${direction.label} 제자리 걷기`, imageUrl: body.frameUrls[0] ?? body.referenceImageUrl, size: body.outputSize, seed: body.seed, status: "완료", createdAt: nowLabel() };
+    setSelectedWalkFrames((current) => ({ ...current, [direction.id]: suggestedWalkFrames(body) }));
+    const historyItem: HistoryItem = { id: body.generationId, phase: `${sourceLabel} ${direction.label} 제자리 달리기`, imageUrl: body.frameUrls[0] ?? body.referenceImageUrl, size: body.outputSize, seed: body.seed, status: "완료", createdAt: nowLabel() };
     setHistory((current) => [historyItem, ...current].slice(0, 20));
     console.info("[AssetForge][WALK_DIRECTION_COMPLETE]", { generationId: body.generationId, jobId: body.jobId, direction: body.direction, frames: body.frameCount, elapsedMs: body.elapsedMs });
     return body;
@@ -553,6 +574,29 @@ export default function Home() {
       if (!response.ok) throw new Error("저장된 4방향 시트를 읽을 수 없습니다.");
       return response.blob();
     });
+  }
+
+  async function loadLatestWalkResults() {
+    if (!walkSource || isGeneratingWalk) return;
+    setIsGeneratingWalk(true);
+    setNotice("저장된 최근 방향별 걷기 결과를 불러오는 중입니다.");
+    try {
+      const response = await fetch(`/api/runpod/video?sourceId=${encodeURIComponent(walkSource.generationId)}`, { cache: "no-store" });
+      const body = await response.json() as { ok?: true; results?: Partial<Record<WalkDirection, WalkVideoResult>>; error?: string };
+      if (!response.ok) throw new Error(body.error || "최근 걷기 결과 조회 실패");
+      const results = body.results ?? {};
+      setWalkResults(results);
+      setWalkFailures({});
+      setSelectedWalkFrames(Object.fromEntries(Object.entries(results).map(([direction, result]) => [direction, result ? suggestedWalkFrames(result) : []])));
+      const count = Object.keys(results).length;
+      setWalkProgress(`저장된 최근 걷기 결과 ${count}/4 방향 불러옴`);
+      setNotice(`최근 걷기 결과 ${count}/4 방향을 불러왔습니다.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "최근 걷기 결과 조회 실패";
+      setNotice(`최근 걷기 결과 불러오기 실패 · ${message}`);
+    } finally {
+      setIsGeneratingWalk(false);
+    }
   }
 
   async function generateSingleWalk(direction: typeof DIRECTIONS[number]) {
@@ -691,14 +735,14 @@ export default function Home() {
       <header className="topbar">
         <div className="brand"><span>AF</span><div><small>2D ASSET GENERATOR</small><h1>Asset Forge</h1></div></div>
         <div className="runpod-state" data-status={endpoint.status}><i /> <strong>IMAGE {endpoint.status}</strong></div>
-        <div className="runpod-state" data-status={videoEndpoint.status}><i /> <strong>VIDEO {videoEndpoint.status}</strong>{videoEndpoint.latencyMs ? <span>{videoEndpoint.latencyMs}ms</span> : null}</div>
-        <button type="button" className="secondary-button" onClick={checkHealth} data-testid="check-video-runpod">비디오 연결 확인</button>
+        <div className="runpod-state" data-status="꺼짐"><i /> <strong>VIDEO 기각</strong></div>
+        <button type="button" className="secondary-button" onClick={checkHealth} disabled data-testid="check-video-runpod">비디오 방식 기각</button>
       </header>
 
       <nav className="phase-rail" aria-label="생성 단계">
         <div className="phase is-active"><span>01</span><div><strong>4방향 기준 캐릭터</strong><small>한 번의 생성 · 정면/후면/오른쪽/왼쪽</small></div></div>
         <div className={approved ? "phase is-ready" : "phase"}><span>02</span><div><strong>아이템 착용 검증</strong><small>A: 4방향 캐릭터 · B: 아이템</small></div></div>
-        <div className={walkSource && videoEndpoint.status === "연결됨" ? "phase is-ready" : "phase"}><span>03</span><div><strong>4방향 제자리 걷기</strong><small>중앙 4분할 · 방향별 I2V · 프레임 추출</small></div></div>
+        <div className="phase"><span>03</span><div><strong>4방향 동작 이미지 시트</strong><small>이미지 batch · 동일 비율 셀 분할 · 여백 크롭</small></div></div>
       </nav>
 
       <div className="workspace">
@@ -766,9 +810,15 @@ export default function Home() {
 
       <section className="walk-workbench" data-testid="walk-workbench">
         <div className="walk-heading">
-          <div><small>WAN2.2 / IMAGE TO VIDEO</small><h2>캐릭터·생명체 4방향 제자리 걷기</h2><p>2×2 시트를 중앙 기준으로 4분할하고 정면 → 후면 → 오른쪽 → 왼쪽 순서로 한 방향씩 생성합니다.</p></div>
-          <div className="walk-heading-actions"><span data-status={videoEndpoint.status}>VIDEO {videoEndpoint.status}</span><button type="button" onClick={checkHealth}>연결 확인</button></div>
+          <div><small>VIDEO EXPERIMENT / REJECTED</small><h2>비디오 방식 기각 · 동작 이미지 시트로 전환</h2><p>영상 프레임의 외형·크기·배경 변형 때문에 I2V 결과를 스프라이트 제작 경로로 사용하지 않습니다.</p></div>
+          <div className="walk-heading-actions"><span data-status="꺼짐">VIDEO 기각</span><button type="button" onClick={checkHealth} disabled>호출 중단</button></div>
         </div>
+
+        <article className="walk-rejection-note">
+          <strong>다음 처리 구조</strong>
+          <p>승인한 2×2 시트를 네 방향으로 분리하고, 같은 동작을 네 개의 이미지 요청으로 batch 실행합니다. 응답 시트는 반복되는 동일 셀 비율로 자동 분할하고 흰 여백을 크롭한 뒤 공통 발 기준선과 캔버스 비율에 패딩 정렬합니다.</p>
+          <small>프레임 수는 고정하지 않으며, 셀 경계를 확실히 판독하지 못한 결과는 자동으로 자르지 않고 반려합니다.</small>
+        </article>
 
         <div className="walk-source-row">
           <article className="walk-source-card">
@@ -777,6 +827,7 @@ export default function Home() {
               <button type="button" className={walkSourceType === "creature" ? "is-active" : ""} disabled={!creatureSheet} onClick={() => selectWalkSource("creature")} data-testid="walk-source-creature">생명체</button>
               <button type="button" onClick={loadLatestCharacterSheet}>최근 캐릭터</button>
               <button type="button" onClick={loadLatestCreatureForWalk}>최근 생명체</button>
+              <button type="button" onClick={loadLatestWalkResults} disabled={!walkSource || isGeneratingWalk} data-testid="load-latest-walks">최근 걷기</button>
             </div>
             <div className="walk-sheet-preview">
               {walkSource ? <><img src={`${walkSource.imageUrl}?walk=${walkSource.generationId}`} alt="걷기 영상 입력용 4방향 시트" /><i className="split-x" /><i className="split-y" /></> : <small>저장된 최근 캐릭터 또는 생명체를 불러오세요.</small>}
@@ -796,13 +847,13 @@ export default function Home() {
             <strong>{walkProgress}</strong>
             <small>{videoEndpoint.model ?? videoEndpoint.message ?? "비디오 endpoint 연결 확인 필요"}</small>
             <div className="walk-mode-switch" role="group" aria-label="걷기 생성 방식">
-              <button type="button" className={walkMotionMode === "travel" ? "is-active" : ""} onClick={() => { setWalkMotionMode("travel"); setWalkResults({}); setSelectedWalkFrames({}); }} disabled={isGeneratingWalk} data-testid="walk-mode-travel">실제 이동</button>
-              <button type="button" className={walkMotionMode === "tracking" ? "is-active" : ""} onClick={() => { setWalkMotionMode("tracking"); setWalkResults({}); setSelectedWalkFrames({}); }} disabled={isGeneratingWalk} data-testid="walk-mode-tracking">추적 보행</button>
-              <button type="button" className={walkMotionMode === "in_place" ? "is-active" : ""} onClick={() => { setWalkMotionMode("in_place"); setWalkResults({}); setSelectedWalkFrames({}); }} disabled={isGeneratingWalk} data-testid="walk-mode-in-place">직접 제자리</button>
+              <button type="button" className={walkMotionMode === "travel" ? "is-active" : ""} onClick={() => { setWalkMotionMode("travel"); setWalkResults({}); setSelectedWalkFrames({}); }} disabled={VIDEO_WORKFLOW_REJECTED || isGeneratingWalk} data-testid="walk-mode-travel">실제 이동</button>
+              <button type="button" className={walkMotionMode === "tracking" ? "is-active" : ""} onClick={() => { setWalkMotionMode("tracking"); setWalkResults({}); setSelectedWalkFrames({}); }} disabled={VIDEO_WORKFLOW_REJECTED || isGeneratingWalk} data-testid="walk-mode-tracking">추적 보행</button>
+              <button type="button" className={walkMotionMode === "in_place" ? "is-active" : ""} onClick={() => { setWalkMotionMode("in_place"); setWalkResults({}); setSelectedWalkFrames({}); }} disabled={VIDEO_WORKFLOW_REJECTED || isGeneratingWalk} data-testid="walk-mode-in-place">직접 제자리</button>
             </div>
             <small>{walkMotionMode === "travel" ? "센터 고정 해제 · 실제 보행 가능 여부부터 확인" : walkMotionMode === "tracking" ? "실제 보행 + 동속 카메라 추적 · 화면상 중심/크기 고정" : "캐릭터가 같은 바닥점에서 직접 제자리 보행"}</small>
-            <button type="button" onClick={generateWalkVideos} disabled={!walkSource || isGeneratingWalk || videoEndpoint.status !== "연결됨"} data-testid="generate-four-direction-walks">{isGeneratingWalk ? "걷기 동작 검증 중…" : "검증 후 4방향 순차 생성"}</button>
-            <small>81 frames · 16fps · 50 steps · flow shift 12 · 추출 8fps/최대 40장</small>
+            <button type="button" onClick={generateWalkVideos} disabled={VIDEO_WORKFLOW_REJECTED || !walkSource || isGeneratingWalk || videoEndpoint.status !== "연결됨"} data-testid="generate-four-direction-walks">비디오 생성 기각</button>
+            <small>기각된 실험 기록 · 신규 비디오 job 실행 안 함</small>
           </article>
         </div>
 
@@ -811,14 +862,17 @@ export default function Home() {
             const result = walkResults[direction.id];
             const failure = walkFailures[direction.id];
             const selected = new Set(selectedWalkFrames[direction.id] ?? []);
+            const selectedIndexes = [...selected].sort((a, b) => a - b);
+            const previewIndex = selectedIndexes.length ? selectedIndexes[walkPreviewStep % selectedIndexes.length] : null;
             return <article className={result ? "walk-result is-complete" : failure ? "walk-result is-failed" : "walk-result"} key={direction.id}>
-              <header><div><span>{direction.order}</span><strong>{direction.label} 제자리 걷기</strong></div><div className="walk-result-actions"><small>{result ? `${result.frameCount} 프레임` : failure ? "실패" : "대기"}</small><button type="button" onClick={() => generateSingleWalk(direction)} disabled={!walkSource || isGeneratingWalk || videoEndpoint.status !== "연결됨"} data-testid={`test-walk-${direction.id}`}>{result ? "다시 테스트" : "이 방향 테스트"}</button></div></header>
+              <header><div><span>{direction.order}</span><strong>{direction.label} 달리기</strong></div><div className="walk-result-actions"><small>{result ? `${result.frameCount}장 중 정상 ${result.validFrameCount}장 · 다른 자세 ${result.uniqueFrameCount}장` : failure ? "실패" : "대기"}</small>{result ? <button type="button" onClick={() => setSelectedWalkFrames((current) => ({ ...current, [direction.id]: suggestedWalkFrames(result) }))} data-testid={`select-keyframes-${direction.id}`}>중복 제외 후보</button> : null}<button type="button" onClick={() => generateSingleWalk(direction)} disabled={VIDEO_WORKFLOW_REJECTED || !walkSource || isGeneratingWalk || videoEndpoint.status !== "연결됨"} data-testid={`test-walk-${direction.id}`}>기각된 실험</button></div></header>
               {result ? <>
                 <div className="walk-media-row">
                   <div><span>실제 전송 셀</span><img src={result.referenceImageUrl} alt={`${direction.label} I2V 입력 셀`} /></div>
                   <div><span>원본 영상</span><video src={result.videoUrl} controls loop playsInline preload="metadata" /></div>
+                  <div><span>중복 제외 후보 루프</span>{previewIndex === null ? <div className="walk-loop-empty">서로 다른 자세가 없습니다</div> : <img src={result.frameUrls[previewIndex]} alt={`${direction.label} 중복 제외 걷기 후보 루프`} data-testid={`walk-preview-${direction.id}`} />}</div>
                 </div>
-                <div className="walk-result-meta"><strong>{result.generationId}</strong><small>{result.motionMode === "travel" ? "실제 이동" : result.motionMode === "tracking" ? "추적 보행" : "직접 제자리"} · {result.outputSize} · {(result.elapsedMs / 1000).toFixed(1)}초 · 선택 {selected.size}/{result.frameCount}</small><a href={result.metadataUrl} target="_blank" rel="noreferrer">metadata JSON</a></div>
+                <div className="walk-result-meta"><strong>{result.generationId}</strong><small>{result.motionMode === "travel" ? "실제 이동" : result.motionMode === "tracking" ? "추적 보행" : "직접 제자리"} · {result.outputSize} · {(result.elapsedMs / 1000).toFixed(1)}초 · 배경 정상 {result.validFrameCount}/{result.frameCount} · 중복 제외 {result.uniqueFrameCount}장 · 후보 {selected.size}장</small><a href={result.metadataUrl} target="_blank" rel="noreferrer">metadata JSON</a></div>
                 <div className="walk-frame-grid">
                   {result.frameUrls.map((frameUrl, index) => <button type="button" key={frameUrl} className={selected.has(index) ? "is-selected" : ""} aria-pressed={selected.has(index)} onClick={() => toggleWalkFrame(direction.id, index)}><span>{String(index + 1).padStart(2, "0")}</span><img src={frameUrl} alt={`${direction.label} 걷기 프레임 ${index + 1}`} /></button>)}
                 </div>

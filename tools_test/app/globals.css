@@ -409,6 +409,11 @@ button { color: inherit; }
   cursor: pointer;
   font-weight: 850;
 }
+.walk-heading-actions button:disabled { color: #8a908b; background: #ecefeb; cursor: not-allowed; }
+.walk-rejection-note { margin: 14px 16px 0; padding: 14px 16px; background: #fff4e8; border: 1px solid #e5b77d; border-radius: 12px; }
+.walk-rejection-note strong { display: block; margin-bottom: 6px; font-size: 11px; }
+.walk-rejection-note p { margin: 0 0 5px; color: #594b3e; font-size: 10px; line-height: 1.6; }
+.walk-rejection-note small { color: #82684e; font-size: 9px; }
 .walk-source-row { display: grid; grid-template-columns: 1.05fr 1fr .78fr; border-bottom: 1px solid var(--line); }
 .walk-source-row > article { min-width: 0; padding: 20px; border-right: 1px solid var(--line); }
 .walk-source-row > article:last-child { border-right: 0; }
@@ -472,9 +477,10 @@ button { color: inherit; }
 .walk-result-actions { display: flex; align-items: center; gap: 8px; }
 .walk-result-actions button { padding: 6px 8px; color: #3e5f05; background: var(--lime-soft); border: 1px solid #b1d65a; border-radius: 7px; cursor: pointer; font-size: 8px; font-weight: 850; }
 .walk-result-actions button:disabled { color: #949c96; background: #ecefea; border-color: #d8dcd6; cursor: not-allowed; }
-.walk-media-row { display: grid; grid-template-columns: .72fr 1.28fr; gap: 10px; }
+.walk-media-row { display: grid; grid-template-columns: .58fr 1.1fr .58fr; gap: 10px; }
 .walk-media-row > div > span { display: block; margin-bottom: 6px; color: #768178; font: 750 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .walk-media-row img, .walk-media-row video { display: block; width: 100%; height: 240px; object-fit: contain; background: white; border: 1px solid #c5ccc2; border-radius: 11px; }
+.walk-loop-empty { display: grid; place-items: center; height: 240px; color: var(--muted); background: white; border: 1px dashed #c5ccc2; border-radius: 11px; font-size: 9px; }
 .walk-result-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; margin-top: 11px; }
 .walk-result-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .walk-result-meta small { grid-column: 1; color: var(--muted); font-size: 9px; }

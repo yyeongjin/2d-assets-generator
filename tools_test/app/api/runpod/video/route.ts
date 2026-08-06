@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
@@ -17,6 +17,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 1_300;
 
 const MAX_REFERENCE_BYTES = 30 * 1024 * 1024;
+const WALK_OUTPUT_ROOT = path.join("public", "generated", "walk-videos");
+const VIDEO_WORKFLOW_REJECTED = true;
 const DIRECTIONS: VideoDirection[] = ["front", "back", "right", "left"];
 const DIRECTION_LABELS: Record<VideoDirection, string> = {
   front: "정면",
@@ -37,6 +39,58 @@ const TRAVEL_ACTIONS: Record<VideoDirection, string> = {
   right: "walks to the right across the frame",
   left: "walks to the left across the frame",
 };
+
+const IN_PLACE_PROMPT = "Animate this character running while remaining centered in the frame.";
+
+const FRAME_SIGNATURE_SIZE = 32;
+const FRAME_DIFFERENCE_THRESHOLD = 0.003;
+
+function normalizedFrameDifference(first: Buffer, second: Buffer) {
+  let difference = 0;
+  for (let index = 0; index < first.length; index += 1) difference += Math.abs(first[index] - second[index]);
+  return difference / (first.length * 255);
+}
+
+function evenlySpacedIndexes(indexes: number[], limit: number) {
+  if (indexes.length <= limit) return indexes;
+  return Array.from({ length: limit }, (_, slot) => indexes[Math.round((slot * (indexes.length - 1)) / (limit - 1))]);
+}
+
+async function analyzeDistinctFrames(framesDirectory: string, frameFiles: string[]) {
+  const samples = await Promise.all(frameFiles.map(async (file) => {
+    const source = sharp(path.join(framesDirectory, file));
+    const [signature, background] = await Promise.all([
+      source.clone().resize(FRAME_SIGNATURE_SIZE, FRAME_SIGNATURE_SIZE, { fit: "fill" }).greyscale().raw().toBuffer(),
+      source.clone().resize(64, 64, { fit: "fill" }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
+    ]);
+    let backgroundPixels = 0;
+    let changedBackgroundPixels = 0;
+    for (let y = 0; y < background.info.height; y += 1) {
+      for (let x = 0; x < background.info.width; x += 1) {
+        const insideCharacterArea = x >= background.info.width * 0.22 && x <= background.info.width * 0.78 && y >= background.info.height * 0.12 && y <= background.info.height * 0.88;
+        if (insideCharacterArea) continue;
+        backgroundPixels += 1;
+        const offset = (y * background.info.width + x) * background.info.channels;
+        if (background.data[offset] < 235 || background.data[offset + 1] < 235 || background.data[offset + 2] < 235) changedBackgroundPixels += 1;
+      }
+    }
+    return { signature, backgroundArtifactRatio: changedBackgroundPixels / Math.max(1, backgroundPixels) };
+  }));
+  const validFrameIndexes = samples.map((sample, index) => ({ sample, index })).filter(({ sample }) => sample.backgroundArtifactRatio < 0.01).map(({ index }) => index);
+  const candidateIndexes = validFrameIndexes.length ? validFrameIndexes : [0];
+  const uniqueFrameIndexes: number[] = [];
+  for (const index of candidateIndexes) {
+    const isDuplicate = uniqueFrameIndexes.some((uniqueIndex) => normalizedFrameDifference(samples[index].signature, samples[uniqueIndex].signature) < FRAME_DIFFERENCE_THRESHOLD);
+    if (!isDuplicate) uniqueFrameIndexes.push(index);
+  }
+  return {
+    validFrameCount: validFrameIndexes.length,
+    rejectedFrameIndexes: samples.map((_, index) => index).filter((index) => !validFrameIndexes.includes(index)),
+    uniqueFrameCount: uniqueFrameIndexes.length,
+    suggestedFrameIndexes: evenlySpacedIndexes(uniqueFrameIndexes, 4),
+    frameDifferenceThreshold: FRAME_DIFFERENCE_THRESHOLD,
+  };
+}
 
 function textValue(form: FormData, key: string, fallback = "") {
   const value = form.get(key);
@@ -86,7 +140,84 @@ async function extractFrames(videoPath: string, framesDirectory: string, sampleF
   return frames;
 }
 
+type StoredWalkMetadata = {
+  generationId: string;
+  requestId: string;
+  jobId: string;
+  model: string;
+  elapsedMs: number;
+  source: { type: "character" | "creature"; id: string };
+  crop: { direction: VideoDirection; label: string; motionMode: "travel" | "tracking" | "in_place"; preparedSize: string; referenceFilename: string };
+  settings: { prompt: string; seed: number };
+  output: { videoFilename: string; sampleFps: number; frameFiles: string[]; validFrameCount?: number; rejectedFrameIndexes?: number[]; uniqueFrameCount?: number; suggestedFrameIndexes?: number[]; frameDifferenceThreshold?: number };
+};
+
+function storedWalkResult(metadata: StoredWalkMetadata, analyzed?: Awaited<ReturnType<typeof analyzeDistinctFrames>>) {
+  const publicBase = `/generated/walk-videos/${metadata.generationId}`;
+  const uniqueFrameCount = analyzed?.uniqueFrameCount ?? metadata.output.uniqueFrameCount ?? metadata.output.frameFiles.length;
+  const suggestedFrameIndexes = analyzed?.suggestedFrameIndexes ?? metadata.output.suggestedFrameIndexes ?? [];
+  const validFrameCount = analyzed?.validFrameCount ?? metadata.output.validFrameCount ?? metadata.output.frameFiles.length;
+  return {
+    ok: true as const,
+    generationId: metadata.generationId,
+    requestId: metadata.requestId,
+    jobId: metadata.jobId,
+    model: metadata.model,
+    sourceType: metadata.source.type,
+    sourceId: metadata.source.id,
+    direction: metadata.crop.direction,
+    directionLabel: metadata.crop.label,
+    motionMode: metadata.crop.motionMode,
+    prompt: metadata.settings.prompt,
+    seed: metadata.settings.seed,
+    referenceImageUrl: `${publicBase}/${metadata.crop.referenceFilename}`,
+    videoUrl: `${publicBase}/${metadata.output.videoFilename}`,
+    frameUrls: metadata.output.frameFiles.map((file) => `${publicBase}/frames/${file}`),
+    metadataUrl: `${publicBase}/metadata.json`,
+    outputSize: metadata.crop.preparedSize,
+    frameCount: metadata.output.frameFiles.length,
+    validFrameCount,
+    uniqueFrameCount,
+    suggestedFrameIndexes,
+    sampleFps: metadata.output.sampleFps,
+    elapsedMs: metadata.elapsedMs,
+    postprocessed: false as const,
+  };
+}
+
+export async function GET(request: Request) {
+  const sourceId = new URL(request.url).searchParams.get("sourceId")?.trim();
+  if (!sourceId) return NextResponse.json({ error: "sourceId가 필요합니다." }, { status: 400 });
+  try {
+    const entries = (await readdir(WALK_OUTPUT_ROOT, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith("WALK-"))
+      .sort((a, b) => b.name.localeCompare(a.name));
+    const results: Partial<Record<VideoDirection, ReturnType<typeof storedWalkResult>>> = {};
+    for (const entry of entries) {
+      if (Object.keys(results).length === DIRECTIONS.length) break;
+      try {
+        const metadata = JSON.parse(await readFile(path.join(WALK_OUTPUT_ROOT, entry.name, "metadata.json"), "utf8")) as StoredWalkMetadata;
+        if (metadata.source?.id !== sourceId || !DIRECTIONS.includes(metadata.crop?.direction)) continue;
+        if (!results[metadata.crop.direction]) {
+          const analyzed = metadata.output.validFrameCount !== undefined
+            ? undefined
+            : await analyzeDistinctFrames(path.join(WALK_OUTPUT_ROOT, entry.name, "frames"), metadata.output.frameFiles);
+          results[metadata.crop.direction] = storedWalkResult(metadata, analyzed);
+        }
+      } catch {
+        // A partially written or unrelated directory must not hide valid completed generations.
+      }
+    }
+    return NextResponse.json({ ok: true, sourceId, results });
+  } catch {
+    return NextResponse.json({ ok: true, sourceId, results: {} });
+  }
+}
+
 export async function POST(request: Request) {
+  if (VIDEO_WORKFLOW_REJECTED) {
+    return NextResponse.json({ error: "비디오 생성 방식은 기각되었습니다.", rejected: true }, { status: 410 });
+  }
   const startedAt = Date.now();
   const localRequestId = `walk-${randomUUID()}`;
   try {
@@ -122,11 +253,11 @@ export async function POST(request: Request) {
     const prompt = motionMode === "travel"
       ? `Smooth natural walk: the character ${TRAVEL_ACTIONS[direction]}, ${VIEW_PROMPTS[direction]}, full body, clear alternating steps, static camera. Keep the same character and white background.`
       : motionMode === "tracking"
-        ? `Smooth natural walk, ${VIEW_PROMPTS[direction]}, full body, clear alternating steps. Track the walking character at the same scale. Keep the same character and white background.`
-        : `Smooth walk cycle in place, ${VIEW_PROMPTS[direction]}, full body, clear alternating steps, no head tilting, no camera movement. Keep the same character and white background.`;
+        ? `Natural walk: the character ${TRAVEL_ACTIONS[direction]}, ${VIEW_PROMPTS[direction]}, full body, obvious alternating steps and opposite arm swing. The camera follows at the same speed so the character stays centered at the same size. Keep the same character and white background.`
+        : IN_PLACE_PROMPT;
     const settings: VideoGenerationSettings = {
       prompt,
-      negativePrompt: "low quality, blurry, static, dancing, pointing, turning, changing character",
+      negativePrompt: undefined,
       width: outputWidth,
       height: outputHeight,
       numFrames: numberValue(form, "numFrames", 81, 9, 121),
@@ -163,7 +294,7 @@ export async function POST(request: Request) {
     const result = await requestWalkVideo(reference, settings);
     const generationId = `WALK-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}-${direction.toUpperCase()}-${randomUUID().slice(0, 8)}`;
     const relativeDirectory = path.join("generated", "walk-videos", generationId);
-    const outputDirectory = path.join("public", "generated", "walk-videos", generationId);
+    const outputDirectory = path.join(WALK_OUTPUT_ROOT, generationId);
     const framesDirectory = path.join(outputDirectory, "frames");
     const referenceFilename = "reference.png";
     const videoFilename = "walk.mp4";
@@ -176,6 +307,7 @@ export async function POST(request: Request) {
     const sampleFps = numberValue(form, "sampleFps", 8, 1, settings.fps);
     const maxFrames = numberValue(form, "maxFrames", 32, 4, 121);
     const frameFiles = await extractFrames(path.join(outputDirectory, videoFilename), framesDirectory, sampleFps, maxFrames);
+    const frameAnalysis = await analyzeDistinctFrames(framesDirectory, frameFiles);
     const publicBase = `/${relativeDirectory.split(path.sep).join("/")}`;
     const metadata = {
       generationId,
@@ -183,12 +315,12 @@ export async function POST(request: Request) {
       jobId: result.jobId,
       model: result.model,
       createdAt: new Date().toISOString(),
-      experiment: motionMode === "travel" ? "walk-v6-official-sampling-travel" : motionMode === "tracking" ? "walk-v6-official-sampling-tracking" : "walk-v6-official-sampling-in-place",
+      experiment: motionMode === "travel" ? "walk-v6-official-sampling-travel" : motionMode === "tracking" ? "walk-v8-directional-tracking" : "walk-v15-centered-running",
       elapsedMs: Date.now() - startedAt,
       source: { type: sourceType, id: sourceId, filename: image.name, size: `${sourceMetadata.width}x${sourceMetadata.height}` },
       crop: { direction, label: DIRECTION_LABELS[direction], motionMode, ...crop, preparedSize: `${outputWidth}x${outputHeight}`, referenceFilename },
       settings,
-      output: { videoFilename, videoBytes: result.videoBuffer.length, contentType: result.contentType, sampleFps, maxFrames, frameFiles },
+      output: { videoFilename, videoBytes: result.videoBuffer.length, contentType: result.contentType, sampleFps, maxFrames, frameFiles, ...frameAnalysis },
       postprocess: { visualChanges: false, operations: ["extract-direction-cell", "extract-frames"] },
     };
     await writeFile(path.join(outputDirectory, metadataFilename), JSON.stringify(metadata, null, 2));
@@ -200,6 +332,9 @@ export async function POST(request: Request) {
       direction,
       videoBytes: result.videoBuffer.length,
       frameCount: frameFiles.length,
+      validFrameCount: frameAnalysis.validFrameCount,
+      uniqueFrameCount: frameAnalysis.uniqueFrameCount,
+      suggestedFrameIndexes: frameAnalysis.suggestedFrameIndexes,
       elapsedMs: Date.now() - startedAt,
     });
     return NextResponse.json({
@@ -221,6 +356,9 @@ export async function POST(request: Request) {
       metadataUrl: `${publicBase}/${metadataFilename}`,
       outputSize: `${outputWidth}x${outputHeight}`,
       frameCount: frameFiles.length,
+      validFrameCount: frameAnalysis.validFrameCount,
+      uniqueFrameCount: frameAnalysis.uniqueFrameCount,
+      suggestedFrameIndexes: frameAnalysis.suggestedFrameIndexes,
       sampleFps,
       elapsedMs: Date.now() - startedAt,
       postprocessed: false,

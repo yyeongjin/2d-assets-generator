@@ -117,14 +117,14 @@ test("에셋 대분류 8종과 상태 히스토리를 표시한다", () => {
   assert.match(css, /\.history-list/);
 });
 
-test("Qwen을 호출하지 않고 비디오 endpoint만 확인한다", () => {
+test("기각된 비디오 health는 upstream을 호출하지 않고 410을 반환한다", () => {
   const healthFunction = page.slice(page.indexOf("async function checkHealth"), page.indexOf("async function generateCharacterSheet"));
   assert.match(healthFunction, /\/api\/runpod\/video\/health/);
   assert.doesNotMatch(healthFunction, /\/api\/runpod\/health/);
   assert.match(page, /status: "꺼짐"/);
-  assert.match(page, /Qwen은 호출하지 않습니다/);
   assert.match(page, /data-testid="check-video-runpod"/);
-  assert.match(videoHealthRoute, /checkRunPodVideoHealth/);
+  assert.doesNotMatch(videoHealthRoute, /checkRunPodVideoHealth/);
+  assert.match(videoHealthRoute, /status: 410/);
 });
 
 test("2x2 시트를 중앙에서 정확히 네 방향으로 자른다", () => {
@@ -149,14 +149,25 @@ test("방향별 제자리 걷기를 순차 생성하고 실제 입력·영상·�
   assert.match(css, /\.walk-frame-grid/);
 });
 
+test("비디오 생성 방식은 기각 상태로 표시하고 실행 버튼을 잠근다", () => {
+  assert.match(page, /VIDEO_WORKFLOW_REJECTED = true/);
+  assert.match(videoRoute, /VIDEO_WORKFLOW_REJECTED = true/);
+  assert.match(videoRoute, /status: 410/);
+  assert.match(page, /비디오 방식 기각 · 동작 이미지 시트로 전환/);
+  assert.match(page, /프레임 수는 고정하지 않으며/);
+  assert.match(page, /disabled=\{VIDEO_WORKFLOW_REJECTED \|\|/);
+});
+
 test("비디오 prompt는 짧은 보행 동작만 요청하고 공식 TI2V 샘플링 값을 전송한다", () => {
-  const promptSource = videoRoute.slice(videoRoute.indexOf("const VIEW_PROMPTS"), videoRoute.indexOf("const settings"));
-  assert.match(promptSource, /Smooth walk cycle in place/);
-  assert.match(promptSource, /clear alternating steps/);
-  assert.match(promptSource, /no camera movement/);
-  assert.match(promptSource, /Keep the same character and white background/);
+  const promptSource = videoRoute.slice(videoRoute.indexOf("const VIEW_PROMPTS"), videoRoute.indexOf("const FRAME_SIGNATURE_SIZE"));
+  assert.match(promptSource, /Animate this character running while remaining centered in the frame/);
+  assert.doesNotMatch(promptSource, /IDENTITY_LOCK_NEGATIVE_PROMPT/);
   assert.doesNotMatch(promptSource, /pixel/i);
   assert.match(videoRoute, /numberValue\(form, "numFrames", 81/);
+  assert.match(videoRoute, /analyzeDistinctFrames/);
+  assert.match(videoRoute, /FRAME_DIFFERENCE_THRESHOLD/);
+  assert.match(videoRoute, /backgroundArtifactRatio/);
+  assert.match(page, /중복 제외 후보/);
   assert.match(videoRoute, /numberValue\(form, "flowShift", 12/);
   assert.match(videoServer, /body\.set\("flow_shift", String\(settings\.flowShift\)\)/);
   assert.match(videoRoute, /motionMode === "tracking"/);
@@ -202,5 +213,6 @@ test("RunPod 설정과 디버그 로그에 비밀을 하드코딩하지 않는�
   assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_START\]/);
   assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_COMPLETE\]/);
   assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_FAILED\]/);
-  assert.match(videoHealthRoute, /\[RunPodVideo\]\[HEALTH_OK\]/);
+  assert.match(videoHealthRoute, /rejected: true/);
+  assert.match(videoHealthRoute, /status: 410/);
 });
