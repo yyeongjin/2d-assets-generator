@@ -3,17 +3,15 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
-const [page, css, characterRoute, assetRoute, editRoute, runpodServer, healthRoute, videoRoute, videoServer, videoHealthRoute, envExample] = await Promise.all([
+const [page, css, characterRoute, assetRoute, editRoute, motionRoute, runpodServer, healthRoute, envExample] = await Promise.all([
   source("../app/page.tsx"),
   source("../app/globals.css"),
   source("../app/api/runpod/character/route.ts"),
   source("../app/api/runpod/asset/route.ts"),
   source("../app/api/runpod/edit/route.ts"),
+  source("../app/api/runpod/motion-sheet/route.ts"),
   source("../lib/runpod-server.ts"),
   source("../app/api/runpod/health/route.ts"),
-  source("../app/api/runpod/video/route.ts"),
-  source("../lib/runpod-video-server.ts"),
-  source("../app/api/runpod/video/health/route.ts"),
   source("../.env.example"),
 ]);
 
@@ -117,80 +115,77 @@ test("에셋 대분류 8종과 상태 히스토리를 표시한다", () => {
   assert.match(css, /\.history-list/);
 });
 
-test("기각된 비디오 health는 upstream을 호출하지 않고 410을 반환한다", () => {
+test("화면에서 이미지 endpoint 연결을 확인한다", () => {
   const healthFunction = page.slice(page.indexOf("async function checkHealth"), page.indexOf("async function generateCharacterSheet"));
-  assert.match(healthFunction, /\/api\/runpod\/video\/health/);
-  assert.doesNotMatch(healthFunction, /\/api\/runpod\/health/);
-  assert.match(page, /status: "꺼짐"/);
-  assert.match(page, /data-testid="check-video-runpod"/);
-  assert.doesNotMatch(videoHealthRoute, /checkRunPodVideoHealth/);
-  assert.match(videoHealthRoute, /status: 410/);
+  assert.match(healthFunction, /\/api\/runpod\/health/);
+  assert.match(page, /data-testid="check-image-runpod"/);
+  assert.match(healthRoute, /checkRunPodHealth/);
 });
 
 test("2x2 시트를 중앙에서 정확히 네 방향으로 자른다", () => {
-  assert.match(videoRoute, /const leftWidth = Math\.floor\(width \/ 2\)/);
-  assert.match(videoRoute, /const topHeight = Math\.floor\(height \/ 2\)/);
-  assert.match(videoRoute, /direction === "front".*left: 0, top: 0/s);
-  assert.match(videoRoute, /direction === "back".*left: leftWidth, top: 0/s);
-  assert.match(videoRoute, /direction === "right".*left: 0, top: topHeight/s);
-  assert.match(videoRoute, /left: leftWidth, top: topHeight/);
-  assert.match(videoRoute, /\.extract\(crop\)/);
-  assert.match(page, /중앙 기준으로 4분할/);
+  assert.match(motionRoute, /const leftWidth = Math\.floor\(width \/ 2\)/);
+  assert.match(motionRoute, /const topHeight = Math\.floor\(height \/ 2\)/);
+  assert.match(motionRoute, /direction === "front".*left: 0, top: 0/s);
+  assert.match(motionRoute, /direction === "back".*left: leftWidth, top: 0/s);
+  assert.match(motionRoute, /direction === "right".*left: 0, top: topHeight/s);
+  assert.match(motionRoute, /left: leftWidth, top: topHeight/);
+  assert.match(motionRoute, /\.extract\(crop\)/);
+  assert.match(page, /원본 2×2 시트의 정확한 사분면/);
 });
 
-test("방향별 제자리 걷기를 순차 생성하고 실제 입력·영상·프레임을 표시한다", () => {
+test("버튼 한 번으로 네 방향 이미지 요청을 비동기 순차 처리한다", () => {
   assert.match(page, /for \(const \[index, direction\] of DIRECTIONS\.entries\(\)\)/);
-  assert.match(page, /data-testid="generate-four-direction-walks"/);
+  assert.doesNotMatch(page, /Promise\.allSettled\(requests\)/);
+  assert.match(page, /data-testid="generate-four-motion-sheets"/);
+  assert.match(page, /\/api\/runpod\/motion-sheet/);
+  assert.match(page, /한 요청 완료 후 다음 방향 자동 요청/);
+  assert.doesNotMatch(page, /class .*Queue|processQueue|queueStore/);
+});
+
+test("사용자가 공통 및 네 방향 독립 프롬프트를 수정하고 방향별 4프레임 원본을 비교한다", () => {
+  assert.match(page, /data-testid="motion-sheet-prompt"/);
+  assert.match(page, /data-testid="direction-prompt-grid"/);
+  assert.match(page, /data-testid={`motion-sheet-prompt-\${direction\.id}`}/);
+  assert.match(page, /data-testid={`generate-motion-\${direction\.id}`}/);
+  assert.match(page, /이 프롬프트로 요청/);
+  assert.match(page, /이 프롬프트로 다시 요청/);
+  assert.doesNotMatch(page, /data-testid={`retry-motion-\${direction\.id}`}/);
+  assert.match(page, /strict orthographic front view only/);
+  assert.match(page, /strict orthographic back view only/);
+  assert.match(page, /strict orthographic right-profile view only/);
+  assert.match(page, /strict orthographic left-profile view only/);
+  assert.match(page, /Top-left: contact pose, character-left leg forward/);
+  assert.match(page, /Bottom-right: up pose/);
+  assert.match(page, /Character-left leg stretched far forward/);
+  assert.match(page, /Character-right knee lifted clearly forward/);
+  assert.match(page, /Character-right leg stretched far forward/);
+  assert.match(page, /Character-left knee lifted clearly forward/);
+  assert.match(page, /서버가 문장을 덧붙이지 않고 그대로 전송/);
+  assert.match(page, /form\.set\("prompt", directionPrompt\)/);
   assert.match(page, /referenceImageUrl/);
-  assert.match(page, /<video src=\{result\.videoUrl\}/);
-  assert.match(page, /toggleWalkFrame/);
-  assert.match(page, /data-testid="walk-results"/);
+  assert.match(page, /result\.imageUrl/);
+  assert.match(page, /data-testid="motion-sheet-results"/);
   assert.match(css, /\.walk-sheet-preview \.split-x/);
-  assert.match(css, /\.walk-frame-grid/);
+  assert.match(css, /\.motion-output-preview \.split-x/);
+  assert.match(motionRoute, /frameLayout: \{ columns: 2, rows: 2 \}/);
 });
 
-test("비디오 생성 방식은 기각 상태로 표시하고 실행 버튼을 잠근다", () => {
-  assert.match(page, /VIDEO_WORKFLOW_REJECTED = true/);
-  assert.match(videoRoute, /VIDEO_WORKFLOW_REJECTED = true/);
-  assert.match(videoRoute, /status: 410/);
-  assert.match(page, /비디오 방식 기각 · 동작 이미지 시트로 전환/);
-  assert.match(page, /프레임 수는 고정하지 않으며/);
-  assert.match(page, /disabled=\{VIDEO_WORKFLOW_REJECTED \|\|/);
-});
-
-test("비디오 prompt는 짧은 보행 동작만 요청하고 공식 TI2V 샘플링 값을 전송한다", () => {
-  const promptSource = videoRoute.slice(videoRoute.indexOf("const VIEW_PROMPTS"), videoRoute.indexOf("const FRAME_SIGNATURE_SIZE"));
-  assert.match(promptSource, /Animate this character running while remaining centered in the frame/);
-  assert.doesNotMatch(promptSource, /IDENTITY_LOCK_NEGATIVE_PROMPT/);
+test("걷기 프롬프트는 픽셀화나 자동 후처리를 요청하지 않는다", () => {
+  const promptSource = page.slice(page.indexOf("const DEFAULT_DIRECTION_PROMPTS"), page.indexOf("function buildPrompt"));
+  assert.match(promptSource, /contact pose/);
+  assert.match(promptSource, /passing pose/);
+  assert.match(promptSource, /up pose/);
   assert.doesNotMatch(promptSource, /pixel/i);
-  assert.match(videoRoute, /numberValue\(form, "numFrames", 81/);
-  assert.match(videoRoute, /analyzeDistinctFrames/);
-  assert.match(videoRoute, /FRAME_DIFFERENCE_THRESHOLD/);
-  assert.match(videoRoute, /backgroundArtifactRatio/);
-  assert.match(page, /중복 제외 후보/);
-  assert.match(videoRoute, /numberValue\(form, "flowShift", 12/);
-  assert.match(videoServer, /body\.set\("flow_shift", String\(settings\.flowShift\)\)/);
-  assert.match(videoRoute, /motionMode === "tracking"/);
-  assert.match(page, /data-testid="walk-mode-tracking"/);
-  assert.match(page, /data-testid="walk-mode-travel"/);
-  assert.match(page, /data-testid="walk-mode-in-place"/);
+  assert.match(motionRoute, /postprocessed: false/);
+  assert.doesNotMatch(motionRoute, /chromakey|colorkey|rembg|pixelate/i);
+  assert.match(motionRoute, /requestImageEdit\(\[reference\], settings\)/);
+  assert.match(motionRoute, /const prompt = basePrompt/);
+  assert.doesNotMatch(motionRoute, /Every one of the four cells shows/);
 });
 
-test("vLLM-Omni 비디오 job을 생성·polling·다운로드한다", () => {
-  assert.match(videoServer, /process\.env\.RUNPOD_VIDEO_BASE_URL/);
-  assert.match(videoServer, /process\.env\.RUNPOD_VIDEO_API_KEY/);
-  assert.match(videoServer, /body\.set\("input_reference"/);
-  assert.match(videoServer, /\/v1\/videos`/);
-  assert.match(videoServer, /\/v1\/videos\/\$\{encodeURIComponent\(jobId\)\}`/);
-  assert.match(videoServer, /\/v1\/videos\/\$\{encodeURIComponent\(jobId\)\}\/content/);
-  assert.match(videoServer, /while \(job\.status !== "completed"\)/);
-});
-
-test("영상 출력은 자동 후처리 없이 FFmpeg 프레임만 추출한다", () => {
-  assert.match(videoRoute, /"-vf", `fps=\$\{sampleFps\}`/);
-  assert.match(videoRoute, /visualChanges: false/);
-  assert.match(videoRoute, /operations: \["extract-direction-cell", "extract-frames"\]/);
-  assert.doesNotMatch(videoRoute, /chromakey|colorkey|rembg|pixelate/i);
+test("현재 화면에는 기각한 비디오 생성 영역을 렌더링하지 않는다", () => {
+  assert.doesNotMatch(page, /<video|VIDEO EXPERIMENT|VIDEO 기각|\/api\/runpod\/video/);
+  assert.match(page, /IMAGE MOTION SHEETS/);
 });
 
 test("RunPod 설정과 디버그 로그에 비밀을 하드코딩하지 않는다", () => {
@@ -199,20 +194,17 @@ test("RunPod 설정과 디버그 로그에 비밀을 하드코딩하지 않는�
   assert.doesNotMatch(runpodServer, /rpa_[A-Za-z0-9]+/);
   assert.doesNotMatch(page, /rpa_[A-Za-z0-9]+/);
   assert.doesNotMatch(characterRoute, /rpa_[A-Za-z0-9]+/);
+  assert.doesNotMatch(motionRoute, /rpa_[A-Za-z0-9]+/);
   assert.match(runpodServer, /promptCharacters/);
   assert.match(characterRoute, /\[CharacterSheet\]\[REQUEST_START\]/);
   assert.match(characterRoute, /\[CharacterSheet\]\[REQUEST_COMPLETE\]/);
   assert.match(characterRoute, /\[CharacterSheet\]\[REQUEST_FAILED\]/);
   assert.match(healthRoute, /\[RunPod\]\[HEALTH_OK\]/);
   const realRunPodProxy = /https:\/\/[a-z0-9]+-8000\.proxy\.runpod\.net/i;
-  assert.doesNotMatch(videoServer, realRunPodProxy);
-  assert.doesNotMatch(videoRoute, realRunPodProxy);
+  assert.doesNotMatch(motionRoute, realRunPodProxy);
   assert.doesNotMatch(page, realRunPodProxy);
   assert.doesNotMatch(envExample, realRunPodProxy);
-  assert.doesNotMatch(videoServer, /rpa_[A-Za-z0-9]+/);
-  assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_START\]/);
-  assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_COMPLETE\]/);
-  assert.match(videoRoute, /\[WalkVideo\]\[REQUEST_FAILED\]/);
-  assert.match(videoHealthRoute, /rejected: true/);
-  assert.match(videoHealthRoute, /status: 410/);
+  assert.match(motionRoute, /\[MotionSheet\]\[REQUEST_START\]/);
+  assert.match(motionRoute, /\[MotionSheet\]\[REQUEST_COMPLETE\]/);
+  assert.match(motionRoute, /\[MotionSheet\]\[REQUEST_FAILED\]/);
 });

@@ -77,6 +77,9 @@ function upstreamHeaders(config: RunPodConfig): HeadersInit {
 async function readError(response: Response): Promise<string> {
   const body = await response.text();
   if (!body) return response.statusText || "빈 오류 응답";
+  if (response.status === 524 || response.headers.get("content-type")?.includes("text/html")) {
+    return `RunPod proxy timeout (HTTP ${response.status})`;
+  }
   try {
     const parsed = JSON.parse(body) as { detail?: unknown; error?: { message?: string }; message?: string };
     return parsed.error?.message || parsed.message || (typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail));
