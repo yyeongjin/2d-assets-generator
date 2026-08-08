@@ -130,62 +130,56 @@ test("2x2 시트를 중앙에서 정확히 네 방향으로 자른다", () => {
   assert.match(motionRoute, /direction === "right".*left: 0, top: topHeight/s);
   assert.match(motionRoute, /left: leftWidth, top: topHeight/);
   assert.match(motionRoute, /\.extract\(crop\)/);
-  assert.match(page, /원본 2×2 시트의 정확한 사분면/);
+  assert.match(page, /원본 셀 1장/);
 });
 
-test("버튼 한 번으로 네 방향 이미지 요청을 비동기 순차 처리한다", () => {
-  assert.match(page, /for \(const \[index, direction\] of DIRECTIONS\.entries\(\)\)/);
-  assert.doesNotMatch(page, /Promise\.allSettled\(requests\)/);
-  assert.match(page, /data-testid="generate-four-motion-sheets"/);
+test("선택한 한 방향의 8프레임을 순차 요청한다", () => {
+  assert.match(page, /for \(let frameIndex = 0; frameIndex < 8; frameIndex \+= 1\)/);
+  assert.doesNotMatch(page, /Promise\.allSettled\(/);
+  assert.match(page, /data-testid="generate-direction-motion-frames"/);
   assert.match(page, /\/api\/runpod\/motion-sheet/);
-  assert.match(page, /한 요청 완료 후 다음 방향 자동 요청/);
+  assert.match(page, /8장을 한 장씩 순차 요청/);
   assert.doesNotMatch(page, /class .*Queue|processQueue|queueStore/);
 });
 
-test("사용자가 공통 및 네 방향 독립 프롬프트를 수정하고 방향별 4프레임 원본을 비교한다", () => {
-  assert.match(page, /data-testid="motion-sheet-prompt"/);
-  assert.match(page, /data-testid="direction-prompt-grid"/);
-  assert.match(page, /data-testid={`motion-sheet-prompt-\${direction\.id}`}/);
-  assert.match(page, /data-testid={`generate-motion-\${direction\.id}`}/);
-  assert.match(page, /이 프롬프트로 요청/);
-  assert.match(page, /이 프롬프트로 다시 요청/);
-  assert.doesNotMatch(page, /data-testid={`retry-motion-\${direction\.id}`}/);
-  assert.match(page, /strict orthographic front view only/);
-  assert.match(page, /strict orthographic back view only/);
-  assert.match(page, /strict orthographic right-profile view only/);
-  assert.match(page, /strict orthographic left-profile view only/);
-  assert.match(page, /Top-left: contact pose, character-left leg forward/);
-  assert.match(page, /Bottom-right: up pose/);
-  assert.match(page, /Character-left leg stretched far forward/);
-  assert.match(page, /Character-right knee lifted clearly forward/);
-  assert.match(page, /Character-right leg stretched far forward/);
-  assert.match(page, /Character-left knee lifted clearly forward/);
-  assert.match(page, /서버가 문장을 덧붙이지 않고 그대로 전송/);
-  assert.match(page, /form\.set\("prompt", directionPrompt\)/);
+test("사용자가 방향별 8개 독립 프롬프트와 원본 결과를 비교한다", () => {
+  assert.match(page, /const WALK_FRAME_PHASES = \[/);
+  assert.match(page, /data-testid={`motion-frame-prompt-\${activeMotionDirection}-\${frameIndex \+ 1}`}/);
+  assert.match(page, /data-testid={`generate-motion-\${activeMotionDirection}-frame-\${frameIndex \+ 1}`}/);
+  assert.match(page, /이 프레임 생성/);
+  assert.match(page, /이 프레임 다시 생성/);
+  assert.match(page, /strict orthographic front view/);
+  assert.match(page, /strict orthographic back view/);
+  assert.match(page, /strict orthographic right-profile view/);
+  assert.match(page, /strict orthographic left-profile view/);
+  assert.match(page, /Animate this exact character into/);
+  assert.match(page, /같은 방향 원본 셀/);
+  assert.match(page, /form\.set\("prompt", framePrompt\)/);
   assert.match(page, /referenceImageUrl/);
-  assert.match(page, /result\.imageUrl/);
+  assert.match(page, /frame\.imageUrl/);
+  assert.match(page, /data-testid={`motion-loop-\${direction\.id}`}/);
   assert.match(page, /data-testid="motion-sheet-results"/);
-  assert.match(css, /\.walk-sheet-preview \.split-x/);
-  assert.match(css, /\.motion-output-preview \.split-x/);
-  assert.match(motionRoute, /frameLayout: \{ columns: 2, rows: 2 \}/);
+  assert.match(css, /\.motion-frame-strip/);
+  assert.match(motionRoute, /frameNumber는 1부터 8 사이/);
+  assert.match(motionRoute, /requestImageEdit\(\[reference\], settings\)/);
 });
 
 test("걷기 프롬프트는 픽셀화나 자동 후처리를 요청하지 않는다", () => {
-  const promptSource = page.slice(page.indexOf("const DEFAULT_DIRECTION_PROMPTS"), page.indexOf("function buildPrompt"));
-  assert.match(promptSource, /contact pose/);
-  assert.match(promptSource, /passing pose/);
-  assert.match(promptSource, /up pose/);
+  const promptSource = page.slice(page.indexOf("const WALK_FRAME_PHASES"), page.indexOf("function buildPrompt"));
+  assert.match(promptSource, /Left Contact/);
+  assert.match(promptSource, /Right Passing/);
+  assert.match(promptSource, /Left Up/);
   assert.doesNotMatch(promptSource, /pixel/i);
   assert.match(motionRoute, /postprocessed: false/);
   assert.doesNotMatch(motionRoute, /chromakey|colorkey|rembg|pixelate/i);
   assert.match(motionRoute, /requestImageEdit\(\[reference\], settings\)/);
-  assert.match(motionRoute, /const prompt = basePrompt/);
-  assert.doesNotMatch(motionRoute, /Every one of the four cells shows/);
+  assert.match(motionRoute, /const prompt = textValue\(form, "prompt"\)/);
+  assert.doesNotMatch(motionRoute, /silhouette|poseGuide|mask_image/);
 });
 
 test("현재 화면에는 기각한 비디오 생성 영역을 렌더링하지 않는다", () => {
   assert.doesNotMatch(page, /<video|VIDEO EXPERIMENT|VIDEO 기각|\/api\/runpod\/video/);
-  assert.match(page, /IMAGE MOTION SHEETS/);
+  assert.match(page, /INDIVIDUAL MOTION FRAMES/);
 });
 
 test("RunPod 설정과 디버그 로그에 비밀을 하드코딩하지 않는다", () => {
@@ -204,7 +198,7 @@ test("RunPod 설정과 디버그 로그에 비밀을 하드코딩하지 않는�
   assert.doesNotMatch(motionRoute, realRunPodProxy);
   assert.doesNotMatch(page, realRunPodProxy);
   assert.doesNotMatch(envExample, realRunPodProxy);
-  assert.match(motionRoute, /\[MotionSheet\]\[REQUEST_START\]/);
-  assert.match(motionRoute, /\[MotionSheet\]\[REQUEST_COMPLETE\]/);
-  assert.match(motionRoute, /\[MotionSheet\]\[REQUEST_FAILED\]/);
+  assert.match(motionRoute, /\[MotionFrame\]\[REQUEST_START\]/);
+  assert.match(motionRoute, /\[MotionFrame\]\[REQUEST_COMPLETE\]/);
+  assert.match(motionRoute, /\[MotionFrame\]\[REQUEST_FAILED\]/);
 });

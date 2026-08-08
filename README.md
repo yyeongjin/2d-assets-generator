@@ -8,6 +8,8 @@
 
 동작을 영상으로 생성한 뒤 프레임을 추출하는 방식은 기각했습니다. `Wan2.2-TI2V-5B-Diffusers` 실험에서 캐릭터 외형·크기·배경이 프레임마다 변했고, 정지 프레임과 중복 프레임이 많았으며, 동작 prompt가 장면이나 원형 물체로 잘못 해석되는 결과도 발생했습니다. 5초 영상을 생성한 뒤에도 실제 스프라이트로 사용할 수 있는 자세를 안정적으로 확보하지 못해 에셋 제작 경로로 사용하지 않습니다.
 
+2026-08-08에는 정면 캐릭터 원본 한 장과 프레임별 prompt만으로 걷기 8장을 개별 생성했지만, 착지 전·착지 순서, 좌우 발, 중립 자세 복원과 부츠 왜곡을 안정적으로 제어하지 못했습니다. 8프레임 전체는 승인되지 않았으며 [Qwen 정면 걷기 프레임 실패 기록](docs/QWEN_WALK_FRAME_FAILURES.md)에 중단 시점과 생성 ID를 남겼습니다.
+
 README의 GIF와 에셋 갤러리도 잘 작동하는 성공 사례를 의미하지 않습니다. 방향별 외형 일관성, 크기, 정면 표현, 프레임 구성 등 현재 확인된 결과와 문제를 비교하기 위한 실험 기록입니다.
 
 ![Asset Forge 브라우저 디버깅 과정](tools_test/public/screenshots/asset-forge-browser-debug.gif)
@@ -78,6 +80,7 @@ README의 GIF와 에셋 갤러리도 잘 작동하는 성공 사례를 의미하
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
 - [RunPod Qwen-Image-Edit-2511 실행 가이드](docs/RUNPOD_QWEN_IMAGE_EDIT.md)
 - [기각된 RunPod Wan2.2 영상 실험 기록](docs/RUNPOD_WAN_VIDEO.md)
+- [Qwen 정면 걷기 프레임 실패 기록](docs/QWEN_WALK_FRAME_FAILURES.md)
 
 기각된 영상 실험은 [acatovic/ai-game-studio](https://github.com/acatovic/ai-game-studio)의 흐름에서 영감을 얻어 검증했습니다. 실험 기록은 남기되, 실제 제작은 이미지 시트 batch와 동일 비율 셀 전처리 방식으로 전환합니다.
 
