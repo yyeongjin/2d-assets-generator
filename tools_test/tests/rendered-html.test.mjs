@@ -22,6 +22,7 @@ const [
   imageHealthRoute,
   runpodServer,
   directionSplitRoute,
+  characterRoute,
 ] = await Promise.all([
   source("../app/page.tsx"),
   source("../app/globals.css"),
@@ -41,6 +42,7 @@ const [
   source("../app/api/runpod/health/route.ts"),
   source("../lib/runpod-server.ts"),
   source("../app/api/assets/split-directions/route.ts"),
+  source("../app/api/runpod/character/route.ts"),
 ]);
 
 test("활성 화면은 기준 에셋 이미지 생성과 SCAIL-2 동작 생성을 분리한다", () => {
@@ -49,8 +51,30 @@ test("활성 화면은 기준 에셋 이미지 생성과 SCAIL-2 동작 생성�
   assert.doesNotMatch(activeSources, /Qwen|2511/i);
   assert.match(page, /\/api\/runpod\/asset/);
   assert.match(page, /\/api\/runpod\/health/);
-  assert.doesNotMatch(page, /\/api\/runpod\/(character|edit|motion-sheet|video)/);
-  assert.doesNotMatch(page, /아이템 착용|기준 캐릭터 생성/);
+  assert.match(page, /\/api\/runpod\/character/);
+  assert.doesNotMatch(page, /\/api\/runpod\/(edit|motion-sheet|video)/);
+  assert.doesNotMatch(page, /아이템 착용/);
+});
+
+test("캐릭터 조건·랜덤 조합·저장된 4방향 캐릭터 화면을 유지한다", () => {
+  assert.match(page, /data-testid="character-generator"/);
+  assert.match(page, /캐릭터 조건 · 랜덤 4방향 생성/);
+  for (const label of ["역할", "성별 표현", "연령", "체형", "머리", "의상", "특징"]) assert.match(page, new RegExp(label));
+  assert.match(page, /data-testid="random-character"/);
+  assert.match(page, /data-testid={`random-character-\${group\.key}`}/);
+  assert.match(page, /data-testid="character-prompt"/);
+  assert.match(page, /data-testid="generate-character-sheet"/);
+  assert.match(page, /data-testid="character-sheet-inventory"/);
+  assert.match(page, /storedCharacterSheets/);
+  assert.match(page, /selectStoredCharacter\(result\)/);
+  assert.match(page, /setDirectionSheetInventoryId\(inventoryResult\.generationId\)/);
+  assert.match(page, /setDirectionSheetSourceMode\("inventory"\)/);
+  assert.match(page, /front → back → right → left/);
+  assert.match(characterRoute, /requestImageEdit\(\[inputImage\], settings\)/);
+  assert.match(characterRoute, /public.*generated.*character-sheets/s);
+  assert.match(characterRoute, /cells: \["front", "back", "right", "left"\]/);
+  assert.match(css, /\.character-generator-workbench/);
+  assert.match(css, /\.character-sheet-inventory/);
 });
 
 test("화면은 준비된 4방향 입력에서 로컬 32 PNG까지 네 단계를 표시한다", () => {

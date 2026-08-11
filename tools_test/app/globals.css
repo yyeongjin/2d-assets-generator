@@ -982,3 +982,53 @@ button { color: inherit; }
 .asset-catalog-workbench > footer { display: flex; align-items: center; gap: 16px; padding: 14px 20px; background: #f7f9f4; border-top: 1px solid var(--line); }
 .asset-catalog-workbench > footer strong { font-size: 10px; }
 .asset-catalog-workbench > footer span { color: var(--muted); font-size: 9px; }
+
+.character-generator-workbench {
+  width: min(1440px, calc(100% - 32px));
+  margin: 0 auto 18px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+}
+.character-generator-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 24px;
+  color: white;
+  background: var(--ink);
+  border-bottom: 3px solid var(--lime);
+}
+.character-generator-heading small { color: #94a099; font: 750 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .1em; }
+.character-generator-heading h2 { margin: 6px 0 0; font-size: 23px; }
+.character-generator-heading p { margin: 7px 0 0; color: #b9c3bd; font-size: 10px; }
+.character-generator-heading > div:last-child { display: flex; align-items: center; gap: 8px; }
+.character-generator-heading > div:last-child > span { padding: 9px 11px; color: #aeb8b2; border: 1px solid #4a574f; border-radius: 999px; font: 800 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.character-generator-heading > div:last-child > span[data-status="연결됨"] { color: var(--lime); border-color: #62793c; }
+.character-generator-heading > div:last-child > span[data-status="오류"] { color: #ff9d90; border-color: #7d443e; }
+.character-generator-heading button { padding: 10px 13px; color: var(--ink); background: var(--lime); border: 1px solid #9fc637; border-radius: 10px; cursor: pointer; font-size: 9px; font-weight: 900; }
+.character-generator-heading button:disabled { opacity: .55; cursor: wait; }
+.character-generator-grid { display: grid; grid-template-columns: 350px minmax(0, 1fr); gap: 14px; align-items: start; padding: 14px; background: #f2f4ed; }
+.character-generator-grid > .panel { border-radius: 16px; box-shadow: none; }
+.character-generator-grid .option-list { max-height: 500px; }
+.character-generator-grid .request-pipeline { grid-template-columns: minmax(120px, .65fr) 20px minmax(180px, .9fr) 20px minmax(270px, 1.35fr); }
+.character-generator-grid .blank-canvas { max-height: 205px; }
+.character-generator-grid .generation-actions { border-bottom: 0; }
+.character-sheet-inventory { padding: 16px 22px 20px; border-top: 1px solid var(--line); }
+.character-sheet-inventory > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.character-sheet-inventory > header small, .character-sheet-inventory > header strong { display: block; }
+.character-sheet-inventory > header small { color: #7f8983; font: 750 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+.character-sheet-inventory > header strong { margin-top: 5px; font-size: 14px; }
+.character-sheet-inventory > header > span { padding: 6px 9px; color: #566159; background: #edf1ea; border-radius: 999px; font-size: 9px; font-weight: 850; }
+.character-sheet-inventory > div { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.character-sheet-inventory > div > button { min-width: 0; display: grid; grid-template-columns: 68px minmax(0, 1fr); align-items: center; gap: 9px; padding: 7px; text-align: left; background: white; border: 1px solid #d4dad1; border-radius: 10px; cursor: pointer; }
+.character-sheet-inventory > div > button.is-selected { background: var(--lime-soft); border-color: #94b641; box-shadow: 0 0 0 1px #94b641 inset; }
+.character-sheet-inventory img { width: 68px; height: 68px; object-fit: contain; background: #fbfcfa; border: 1px solid #e1e5de; border-radius: 7px; }
+.character-sheet-inventory button > span { min-width: 0; }
+.character-sheet-inventory button strong, .character-sheet-inventory button small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.character-sheet-inventory button strong { font-size: 9px; }
+.character-sheet-inventory button small { margin-top: 5px; color: #7e8982; font: 7px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.character-sheet-inventory > p { margin: 12px 0 0; padding: 18px; color: #7d8881; text-align: center; background: #f7f9f4; border: 1px dashed #cbd2c8; border-radius: 10px; font-size: 9px; }

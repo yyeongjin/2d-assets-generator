@@ -38,6 +38,26 @@ type ImageEndpointState = {
   message?: string;
 };
 
+type CharacterSheetResult = {
+  ok: true;
+  generationId: string;
+  requestId: string;
+  model: string;
+  prompt: string;
+  seed: number;
+  inputImageUrl: string;
+  imageUrl: string;
+  metadataUrl: string;
+  inputSize: string;
+  outputSize: string;
+  elapsedMs: number;
+  cells: string[];
+  postprocessed: false;
+};
+
+type SelectionKey = "role" | "gender" | "age" | "body" | "hair" | "clothes" | "detail";
+type CharacterSelections = Record<SelectionKey, string>;
+
 type BaseAssetResult = {
   ok: true;
   generationId: string;
@@ -88,6 +108,58 @@ const DIRECTIONS = [
 ] as const;
 
 const DIRECTION_SHEET_ORDER: Direction[] = ["front", "back", "right", "left"];
+
+const CHARACTER_OPTIONS: Array<{ key: SelectionKey; label: string; values: Array<{ label: string; prompt: string }> }> = [
+  { key: "role", label: "역할", values: [
+    { label: "농부", prompt: "farm worker" },
+    { label: "여행자", prompt: "traveler" },
+    { label: "대장장이", prompt: "blacksmith" },
+    { label: "상인", prompt: "shopkeeper" },
+  ] },
+  { key: "gender", label: "성별 표현", values: [
+    { label: "남성형", prompt: "masculine" },
+    { label: "여성형", prompt: "feminine" },
+    { label: "중성적", prompt: "androgynous" },
+  ] },
+  { key: "age", label: "연령", values: [
+    { label: "청년", prompt: "young adult" },
+    { label: "중년", prompt: "middle-aged" },
+    { label: "노년", prompt: "older adult" },
+  ] },
+  { key: "body", label: "체형", values: [
+    { label: "보통", prompt: "average height and build" },
+    { label: "작고 단단함", prompt: "short and sturdy" },
+    { label: "크고 마름", prompt: "tall and lean" },
+  ] },
+  { key: "hair", label: "머리", values: [
+    { label: "짧은 흑발", prompt: "short dark hair" },
+    { label: "긴 갈색 머리", prompt: "long brown hair" },
+    { label: "묶은 적갈색 머리", prompt: "tied auburn hair" },
+    { label: "은색 단발", prompt: "silver bob haircut" },
+  ] },
+  { key: "clothes", label: "의상", values: [
+    { label: "파란 작업복", prompt: "blue work shirt, dark trousers, brown boots" },
+    { label: "초록 작업복", prompt: "green work shirt, beige trousers, brown boots" },
+    { label: "갈색 앞치마", prompt: "cream shirt, brown leather apron, dark boots" },
+    { label: "붉은 외투", prompt: "red short coat, charcoal trousers, black boots" },
+  ] },
+  { key: "detail", label: "특징", values: [
+    { label: "없음", prompt: "no accessories" },
+    { label: "밀짚모자", prompt: "straw hat" },
+    { label: "붉은 목도리", prompt: "red scarf" },
+    { label: "둥근 안경", prompt: "round glasses" },
+  ] },
+];
+
+const DEFAULT_CHARACTER_SELECTIONS: CharacterSelections = {
+  role: "farm worker",
+  gender: "masculine",
+  age: "young adult",
+  body: "average height and build",
+  hair: "short dark hair",
+  clothes: "blue work shirt, dark trousers, brown boots",
+  detail: "no accessories",
+};
 
 const PHASES = [
   "L Contact",
@@ -140,6 +212,20 @@ function buildAssetPrompt(category: AssetCatalogId, item: string) {
   return `Create the black outline generation guide for ${subject} on a plain white canvas. Keep every line inside the canvas and use no fill, label, or decoration.`;
 }
 
+function buildCharacterPrompt(selections: CharacterSelections) {
+  const description = Object.values(selections).join(", ");
+  return [
+    `Create one 2x2 turnaround sheet of one full-body ${description} on a plain white background.`,
+    "Top-left: front view. Top-right: back view. Bottom-left: right profile facing right. Bottom-right: left profile facing left.",
+    "Show each character head-to-toe at equal height with feet on the same line.",
+    "Keep identity, clothes, colors, and proportions identical. No text, borders, handheld items, shadows, or cropping.",
+  ].join(" ");
+}
+
+function randomChoice<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
 function createInputs(projectId: string): Record<Direction, DirectionInput> {
   const safeId = projectId.trim() || "CHARACTER_ID";
   return Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {
@@ -182,6 +268,12 @@ export default function Home() {
   const [directionSplit, setDirectionSplit] = useState<DirectionSplitResult | null>(null);
   const [splittingDirections, setSplittingDirections] = useState(false);
   const [directionSplitNotice, setDirectionSplitNotice] = useState("2×2 시트를 선택하면 좌상 정면 · 우상 후면 · 좌하 오른쪽 · 우하 왼쪽으로 분할합니다.");
+  const [characterSelections, setCharacterSelections] = useState<CharacterSelections>(DEFAULT_CHARACTER_SELECTIONS);
+  const [characterPrompt, setCharacterPrompt] = useState(() => buildCharacterPrompt(DEFAULT_CHARACTER_SELECTIONS));
+  const [characterSeed, setCharacterSeed] = useState(4821);
+  const [characterSheet, setCharacterSheet] = useState<CharacterSheetResult | null>(null);
+  const [characterNotice, setCharacterNotice] = useState("조건을 선택하거나 전체 랜덤으로 조합한 뒤 이미지 endpoint에 4방향 시트를 요청하세요.");
+  const [generatingCharacter, setGeneratingCharacter] = useState(false);
 
   const selectedDirection = useMemo(
     () => DIRECTIONS.find((direction) => direction.id === activeDirection) ?? DIRECTIONS[0],
@@ -191,6 +283,10 @@ export default function Home() {
     () => ASSET_CATALOG.find((catalog) => catalog.id === assetCatalogId) ?? ASSET_CATALOG[0],
     [assetCatalogId],
   );
+  const selectedCharacterLabels = useMemo(() => CHARACTER_OPTIONS.map((group) => {
+    const selected = group.values.find((value) => value.prompt === characterSelections[group.key]);
+    return { label: group.label, value: selected?.label ?? characterSelections[group.key] };
+  }), [characterSelections]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -235,6 +331,115 @@ export default function Home() {
       });
     return () => controller.abort();
   }, []);
+
+  function updateCharacterSelection(key: SelectionKey, value: string) {
+    const next = { ...characterSelections, [key]: value };
+    setCharacterSelections(next);
+    setCharacterPrompt(buildCharacterPrompt(next));
+    setCharacterNotice("선택한 캐릭터 조건을 실제 전송 프롬프트에 반영했습니다.");
+  }
+
+  function randomizeAllCharacterOptions() {
+    const next = CHARACTER_OPTIONS.reduce((current, group) => ({
+      ...current,
+      [group.key]: randomChoice(group.values).prompt,
+    }), {} as CharacterSelections);
+    setCharacterSelections(next);
+    setCharacterPrompt(buildCharacterPrompt(next));
+    setCharacterSeed(Math.floor(Math.random() * 2_147_483_647));
+    setCharacterNotice("캐릭터 조건과 seed를 전부 랜덤 선택했습니다.");
+  }
+
+  function selectStoredCharacter(result: BaseAssetResult) {
+    setCharacterSheet({
+      ok: true,
+      generationId: result.generationId,
+      requestId: result.requestId,
+      model: result.model,
+      prompt: result.prompt,
+      seed: result.seed,
+      inputImageUrl: result.inputImageUrl,
+      imageUrl: result.imageUrl,
+      metadataUrl: result.metadataUrl,
+      inputSize: result.inputSize,
+      outputSize: result.outputSize,
+      elapsedMs: result.elapsedMs,
+      cells: ["front", "back", "right", "left"],
+      postprocessed: false,
+    });
+    setDirectionSheetInventoryId(result.generationId);
+    setDirectionSheetSourceMode("inventory");
+    setCharacterNotice(`${result.generationId} 캐릭터를 열고 4방향 분할 대상으로 선택했습니다. 현재 생성 조건과 프롬프트는 유지됩니다.`);
+  }
+
+  async function checkCharacterImageEndpoint() {
+    setImageEndpoint({ status: "확인 중" });
+    setCharacterNotice("캐릭터 생성용 이미지 endpoint를 확인 중입니다.");
+    try {
+      const response = await fetch("/api/runpod/health", { cache: "no-store" });
+      const body = await response.json() as { ok?: boolean; model?: string; latencyMs?: number; message?: string; error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.message || body.error || `HTTP ${response.status}`);
+      setImageEndpoint({ status: "연결됨", model: body.model, latencyMs: body.latencyMs });
+      setCharacterNotice(`이미지 endpoint 연결 완료 · ${body.model ?? "model 확인됨"} · ${body.latencyMs ?? 0}ms`);
+      console.info("[CHARACTER_CONSOLE][HEALTH_OK]", body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "이미지 endpoint 연결 실패";
+      setImageEndpoint({ status: "오류", message });
+      setCharacterNotice(`이미지 endpoint 연결 실패 · ${message}`);
+      console.error("[CHARACTER_CONSOLE][HEALTH_FAILED]", { message });
+    }
+  }
+
+  async function generateCharacterSheet() {
+    if (generatingCharacter || !characterPrompt.trim()) return;
+    if (imageEndpoint.status !== "연결됨") {
+      setCharacterNotice("먼저 이미지 endpoint 연결을 확인하세요.");
+      return;
+    }
+    setGeneratingCharacter(true);
+    setCharacterNotice("빈 흰 캔버스와 현재 프롬프트를 전송했습니다. 4방향 원본 응답을 기다리는 중입니다.");
+    try {
+      const response = await fetch("/api/runpod/character", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: characterPrompt, seed: characterSeed, size: "1024x1024" }),
+      });
+      const body = await response.json() as CharacterSheetResult & { error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      const roleLabel = selectedCharacterLabels.find((item) => item.label === "역할")?.value ?? "캐릭터";
+      const inventoryResult: BaseAssetResult = {
+        ok: true,
+        generationId: body.generationId,
+        requestId: body.requestId,
+        model: body.model,
+        createdAt: new Date().toISOString(),
+        source: "generated",
+        category: "character",
+        assetName: `${roleLabel} 4방향 캐릭터`,
+        prompt: body.prompt,
+        seed: body.seed,
+        inputImageUrl: body.inputImageUrl,
+        imageUrl: body.imageUrl,
+        metadataUrl: body.metadataUrl,
+        inputSize: body.inputSize,
+        outputSize: body.outputSize,
+        elapsedMs: body.elapsedMs,
+        postprocessed: false,
+      };
+      setCharacterSheet(body);
+      setDirectionSheetInventory((current) => [inventoryResult, ...current.filter((item) => item.generationId !== inventoryResult.generationId)]);
+      setDirectionSheetInventoryId(inventoryResult.generationId);
+      setDirectionSheetSourceMode("inventory");
+      setCharacterNotice(`4방향 캐릭터 생성 완료 · ${body.outputSize} · 인벤토리 저장 및 분할 대상으로 선택됨`);
+      console.info("[CHARACTER_CONSOLE][GENERATION_COMPLETE]", body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "4방향 캐릭터 생성 실패";
+      setCharacterNotice(`4방향 캐릭터 생성 실패 · ${message}`);
+      console.error("[CHARACTER_CONSOLE][GENERATION_FAILED]", { message });
+    } finally {
+      setGeneratingCharacter(false);
+    }
+  }
 
   function selectAssetCatalog(category: AssetCatalogId) {
     const catalog = ASSET_CATALOG.find((item) => item.id === category) ?? ASSET_CATALOG[0];
@@ -566,6 +771,7 @@ export default function Home() {
   const selectedJob = jobs[activeDirection];
   const canSubmit = Object.values(inputs[activeDirection]).every((value) => value.trim()) && prompts[activeDirection].trim();
   const selectedItemInventory = assetInventory.filter((result) => result.assetName === assetCatalogItem);
+  const storedCharacterSheets = directionSheetInventory.filter((item) => item.category === "character" && item.imageUrl.startsWith("/generated/character-sheets/"));
   const selectedInventoryDirectionSheet = directionSheetInventory.find((item) => item.generationId === directionSheetInventoryId) ?? null;
   const directionSheetSourceUrl = directionSheetSourceMode === "inventory"
     ? selectedInventoryDirectionSheet?.imageUrl ?? directionSheetPreviewUrl
@@ -592,6 +798,46 @@ export default function Home() {
         <article><small>NETWORK VOLUME</small><strong>/workspace/scail2-data</strong><span>prepared inputs + raw outputs</span></article><b>→</b>
         <article className="is-primary"><small>ON-DEMAND POD</small><strong>SCAIL-2 loaded once</strong><span>FastAPI :8000 · serial GPU queue</span></article><b>→</b>
         <article><small>LOCAL CLIENT</small><strong>download raw videos</strong><span>0·2·4·6·8·10·12·14</span></article>
+      </section>
+
+      <section className="character-generator-workbench" data-testid="character-generator">
+        <header className="character-generator-heading">
+          <div><small>CHARACTER BASE ASSET GENERATOR</small><h2>캐릭터 조건 · 랜덤 4방향 생성</h2><p>역할과 외형을 직접 고르거나 랜덤 조합합니다. 생성된 2×2 시트는 캐릭터 인벤토리에 저장되고 다음 분할 단계에서 바로 선택됩니다.</p></div>
+          <div><span data-status={imageEndpoint.status}>IMAGE {imageEndpoint.status}</span><button type="button" onClick={checkCharacterImageEndpoint} disabled={imageEndpoint.status === "확인 중"} data-testid="check-character-endpoint">{imageEndpoint.status === "확인 중" ? "확인 중…" : "이미지 endpoint 확인"}</button></div>
+        </header>
+        <div className="character-generator-grid">
+          <aside className="panel controls-panel">
+            <div className="panel-heading"><div><small>01 / CHARACTER INPUT</small><h2>캐릭터 조건</h2></div><button type="button" className="random-button" onClick={randomizeAllCharacterOptions} data-testid="random-character">전체 랜덤</button></div>
+            <div className="option-list">
+              {CHARACTER_OPTIONS.map((group) => <section className="option-field" key={group.key}>
+                <div><strong>{group.label}</strong><button type="button" onClick={() => updateCharacterSelection(group.key, randomChoice(group.values).prompt)} data-testid={`random-character-${group.key}`}>랜덤</button></div>
+                <div className="chip-row">{group.values.map((value) => <button key={value.prompt} type="button" role="checkbox" aria-checked={characterSelections[group.key] === value.prompt} className={characterSelections[group.key] === value.prompt ? "chip is-selected" : "chip"} onClick={() => updateCharacterSelection(group.key, value.prompt)} data-testid={`option-${group.key}-${value.label}`}>{value.label}</button>)}</div>
+              </section>)}
+            </div>
+            <section className="seed-field"><label htmlFor="character-seed">GENERATION SEED</label><input id="character-seed" type="number" min="0" max="2147483647" value={characterSeed} onChange={(event) => setCharacterSeed(Number(event.target.value))} /></section>
+            <section className="prompt-field"><div><label htmlFor="character-prompt">실제 전송 프롬프트</label><button type="button" onClick={() => setCharacterPrompt(buildCharacterPrompt(characterSelections))}>옵션으로 복원</button></div><textarea id="character-prompt" value={characterPrompt} onChange={(event) => setCharacterPrompt(event.target.value)} rows={8} data-testid="character-prompt" /><small>{characterPrompt.length}자 · 생성 전 직접 수정 가능</small></section>
+          </aside>
+
+          <section className="panel result-panel">
+            <div className="panel-heading"><div><small>RAW MODEL OUTPUT</small><h2>4방향 기준 캐릭터</h2></div><span className="raw-badge">후처리 없음</span></div>
+            <div className="selected-summary">{selectedCharacterLabels.map((item) => <span key={item.label}><small>{item.label}</small><strong>{item.value}</strong></span>)}</div>
+            <section className="request-pipeline" data-testid="character-request-pipeline">
+              <article><span className="source-label">실제 전송 INPUT</span><div className="blank-canvas" aria-label="1024 정사각형 흰 캔버스"><i /></div><strong>빈 흰 캔버스 1장</strong><small>1024×1024 · 이미지 편집 입력</small><small>별도 레이아웃 이미지는 사용하지 않음</small></article>
+              <b>+</b>
+              <article className="prompt-card"><span className="source-label">PROMPT</span><p>{characterPrompt}</p><strong>2×2 방향 순서 고정</strong><small>front → back → right → left</small></article>
+              <b>→</b>
+              <article className="output-card"><span className="source-label">RUNPOD OUTPUT</span>{characterSheet ? <div className="sheet-output"><img src={`${characterSheet.imageUrl}?v=${characterSheet.generationId}`} alt="생성된 4방향 캐릭터 원본" /></div> : <div className="empty-output"><span>{generatingCharacter ? "생성 중" : "대기"}</span><small>{generatingCharacter ? "RunPod 응답을 기다립니다" : "생성 결과가 여기에 표시됩니다"}</small></div>}{characterSheet ? <><strong>{characterSheet.generationId}</strong><small>{characterSheet.outputSize} · {(characterSheet.elapsedMs / 1000).toFixed(1)}초</small><a href={characterSheet.metadataUrl} target="_blank" rel="noreferrer">metadata JSON</a></> : null}</article>
+            </section>
+            <div className="direction-map" data-testid="direction-cell-order">
+              {[{ cell: "TL", label: "정면", id: "front" }, { cell: "TR", label: "후면", id: "back" }, { cell: "BL", label: "오른쪽", id: "right" }, { cell: "BR", label: "왼쪽", id: "left" }].map((direction) => <div key={direction.id}><span>{direction.cell}</span><strong>{direction.label}</strong><small>{direction.id}</small></div>)}
+            </div>
+            <div className="generation-actions"><div><strong>{characterNotice}</strong><small>{imageEndpoint.model ?? imageEndpoint.message ?? "연결 확인 후 생성할 수 있습니다."}</small></div><button type="button" onClick={generateCharacterSheet} disabled={generatingCharacter || imageEndpoint.status !== "연결됨" || !characterPrompt.trim()} data-testid="generate-character-sheet">{generatingCharacter ? "4방향 생성 중…" : "4방향 캐릭터 생성"}</button></div>
+            <section className="character-sheet-inventory" data-testid="character-sheet-inventory">
+              <header><div><small>SAVED CHARACTER SHEETS</small><strong>만든 캐릭터</strong></div><span>{storedCharacterSheets.length}장</span></header>
+              {storedCharacterSheets.length ? <div>{storedCharacterSheets.map((result) => <button type="button" key={result.generationId} className={directionSheetInventoryId === result.generationId ? "is-selected" : ""} onClick={() => selectStoredCharacter(result)} data-testid={`select-character-sheet-${result.generationId}`}><img src={result.imageUrl} alt={`${result.assetName} 저장 이미지`} /><span><strong>{result.assetName}</strong><small>{result.generationId}</small></span></button>)}</div> : <p>저장된 4방향 캐릭터가 없습니다. 위 조건으로 첫 캐릭터를 생성하세요.</p>}
+            </section>
+          </section>
+        </div>
       </section>
 
       <section className="direction-split-workbench" data-testid="direction-sheet-splitter">
