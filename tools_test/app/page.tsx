@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- generated local files are shown without image optimization. */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Direction = "front" | "back" | "left" | "right";
 type AssetCatalogId = "tile" | "object" | "character" | "creature" | "item" | "vfx" | "ui" | "guide";
@@ -43,6 +43,8 @@ type BaseAssetResult = {
   generationId: string;
   requestId: string;
   model: string;
+  createdAt: string;
+  source: "generated" | "uploaded";
   category: AssetCatalogId;
   assetName: string;
   prompt: string;
@@ -143,9 +145,11 @@ export default function Home() {
   const [assetCatalogItem, setAssetCatalogItem] = useState(ASSET_CATALOG[0].items[0]);
   const [assetPrompt, setAssetPrompt] = useState(() => buildAssetPrompt("tile", ASSET_CATALOG[0].items[0]));
   const [assetResult, setAssetResult] = useState<BaseAssetResult | null>(null);
-  const [assetHistory, setAssetHistory] = useState<BaseAssetResult[]>([]);
+  const [assetInventory, setAssetInventory] = useState<BaseAssetResult[]>([]);
   const [assetNotice, setAssetNotice] = useState("항목을 선택하고 이미지 endpoint를 확인하세요. 가이드는 로컬에서 바로 생성됩니다.");
   const [generatingAsset, setGeneratingAsset] = useState(false);
+  const [uploadingAsset, setUploadingAsset] = useState(false);
+  const [assetUploadFile, setAssetUploadFile] = useState<File | null>(null);
 
   const selectedDirection = useMemo(
     () => DIRECTIONS.find((direction) => direction.id === activeDirection) ?? DIRECTIONS[0],
@@ -156,10 +160,26 @@ export default function Home() {
     [assetCatalogId],
   );
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch(`/api/runpod/asset?category=${encodeURIComponent(assetCatalogId)}&inventory=1`, { cache: "no-store", signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json() as { ok?: boolean; items?: BaseAssetResult[]; error?: string };
+        if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        setAssetInventory(body.items ?? []);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setAssetNotice(`인벤토리 조회 실패 · ${error instanceof Error ? error.message : "unknown"}`);
+      });
+    return () => controller.abort();
+  }, [assetCatalogId]);
+
   function selectAssetCatalog(category: AssetCatalogId) {
     const catalog = ASSET_CATALOG.find((item) => item.id === category) ?? ASSET_CATALOG[0];
     const firstItem = catalog.items[0];
     setAssetCatalogId(category);
+    setAssetInventory([]);
     setAssetCatalogItem(firstItem);
     setAssetPrompt(buildAssetPrompt(category, firstItem));
     setAssetResult(null);
@@ -169,8 +189,9 @@ export default function Home() {
   function selectAssetItem(item: string) {
     setAssetCatalogItem(item);
     setAssetPrompt(buildAssetPrompt(assetCatalogId, item));
-    setAssetResult(null);
-    setAssetNotice(`${item} 생성 설정을 열었습니다. 프롬프트를 수정한 뒤 생성하세요.`);
+    const stored = assetInventory.find((result) => result.assetName === item) ?? null;
+    setAssetResult(stored);
+    setAssetNotice(stored ? `${item}의 최근 저장 결과를 열었습니다.` : `${item} 생성 설정을 열었습니다. 프롬프트를 수정한 뒤 생성하세요.`);
   }
 
   function randomizeAssetItem() {
@@ -220,7 +241,7 @@ export default function Home() {
       const body = await response.json() as BaseAssetResult & { error?: string };
       if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
       setAssetResult(body);
-      setAssetHistory((current) => [body, ...current].slice(0, 8));
+      setAssetInventory((current) => [body, ...current.filter((item) => item.generationId !== body.generationId)]);
       setAssetNotice(`${body.assetName} 생성 완료 · ${body.outputSize} · ${(body.elapsedMs / 1000).toFixed(1)}초`);
       console.info("[ASSET_CONSOLE][GENERATION_COMPLETE]", body);
     } catch (error) {
@@ -232,21 +253,47 @@ export default function Home() {
     }
   }
 
-  async function loadLatestCatalogAsset() {
-    setAssetNotice(`${selectedAssetCatalog.label} 최근 생성 결과를 조회 중입니다.`);
+  async function uploadCatalogAsset() {
+    if (!assetUploadFile || uploadingAsset) {
+      setAssetNotice("먼저 이 항목에 저장할 이미지 파일을 선택하세요.");
+      return;
+    }
+    setUploadingAsset(true);
+    setAssetNotice(`${assetCatalogItem} 이미지 업로드 중입니다.`);
     try {
-      const response = await fetch(`/api/runpod/asset?category=${encodeURIComponent(assetCatalogId)}`, { cache: "no-store" });
+      const formData = new FormData();
+      formData.set("category", assetCatalogId);
+      formData.set("assetName", assetCatalogItem);
+      formData.set("file", assetUploadFile);
+      const response = await fetch("/api/runpod/asset", { method: "PUT", body: formData });
       const body = await response.json() as BaseAssetResult & { error?: string };
       if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
-      setAssetCatalogItem(body.assetName);
-      setAssetPrompt(body.prompt);
-      setSeed(body.seed);
+      setAssetInventory((current) => [body, ...current.filter((item) => item.generationId !== body.generationId)]);
       setAssetResult(body);
-      setAssetHistory((current) => current.some((item) => item.generationId === body.generationId) ? current : [body, ...current].slice(0, 8));
-      setAssetNotice(`${body.assetName} 최근 결과를 불러왔습니다.`);
+      setAssetUploadFile(null);
+      setAssetNotice(`${body.assetName}에 업로드한 이미지를 저장했습니다.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "최근 결과 조회 실패";
-      setAssetNotice(message);
+      setAssetNotice(`이미지 업로드 실패 · ${error instanceof Error ? error.message : "unknown"}`);
+    } finally {
+      setUploadingAsset(false);
+    }
+  }
+
+  async function removeInventoryAsset(result: BaseAssetResult) {
+    if (!window.confirm(`${result.assetName}의 ${result.generationId} 결과와 입력·JSON 기록을 제거할까요?`)) return;
+    try {
+      const response = await fetch("/api/runpod/asset", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: result.category, generationId: result.generationId }),
+      });
+      const body = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      setAssetInventory((current) => current.filter((item) => item.generationId !== result.generationId));
+      if (assetResult?.generationId === result.generationId) setAssetResult(null);
+      setAssetNotice(`${result.assetName} 결과를 인벤토리에서 제거했습니다.`);
+    } catch (error) {
+      setAssetNotice(`인벤토리 제거 실패 · ${error instanceof Error ? error.message : "unknown"}`);
     }
   }
 
@@ -404,6 +451,7 @@ export default function Home() {
 
   const selectedJob = jobs[activeDirection];
   const canSubmit = Object.values(inputs[activeDirection]).every((value) => value.trim()) && prompts[activeDirection].trim();
+  const selectedItemInventory = assetInventory.filter((result) => result.assetName === assetCatalogItem);
 
   return (
     <main className="app-shell scail-console">
@@ -501,8 +549,11 @@ export default function Home() {
           </aside>
           <div className="asset-catalog-table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>필요 대상</th><th>대분류</th><th>생성</th></tr></thead>
-              <tbody>{selectedAssetCatalog.items.map((item, index) => <tr key={item} className={assetCatalogItem === item ? "is-selected" : ""}><td>{String(index + 1).padStart(2, "0")}</td><td><strong>{item}</strong></td><td>{selectedAssetCatalog.label} / {selectedAssetCatalog.summary}</td><td><button type="button" onClick={() => selectAssetItem(item)} data-testid={`select-asset-${selectedAssetCatalog.id}-${index}`}>{assetCatalogItem === item ? "선택됨" : "생성 설정"}</button></td></tr>)}</tbody>
+              <thead><tr><th>번호</th><th>필요 대상</th><th>저장 이미지</th><th>선택</th></tr></thead>
+              <tbody>{selectedAssetCatalog.items.map((item, index) => {
+                const storedImages = assetInventory.filter((result) => result.assetName === item);
+                return <tr key={item} className={assetCatalogItem === item ? "is-selected" : ""}><td>{String(index + 1).padStart(2, "0")}</td><td><strong>{item}</strong><small>{selectedAssetCatalog.label} / {selectedAssetCatalog.summary}</small></td><td>{storedImages.length === 0 ? <span className="inventory-none">비어 있음</span> : <div className="inventory-row-preview">{storedImages.slice(0, 3).map((result) => <img key={result.generationId} src={result.imageUrl} alt="" />)}<b>{storedImages.length}장</b></div>}</td><td><button type="button" onClick={() => selectAssetItem(item)} data-testid={`select-asset-${selectedAssetCatalog.id}-${index}`}>{assetCatalogItem === item ? "열림" : "인벤토리"}</button></td></tr>;
+              })}</tbody>
             </table>
           </div>
           <aside className="asset-generation-panel" data-testid="asset-generation-panel">
@@ -515,15 +566,18 @@ export default function Home() {
             <div className="asset-generator-params"><span><small>CANVAS</small><strong>1024×1024</strong></span><label><small>SEED</small><input type="number" min="0" max="2147483647" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label></div>
             <div className="asset-generator-actions">
               <button type="button" onClick={randomizeAssetItem}>목록 랜덤</button>
-              <button type="button" onClick={loadLatestCatalogAsset} data-testid="load-latest-catalog-asset">최근 결과</button>
               <button type="button" className="is-primary" onClick={generateCatalogAsset} disabled={generatingAsset || !assetPrompt.trim() || (assetCatalogId !== "guide" && imageEndpoint.status !== "연결됨")} data-testid="generate-catalog-asset">{generatingAsset ? "생성 중…" : `${assetCatalogItem} 생성`}</button>
             </div>
+            <div className="asset-upload-box">
+              <label><span>내 이미지 저장</span><input key={`${assetCatalogId}-${assetCatalogItem}-${assetUploadFile ? assetUploadFile.name : "empty"}`} type="file" accept="image/*" onChange={(event) => setAssetUploadFile(event.target.files?.[0] ?? null)} data-testid="catalog-asset-upload-input" /><small>{assetUploadFile ? `${assetUploadFile.name} · ${(assetUploadFile.size / 1024).toFixed(0)}KB` : "PNG·JPG·WEBP · 최대 20MB"}</small></label>
+              <button type="button" onClick={uploadCatalogAsset} disabled={!assetUploadFile || uploadingAsset} data-testid="upload-catalog-asset">{uploadingAsset ? "저장 중…" : "선택 이미지 저장"}</button>
+            </div>
             <p className="asset-generator-notice">{assetNotice}</p>
-            {assetResult ? <div className="asset-generator-output" data-testid="catalog-asset-output"><img src={assetResult.imageUrl} alt={`${assetResult.assetName} 생성 결과`} /><div><strong>{assetResult.assetName}</strong><small>{assetResult.generationId}</small><span>{assetResult.outputSize} · {(assetResult.elapsedMs / 1000).toFixed(1)}초</span><a href={assetResult.metadataUrl} target="_blank" rel="noreferrer">JSON 기록 열기</a></div></div> : <div className="asset-generator-empty">선택한 항목의 생성 결과가 이 칸에 표시됩니다.</div>}
-            <div className="asset-generator-history" data-testid="catalog-asset-history"><strong>이 세션 생성 기록</strong>{assetHistory.length === 0 ? <small>아직 생성 기록이 없습니다.</small> : assetHistory.map((result) => <button type="button" key={result.generationId} onClick={() => { setAssetCatalogId(result.category); setAssetCatalogItem(result.assetName); setAssetPrompt(result.prompt); setSeed(result.seed); setAssetResult(result); }}><span>{result.category.toUpperCase()}</span><div><b>{result.assetName}</b><small>{result.generationId}</small></div></button>)}</div>
+            {assetResult ? <div className="asset-generator-output" data-testid="catalog-asset-output"><img src={assetResult.imageUrl} alt={`${assetResult.assetName} 저장 이미지`} /><div><strong>{assetResult.assetName}</strong><small>{assetResult.generationId}</small><span>{assetResult.source === "uploaded" ? "직접 업로드" : "모델 생성"} · {assetResult.outputSize}</span><a href={assetResult.metadataUrl} target="_blank" rel="noreferrer">JSON 기록 열기</a></div></div> : <div className="asset-generator-empty">아래 인벤토리에서 이미지를 선택하거나 새로 생성·업로드하세요.</div>}
+            <div className="asset-image-inventory" data-testid="catalog-asset-inventory"><header><strong>{assetCatalogItem} 이미지 인벤토리</strong><span>{selectedItemInventory.length}장 저장</span></header>{selectedItemInventory.length === 0 ? <small>이 항목에 저장된 이미지가 없습니다.</small> : <div>{selectedItemInventory.map((result) => <article key={result.generationId} className={assetResult?.generationId === result.generationId ? "is-current" : ""}><button type="button" className="inventory-image-select" onClick={() => { setAssetResult(result); if (result.source === "generated") { setAssetPrompt(result.prompt); setSeed(result.seed); } setAssetNotice(`${result.assetName}의 ${result.source === "uploaded" ? "업로드" : "생성"} 이미지를 선택했습니다.`); }} data-testid={`select-inventory-${result.generationId}`}><img src={result.imageUrl} alt={`${result.assetName} ${result.generationId}`} /><span>{result.source === "uploaded" ? "업로드" : "생성"}</span></button><button type="button" className="inventory-image-remove" onClick={() => removeInventoryAsset(result)} aria-label={`${result.assetName} ${result.generationId} 제거`}>제거</button></article>)}</div>}</div>
           </aside>
         </div>
-        <footer><strong>각 행의 ‘생성 설정’에서 대상을 선택합니다.</strong><span>프롬프트·seed·결과·히스토리는 오른쪽 생성 칸에서 관리하며 목록과 상세 문서는 계속 유지합니다.</span></footer>
+        <footer><strong>각 행의 ‘인벤토리’에서 항목을 선택합니다.</strong><span>생성본과 직접 업로드한 사진을 여러 장 저장하고, 원하는 이미지를 선택하거나 개별 제거할 수 있습니다.</span></footer>
       </section>
 
       <section className="deployment-note">

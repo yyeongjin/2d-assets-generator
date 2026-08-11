@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
@@ -25,6 +25,27 @@ type AssetRequest = {
   size?: unknown;
 };
 
+type AssetMetadata = {
+  generationId: string;
+  requestId: string;
+  model: string;
+  createdAt: string;
+  elapsedMs: number;
+  phase: "base-asset";
+  postprocessed: false;
+  source?: "generated" | "uploaded";
+  category: BaseAssetCategoryLike;
+  assetName: string;
+  input: { filename: string; size: string; bytes?: number };
+  settings: ImageEditSettings;
+  output: { filename: string; size: string; bytes?: number };
+};
+
+type InventoryMutationRequest = {
+  category?: unknown;
+  generationId?: unknown;
+};
+
 function safeSegment(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "asset";
 }
@@ -39,35 +60,67 @@ function numericSeed(value: unknown) {
   return Math.min(2_147_483_647, Math.max(0, Math.round(parsed)));
 }
 
+function categoryDirectory(category: string) {
+  return path.join(process.cwd(), "public", "generated", "base-assets", safeSegment(category));
+}
+
+function validGenerationId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9_-]{8,120}$/i.test(value);
+}
+
+function metadataResult(metadata: AssetMetadata, metadataFilename: string) {
+  const category = metadata.category;
+  return {
+    ok: true as const,
+    generationId: metadata.generationId,
+    requestId: metadata.requestId,
+    model: metadata.model,
+    createdAt: metadata.createdAt,
+    source: metadata.source ?? "generated",
+    category,
+    assetName: metadata.assetName,
+    prompt: metadata.settings.prompt,
+    seed: metadata.settings.seed,
+    inputImageUrl: `/generated/base-assets/${safeSegment(category)}/${metadata.input.filename}`,
+    imageUrl: `/generated/base-assets/${safeSegment(category)}/${metadata.output.filename}`,
+    metadataUrl: `/generated/base-assets/${safeSegment(category)}/${metadataFilename}`,
+    inputSize: metadata.input.size,
+    outputSize: metadata.output.size,
+    elapsedMs: metadata.elapsedMs,
+    postprocessed: false as const,
+  };
+}
+
+async function readInventory(category: string) {
+  const outputDirectory = categoryDirectory(category);
+  let files: string[] = [];
+  try {
+    files = (await readdir(outputDirectory)).filter((file) => file.endsWith(".json")).sort().reverse();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const records = await Promise.all(files.map(async (metadataFilename) => {
+    try {
+      const metadata = JSON.parse(await readFile(path.join(outputDirectory, metadataFilename), "utf8")) as AssetMetadata;
+      return metadataResult(metadata, metadataFilename);
+    } catch (error) {
+      console.error("[BaseAsset][INVENTORY_RECORD_SKIPPED]", { metadataFilename, message: error instanceof Error ? error.message : "invalid metadata" });
+      return null;
+    }
+  }));
+  return records.filter((record): record is NonNullable<typeof record> => record !== null);
+}
+
 export async function GET(request: Request) {
   try {
-    const categoryValue = new URL(request.url).searchParams.get("category") ?? "item";
+    const url = new URL(request.url);
+    const categoryValue = url.searchParams.get("category") ?? "item";
     const category = CATEGORIES.has(categoryValue) ? categoryValue : "item";
-    const outputDirectory = path.join(process.cwd(), "public", "generated", "base-assets", safeSegment(category));
-    const files = (await readdir(outputDirectory)).filter((file) => file.endsWith(".json")).sort().reverse();
-    const metadataFilename = files[0];
-    if (!metadataFilename) return NextResponse.json({ error: `저장된 ${category} 기준 에셋이 없습니다.` }, { status: 404 });
-    const metadata = JSON.parse(await readFile(path.join(outputDirectory, metadataFilename), "utf8")) as {
-      generationId: string; requestId: string; model: string; elapsedMs: number; category: BaseAssetCategoryLike; assetName: string;
-      input: { filename: string; size: string }; settings: ImageEditSettings; output: { filename: string; size: string };
-    };
-    return NextResponse.json({
-      ok: true,
-      generationId: metadata.generationId,
-      requestId: metadata.requestId,
-      model: metadata.model,
-      category: metadata.category,
-      assetName: metadata.assetName,
-      prompt: metadata.settings.prompt,
-      seed: metadata.settings.seed,
-      inputImageUrl: `/generated/base-assets/${safeSegment(category)}/${metadata.input.filename}`,
-      imageUrl: `/generated/base-assets/${safeSegment(category)}/${metadata.output.filename}`,
-      metadataUrl: `/generated/base-assets/${safeSegment(category)}/${metadataFilename}`,
-      inputSize: metadata.input.size,
-      outputSize: metadata.output.size,
-      elapsedMs: metadata.elapsedMs,
-      postprocessed: false,
-    });
+    const items = await readInventory(category);
+    if (url.searchParams.get("inventory") === "1") return NextResponse.json({ ok: true, category, items });
+    if (!items[0]) return NextResponse.json({ error: `저장된 ${category} 기준 에셋이 없습니다.` }, { status: 404 });
+    return NextResponse.json(items[0]);
   } catch (error) {
     const message = error instanceof Error ? error.message : "최근 기준 에셋 조회 실패";
     return NextResponse.json({ error: message }, { status: 404 });
@@ -164,6 +217,95 @@ async function renderGuide(assetName: string, width: number, height: number) {
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
+export async function PUT(request: Request) {
+  const startedAt = Date.now();
+  try {
+    const formData = await request.formData();
+    const categoryValue = formData.get("category");
+    const assetNameValue = formData.get("assetName");
+    const file = formData.get("file");
+    const category = typeof categoryValue === "string" && CATEGORIES.has(categoryValue) ? categoryValue : null;
+    const assetName = typeof assetNameValue === "string" && assetNameValue.trim() ? assetNameValue.trim() : null;
+    if (!category || !assetName || !(file instanceof File) || file.size === 0) {
+      return NextResponse.json({ error: "category, assetName, image file이 필요합니다." }, { status: 400 });
+    }
+    if (!file.type.startsWith("image/")) return NextResponse.json({ error: "이미지 파일만 업로드할 수 있습니다." }, { status: 415 });
+    if (file.size > 20 * 1024 * 1024) return NextResponse.json({ error: "이미지는 20MB 이하여야 합니다." }, { status: 413 });
+
+    const createdAt = new Date().toISOString();
+    const timestamp = createdAt.replace(/[-:TZ.]/g, "").slice(0, 14);
+    const generationId = `${category.toUpperCase()}-${timestamp}-${randomUUID().slice(0, 8)}`;
+    const outputDirectory = categoryDirectory(category);
+    const outputFilename = `${generationId}.png`;
+    const metadataFilename = `${generationId}.json`;
+    const originalBuffer = Buffer.from(await file.arrayBuffer());
+    const outputBuffer = await sharp(originalBuffer).rotate().png().toBuffer();
+    const outputMetadata = await sharp(outputBuffer).metadata();
+    const outputSize = `${outputMetadata.width ?? 0}x${outputMetadata.height ?? 0}`;
+    const metadata: AssetMetadata = {
+      generationId,
+      requestId: `upload-${randomUUID()}`,
+      model: "manual-upload",
+      createdAt,
+      elapsedMs: Date.now() - startedAt,
+      phase: "base-asset",
+      postprocessed: false,
+      source: "uploaded",
+      category: category as BaseAssetCategoryLike,
+      assetName,
+      input: { filename: outputFilename, size: outputSize, bytes: outputBuffer.length },
+      settings: {
+        prompt: `Manual upload for ${assetName}`,
+        size: outputSize,
+        seed: 0,
+        numInferenceSteps: 0,
+        trueCfgScale: 0,
+        guidanceScale: 0,
+        outputFormat: "png",
+      },
+      output: { filename: outputFilename, size: outputSize, bytes: outputBuffer.length },
+    };
+    await mkdir(outputDirectory, { recursive: true });
+    await Promise.all([
+      writeFile(path.join(outputDirectory, outputFilename), outputBuffer),
+      writeFile(path.join(outputDirectory, metadataFilename), JSON.stringify(metadata, null, 2)),
+    ]);
+    console.info("[BaseAsset][INVENTORY_UPLOADED]", { category, assetName, generationId, originalName: file.name, outputSize });
+    return NextResponse.json(metadataResult(metadata, metadataFilename));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "이미지 업로드 실패";
+    console.error("[BaseAsset][INVENTORY_UPLOAD_FAILED]", { message });
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = (await request.json()) as InventoryMutationRequest;
+    const category = typeof body.category === "string" && CATEGORIES.has(body.category) ? body.category : null;
+    if (!category || !validGenerationId(body.generationId)) {
+      return NextResponse.json({ error: "category와 generationId가 필요합니다." }, { status: 400 });
+    }
+    const outputDirectory = categoryDirectory(category);
+    const metadataFilename = `${body.generationId}.json`;
+    const metadataPath = path.join(outputDirectory, metadataFilename);
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8")) as AssetMetadata;
+    if (metadata.category !== category || metadata.generationId !== body.generationId) {
+      return NextResponse.json({ error: "인벤토리 대상이 일치하지 않습니다." }, { status: 409 });
+    }
+    await Promise.all([
+      rm(path.join(outputDirectory, path.basename(metadata.input.filename)), { force: true }),
+      rm(path.join(outputDirectory, path.basename(metadata.output.filename)), { force: true }),
+      rm(metadataPath, { force: true }),
+    ]);
+    console.info("[BaseAsset][INVENTORY_REMOVED]", { category, generationId: body.generationId, assetName: metadata.assetName });
+    return NextResponse.json({ ok: true, removed: body.generationId, category, assetName: metadata.assetName });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "인벤토리 제거 실패";
+    return NextResponse.json({ error: message }, { status: 404 });
+  }
+}
+
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const localRequestId = `asset-${randomUUID()}`;
@@ -218,7 +360,8 @@ export async function POST(request: Request) {
           outputFormat: "png",
         }
       : await requestImageEdit([inputImage], settings);
-    const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+    const createdAt = new Date().toISOString();
+    const timestamp = createdAt.replace(/[-:TZ.]/g, "").slice(0, 14);
     const generationId = `${category.toUpperCase()}-${timestamp}-${randomUUID().slice(0, 8)}`;
     const categoryDirectory = safeSegment(category);
     const outputDirectory = path.join(process.cwd(), "public", "generated", "base-assets", categoryDirectory);
@@ -239,10 +382,11 @@ export async function POST(request: Request) {
         generationId,
         requestId: result.requestId,
         model: result.model,
-        createdAt: new Date().toISOString(),
+        createdAt,
         elapsedMs: Date.now() - startedAt,
         phase: "base-asset",
         postprocessed: false,
+        source: "generated",
         category,
         assetName,
         input: { filename: inputFilename, size, bytes: inputBuffer.length },
@@ -266,6 +410,8 @@ export async function POST(request: Request) {
       generationId,
       requestId: result.requestId,
       model: result.model,
+      createdAt,
+      source: "generated",
       category,
       assetName,
       prompt,

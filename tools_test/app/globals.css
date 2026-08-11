@@ -859,10 +859,15 @@ button { color: inherit; }
 .asset-catalog-table-wrap td { padding: 11px 14px; color: #56625b; border-bottom: 1px solid #ecefea; font-size: 9px; }
 .asset-catalog-table-wrap td:first-child { width: 60px; color: var(--blue); font: 800 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .asset-catalog-table-wrap td:nth-child(2) { width: 28%; color: var(--ink); }
+.asset-catalog-table-wrap td:nth-child(2) small { display: block; margin-top: 4px; color: #879189; font-size: 7px; }
 .asset-catalog-table-wrap tr.is-selected td { background: #f4ffd8; }
 .asset-catalog-table-wrap td:last-child { width: 92px; }
 .asset-catalog-table-wrap td button { width: 100%; padding: 7px 8px; color: #425047; background: white; border: 1px solid #cfd6cc; border-radius: 7px; font-size: 8px; font-weight: 850; cursor: pointer; }
 .asset-catalog-table-wrap tr.is-selected td button { color: #17231c; background: var(--lime); border-color: #91ad40; }
+.inventory-none { color: #9aa39d; font-size: 8px; }
+.inventory-row-preview { display: flex; align-items: center; gap: 4px; }
+.inventory-row-preview img { width: 28px; height: 28px; object-fit: contain; background: white; border: 1px solid #d9ded7; border-radius: 5px; }
+.inventory-row-preview b { margin-left: 3px; color: #55625a; font-size: 8px; white-space: nowrap; }
 .asset-generation-panel { min-width: 0; padding: 20px; background: #f7f9f4; border-left: 1px solid var(--line); }
 .asset-generation-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .asset-generation-panel > header small { color: #7c8880; font: 750 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
@@ -880,10 +885,17 @@ button { color: inherit; }
 .asset-generator-params small { color: #7e8982; font: 700 7px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .asset-generator-params strong { margin-top: 5px; font-size: 10px; }
 .asset-generator-params input { width: 100%; margin-top: 5px; border: 0; outline: 0; font: 800 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.asset-generator-actions { display: grid; grid-template-columns: .8fr .8fr 1.5fr; gap: 7px; margin-top: 10px; }
+.asset-generator-actions { display: grid; grid-template-columns: .8fr 1.5fr; gap: 7px; margin-top: 10px; }
 .asset-generator-actions button { min-width: 0; padding: 10px 5px; color: #425047; background: white; border: 1px solid #ccd3c9; border-radius: 8px; font-size: 8px; font-weight: 850; cursor: pointer; }
 .asset-generator-actions button.is-primary { color: #17231c; background: var(--lime); border-color: #91ad40; }
 .asset-generator-actions button:disabled { opacity: .45; cursor: not-allowed; }
+.asset-upload-box { display: grid; grid-template-columns: minmax(0, 1fr) 112px; align-items: end; gap: 8px; margin-top: 10px; padding: 10px; background: white; border: 1px solid #d5dbd2; border-radius: 9px; }
+.asset-upload-box label > span, .asset-upload-box label > small { display: block; }
+.asset-upload-box label > span { margin-bottom: 6px; color: #5f6b63; font-size: 8px; font-weight: 850; }
+.asset-upload-box label > small { margin-top: 5px; overflow: hidden; color: #8a948d; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.asset-upload-box input { width: 100%; font-size: 8px; }
+.asset-upload-box button { height: 34px; padding: 6px; color: #26332b; background: #e9ffd1; border: 1px solid #a4ba70; border-radius: 7px; font-size: 8px; font-weight: 850; cursor: pointer; }
+.asset-upload-box button:disabled { opacity: .45; cursor: not-allowed; }
 .asset-generator-notice { min-height: 32px; margin: 11px 0 0; padding: 9px 10px; color: #5d685f; background: #edf1ea; border-radius: 8px; font-size: 8px; line-height: 1.5; }
 .asset-generator-output { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; margin-top: 11px; padding: 9px; background: white; border: 1px solid #cbd2c8; border-radius: 10px; }
 .asset-generator-output img { width: 112px; height: 112px; object-fit: contain; image-rendering: auto; background: white; border: 1px solid #e0e4de; border-radius: 7px; }
@@ -894,6 +906,18 @@ button { color: inherit; }
 .asset-generator-output span { margin-top: 8px; color: #59655d; font-size: 8px; }
 .asset-generator-output a { margin-top: 9px; color: var(--blue); font-size: 8px; font-weight: 850; }
 .asset-generator-empty { display: grid; min-height: 96px; margin-top: 11px; place-items: center; padding: 20px; color: #8b958f; text-align: center; background: white; border: 1px dashed #cbd2c8; border-radius: 10px; font-size: 8px; }
+.asset-image-inventory { margin-top: 13px; padding-top: 12px; border-top: 1px solid #d8ddd6; }
+.asset-image-inventory > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.asset-image-inventory > header strong { font-size: 9px; }
+.asset-image-inventory > header span { color: #66726a; font-size: 8px; }
+.asset-image-inventory > small { display: block; margin-top: 10px; padding: 16px; color: #8b958f; text-align: center; background: white; border: 1px dashed #cbd2c8; border-radius: 8px; font-size: 8px; }
+.asset-image-inventory > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 9px; }
+.asset-image-inventory article { min-width: 0; padding: 5px; background: white; border: 1px solid #d1d7cf; border-radius: 8px; }
+.asset-image-inventory article.is-current { background: #f2ffd9; border-color: #8eab42; box-shadow: 0 0 0 1px #8eab42 inset; }
+.inventory-image-select { position: relative; width: 100%; padding: 0; background: transparent; border: 0; cursor: pointer; }
+.inventory-image-select img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #fbfcfa; border-radius: 5px; }
+.inventory-image-select span { position: absolute; right: 3px; bottom: 3px; padding: 3px 4px; color: white; background: rgb(23 35 28 / 78%); border-radius: 4px; font-size: 6px; font-weight: 850; }
+.inventory-image-remove { width: 100%; margin-top: 5px; padding: 5px; color: #a33e3e; background: #fff4f4; border: 1px solid #f0caca; border-radius: 5px; font-size: 7px; font-weight: 850; cursor: pointer; }
 .asset-generator-history { margin-top: 13px; }
 .asset-generator-history > strong { display: block; margin-bottom: 7px; font-size: 9px; }
 .asset-generator-history > small { color: #879189; font-size: 8px; }

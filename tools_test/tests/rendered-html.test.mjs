@@ -206,19 +206,33 @@ test("기존 8대 에셋 카탈로그와 타일·오브젝트 목록표를 유�
   assert.match(css, /\.asset-catalog-table-wrap/);
 });
 
-test("카탈로그 각 행에서 생성 대상을 고르고 프롬프트·결과·히스토리를 관리한다", () => {
+test("카탈로그 각 행에서 이미지 인벤토리를 열고 생성·업로드·선택·제거한다", () => {
   assert.match(page, /data-testid={`select-asset-\${selectedAssetCatalog\.id}-\${index}`}/);
   assert.match(page, /data-testid="asset-generation-panel"/);
   assert.match(page, /data-testid="catalog-asset-prompt"/);
   assert.match(page, /data-testid="check-image-endpoint"/);
   assert.match(page, /data-testid="generate-catalog-asset"/);
   assert.match(page, /data-testid="catalog-asset-output"/);
-  assert.match(page, /data-testid="catalog-asset-history"/);
+  assert.match(page, /data-testid="catalog-asset-upload-input"/);
+  assert.match(page, /data-testid="upload-catalog-asset"/);
+  assert.match(page, /data-testid="catalog-asset-inventory"/);
+  assert.match(page, /select-inventory-/);
+  assert.match(page, /removeInventoryAsset/);
+  assert.match(page, /이미지 인벤토리/);
+  assert.doesNotMatch(page, /loadLatestCatalogAsset|최근 결과/);
+  assert.doesNotMatch(page, /승인됨|반려됨/);
   assert.match(page, /buildAssetPrompt/);
   assert.match(page, /목록 랜덤/);
   assert.match(assetRoute, /"character"/);
   assert.match(assetRoute, /requestImageEdit/);
   assert.match(assetRoute, /category === "guide"/);
+  assert.match(assetRoute, /inventory.*=== "1"/);
+  assert.match(assetRoute, /export async function PUT/);
+  assert.match(assetRoute, /source: "uploaded"/);
+  assert.match(assetRoute, /export async function DELETE/);
+  assert.match(assetRoute, /INVENTORY_REMOVED/);
+  assert.doesNotMatch(assetRoute, /approved|rejected|export async function PATCH/);
   assert.match(css, /\.asset-generation-panel/);
   assert.match(css, /\.asset-generator-output/);
+  assert.match(css, /\.asset-image-inventory/);
 });
