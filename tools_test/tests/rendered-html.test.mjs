@@ -18,6 +18,9 @@ const [
   manifest,
   guide,
   readme,
+  assetRoute,
+  imageHealthRoute,
+  runpodServer,
 ] = await Promise.all([
   source("../app/page.tsx"),
   source("../app/globals.css"),
@@ -33,13 +36,18 @@ const [
   source("../../runpod/scail2_client/example-manifest.json"),
   source("../../docs/RUNPOD_SCAIL2_GUIDE.md"),
   source("../../README.md"),
+  source("../app/api/runpod/asset/route.ts"),
+  source("../app/api/runpod/health/route.ts"),
+  source("../lib/runpod-server.ts"),
 ]);
 
-test("활성 화면과 실행 문서는 SCAIL-2 전용이다", () => {
+test("활성 화면은 기준 에셋 이미지 생성과 SCAIL-2 동작 생성을 분리한다", () => {
   const activeSources = [page, layout, envExample, guide, readme].join("\n");
   assert.match(activeSources, /SCAIL-2/);
   assert.doesNotMatch(activeSources, /Qwen|2511/i);
-  assert.doesNotMatch(page, /\/api\/runpod\//);
+  assert.match(page, /\/api\/runpod\/asset/);
+  assert.match(page, /\/api\/runpod\/health/);
+  assert.doesNotMatch(page, /\/api\/runpod\/(character|edit|motion-sheet|video)/);
   assert.doesNotMatch(page, /아이템 착용|기준 캐릭터 생성/);
 });
 
@@ -78,6 +86,7 @@ test("하나의 17-frame master walk를 네 고정 카메라 job에 사용한다
   assert.match(page, /right.*\+90°/s);
   assert.match(page, /4방향 순서대로 등록/);
   assert.match(page, /for \(const direction of DIRECTIONS\) await submitJob\(direction.id\)/);
+  assert.equal(page.match(/for \(const direction of DIRECTIONS\) await submitJob\(direction.id\)/g)?.length, 1);
 });
 
 test("prompt는 방향별 positive description이며 픽셀화를 요구하지 않는다", () => {
@@ -157,12 +166,18 @@ test("endpoint와 token은 환경변수로만 읽고 실제 값을 하드코딩�
   assert.match(scailServer, /process\.env\.SCAIL2_API_TOKEN/);
   assert.match(envExample, /SCAIL2_BASE_URL=https:\/\/your-scail-pod-8000\.proxy\.runpod\.net/);
   assert.match(envExample, /SCAIL2_API_TOKEN=/);
+  assert.match(runpodServer, /process\.env\.RUNPOD_BASE_URL/);
+  assert.match(runpodServer, /process\.env\.RUNPOD_API_KEY/);
+  assert.match(runpodServer, /process\.env\.RUNPOD_MODEL_ID/);
+  assert.match(envExample, /RUNPOD_BASE_URL=https:\/\/your-image-pod-8000\.proxy\.runpod\.net/);
+  assert.match(envExample, /RUNPOD_API_KEY=/);
+  assert.match(imageHealthRoute, /checkRunPodHealth/);
   assert.match(podServer, /SCAIL_API_TOKEN/);
   assert.match(podServer, /secrets\.compare_digest/);
   assert.match(podServer, /path escapes SCAIL_DATA_ROOT/);
   const realRunPodProxy = /https:\/\/[a-z0-9]+-8000\.proxy\.runpod\.net/i;
   const secret = /rpa_[A-Za-z0-9]+/;
-  for (const checked of [page, envExample, scailServer, healthRoute, jobsRoute, jobRoute, guide, readme]) {
+  for (const checked of [page, envExample, scailServer, healthRoute, jobsRoute, jobRoute, imageHealthRoute, runpodServer, guide, readme]) {
     assert.doesNotMatch(checked, realRunPodProxy);
     assert.doesNotMatch(checked, secret);
   }
@@ -189,4 +204,21 @@ test("기존 8대 에셋 카탈로그와 타일·오브젝트 목록표를 유�
   assert.match(page, /ASSET_CATALOG\.md/);
   assert.match(page, /<table>/);
   assert.match(css, /\.asset-catalog-table-wrap/);
+});
+
+test("카탈로그 각 행에서 생성 대상을 고르고 프롬프트·결과·히스토리를 관리한다", () => {
+  assert.match(page, /data-testid={`select-asset-\${selectedAssetCatalog\.id}-\${index}`}/);
+  assert.match(page, /data-testid="asset-generation-panel"/);
+  assert.match(page, /data-testid="catalog-asset-prompt"/);
+  assert.match(page, /data-testid="check-image-endpoint"/);
+  assert.match(page, /data-testid="generate-catalog-asset"/);
+  assert.match(page, /data-testid="catalog-asset-output"/);
+  assert.match(page, /data-testid="catalog-asset-history"/);
+  assert.match(page, /buildAssetPrompt/);
+  assert.match(page, /목록 랜덤/);
+  assert.match(assetRoute, /"character"/);
+  assert.match(assetRoute, /requestImageEdit/);
+  assert.match(assetRoute, /category === "guide"/);
+  assert.match(css, /\.asset-generation-panel/);
+  assert.match(css, /\.asset-generator-output/);
 });

@@ -4,7 +4,12 @@
 
 ## 현재 현황
 
-현재 결과는 성공 사례가 아니라 생성 구조와 실패 조건을 확인하기 위한 기록입니다. 지금 검증하는 대상은 **SCAIL-2를 이용한 4방향 제자리 걷기 동작 전이**입니다. 캐릭터 기준 이미지를 이 화면에서 새로 생성하거나 다른 이미지 편집 모델을 연결하지 않습니다.
+현재 결과는 성공 사례가 아니라 생성 구조와 실패 조건을 확인하기 위한 기록입니다. 디버깅 화면은 두 작업을 분리해서 다룹니다.
+
+- 타일·오브젝트·캐릭터·생명체·아이템·VFX·UI 기준 에셋: 로컬 화면에서 항목별 프롬프트를 편집하고, 사용자가 설정한 self-hosted 이미지 endpoint에 생성 요청
+- 캐릭터 4방향 걷기 동작: 준비된 방향별 입력을 SCAIL-2에 전달해 동작 전이
+
+두 endpoint는 서로 대체하지 않습니다. 기존 전체 에셋 목록과 항목별 생성 칸을 유지하면서 SCAIL-2 동작 실험을 함께 기록합니다.
 
 정면·후면·왼쪽·오른쪽 기준 이미지와 마스크는 미리 준비합니다. 하나의 정확한 17-frame 제자리 걷기 동작을 네 고정 카메라로 렌더링하고, 같은 동작과 timing을 SCAIL-2 Animation Mode로 네 방향에 각각 전이합니다.
 
@@ -49,7 +54,7 @@ Pod 안에서는 프레임 추출, 픽셀화, 스프라이트 패킹을 하지 �
 ```bash
 cd tools_test
 cp .env.example .env.local
-# .env.local에 SCAIL-2 Pod endpoint와 API token 입력
+# .env.local에 기준 에셋 이미지 endpoint와 SCAIL-2 Pod 값을 입력
 npm install
 npm run dev
 ```
@@ -57,13 +62,16 @@ npm run dev
 브라우저에서 `http://localhost:3000`을 엽니다. 화면에서 할 수 있는 일은 다음과 같습니다.
 
 - SCAIL-2 Pod 상태와 내부 queue 확인
+- 기존 8대 에셋 목록에서 항목별 생성 대상 선택
+- 타일·오브젝트·캐릭터 등 항목마다 생성 프롬프트와 seed 편집
+- 기준 에셋 이미지 endpoint 연결 확인, 생성 결과와 세션 히스토리 확인
 - 방향별 네 입력 경로와 positive prompt 편집
 - 한 방향 또는 네 방향 job 등록
 - job 상태, 원본 MP4 경로, 실행 시간 확인
 - 로컬 업로드·다운로드용 manifest 저장
 - 동일 phase 32 PNG 추출 규칙 확인
 
-Endpoint와 token은 코드나 manifest에 넣지 않고 `.env.local`에서만 읽습니다.
+기준 에셋 이미지 endpoint는 `RUNPOD_BASE_URL`, `RUNPOD_API_KEY`, `RUNPOD_MODEL_ID`에서 읽고, 동작 endpoint는 `SCAIL2_BASE_URL`, `SCAIL2_API_TOKEN`에서 읽습니다. 실제 endpoint와 token은 코드나 manifest에 넣지 않고 `.env.local`에서만 관리합니다.
 
 ## RunPod와 로컬 클라이언트
 

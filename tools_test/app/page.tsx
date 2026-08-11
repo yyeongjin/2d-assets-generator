@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- generated local files are shown without image optimization. */
+
 import { useMemo, useState } from "react";
 
 type Direction = "front" | "back" | "left" | "right";
@@ -27,6 +29,31 @@ type EndpointState = {
   modelState?: string;
   queueDepth?: number;
   message?: string;
+};
+
+type ImageEndpointState = {
+  status: EndpointStatus;
+  model?: string;
+  latencyMs?: number;
+  message?: string;
+};
+
+type BaseAssetResult = {
+  ok: true;
+  generationId: string;
+  requestId: string;
+  model: string;
+  category: AssetCatalogId;
+  assetName: string;
+  prompt: string;
+  seed: number;
+  inputImageUrl: string;
+  imageUrl: string;
+  metadataUrl: string;
+  inputSize: string;
+  outputSize: string;
+  elapsedMs: number;
+  postprocessed: false;
 };
 
 const DIRECTIONS = [
@@ -75,6 +102,18 @@ const PROMPTS: Record<Direction, string> = {
   right: "A full-body 2D game character performs one seamless in-place walk cycle in a fixed orthographic right-profile view. The camera, framing, character scale, identity, costume, colors, and ground baseline remain constant.",
 };
 
+function buildAssetPrompt(category: AssetCatalogId, item: string) {
+  const subject = item.trim();
+  if (category === "tile") return `Create one clean seamless square top-down 2D game tile for ${subject}. Fill the full canvas edge to edge. Orthographic top-down view, plain even lighting, no text, no border.`;
+  if (category === "object") return `Create one clean 2D game asset for ${subject}. Straight-on front view, centered full object, plain white background, consistent neutral lighting, no text, no border.`;
+  if (category === "character") return `Create one clean full-body 2D game character base asset for ${subject}. Strict orthographic front view, neutral standing pose, centered on a plain white background, same ground baseline, no text, no border.`;
+  if (category === "creature") return `Create one clean full-body 2D game creature asset for ${subject}. Strict side view, neutral standing pose, centered on a plain white background, feet on one ground baseline, no text, no border.`;
+  if (category === "item") return `Create one clean isolated 2D game item icon for ${subject}. Front-facing readable silhouette, centered on a plain white background, no text, no border.`;
+  if (category === "vfx") return `Create one clean isolated 2D game VFX asset for ${subject}. Centered on a plain white background with a clear readable silhouette, no text, no border.`;
+  if (category === "ui") return `Create one clean 2D game UI asset for ${subject}. Centered, flat front view, plain white background, no text outside the asset, no border.`;
+  return `Create the black outline generation guide for ${subject} on a plain white canvas. Keep every line inside the canvas and use no fill, label, or decoration.`;
+}
+
 function createInputs(projectId: string): Record<Direction, DirectionInput> {
   const safeId = projectId.trim() || "CHARACTER_ID";
   return Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {
@@ -97,9 +136,16 @@ export default function Home() {
   const [prompts, setPrompts] = useState<Record<Direction, string>>(PROMPTS);
   const [jobs, setJobs] = useState<Record<Direction, JobState>>(() => createJobs());
   const [endpoint, setEndpoint] = useState<EndpointState>({ status: "꺼짐" });
+  const [imageEndpoint, setImageEndpoint] = useState<ImageEndpointState>({ status: "꺼짐" });
   const [notice, setNotice] = useState("방향별 canonical reference와 master walk driver를 Network Volume에 준비하세요.");
   const [submitting, setSubmitting] = useState(false);
   const [seed, setSeed] = useState(4821);
+  const [assetCatalogItem, setAssetCatalogItem] = useState(ASSET_CATALOG[0].items[0]);
+  const [assetPrompt, setAssetPrompt] = useState(() => buildAssetPrompt("tile", ASSET_CATALOG[0].items[0]));
+  const [assetResult, setAssetResult] = useState<BaseAssetResult | null>(null);
+  const [assetHistory, setAssetHistory] = useState<BaseAssetResult[]>([]);
+  const [assetNotice, setAssetNotice] = useState("항목을 선택하고 이미지 endpoint를 확인하세요. 가이드는 로컬에서 바로 생성됩니다.");
+  const [generatingAsset, setGeneratingAsset] = useState(false);
 
   const selectedDirection = useMemo(
     () => DIRECTIONS.find((direction) => direction.id === activeDirection) ?? DIRECTIONS[0],
@@ -109,6 +155,100 @@ export default function Home() {
     () => ASSET_CATALOG.find((catalog) => catalog.id === assetCatalogId) ?? ASSET_CATALOG[0],
     [assetCatalogId],
   );
+
+  function selectAssetCatalog(category: AssetCatalogId) {
+    const catalog = ASSET_CATALOG.find((item) => item.id === category) ?? ASSET_CATALOG[0];
+    const firstItem = catalog.items[0];
+    setAssetCatalogId(category);
+    setAssetCatalogItem(firstItem);
+    setAssetPrompt(buildAssetPrompt(category, firstItem));
+    setAssetResult(null);
+    setAssetNotice(`${catalog.label} 첫 항목을 선택했습니다. 표의 각 행에서 다른 항목을 고를 수 있습니다.`);
+  }
+
+  function selectAssetItem(item: string) {
+    setAssetCatalogItem(item);
+    setAssetPrompt(buildAssetPrompt(assetCatalogId, item));
+    setAssetResult(null);
+    setAssetNotice(`${item} 생성 설정을 열었습니다. 프롬프트를 수정한 뒤 생성하세요.`);
+  }
+
+  function randomizeAssetItem() {
+    const item = selectedAssetCatalog.items[Math.floor(Math.random() * selectedAssetCatalog.items.length)];
+    selectAssetItem(item);
+    setSeed(Math.floor(Math.random() * 2_147_483_647));
+  }
+
+  async function checkImageEndpoint() {
+    setImageEndpoint({ status: "확인 중" });
+    setAssetNotice("기준 에셋 이미지 endpoint를 확인 중입니다.");
+    try {
+      const response = await fetch("/api/runpod/health", { cache: "no-store" });
+      const body = await response.json() as { ok?: boolean; model?: string; latencyMs?: number; message?: string; error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.message || body.error || `HTTP ${response.status}`);
+      setImageEndpoint({ status: "연결됨", model: body.model, latencyMs: body.latencyMs });
+      setAssetNotice(`이미지 endpoint 연결 완료 · ${body.model ?? "model 확인됨"} · ${body.latencyMs ?? 0}ms`);
+      console.info("[ASSET_CONSOLE][HEALTH_OK]", body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "이미지 endpoint 연결 실패";
+      setImageEndpoint({ status: "오류", message });
+      setAssetNotice(`이미지 endpoint 연결 실패 · ${message}`);
+      console.error("[ASSET_CONSOLE][HEALTH_FAILED]", { message });
+    }
+  }
+
+  async function generateCatalogAsset() {
+    if (generatingAsset || !assetPrompt.trim()) return;
+    if (assetCatalogId !== "guide" && imageEndpoint.status !== "연결됨") {
+      setAssetNotice("먼저 이미지 endpoint 연결을 확인하세요.");
+      return;
+    }
+    setGeneratingAsset(true);
+    setAssetNotice(`${assetCatalogItem} 생성 요청 중입니다.`);
+    try {
+      const response = await fetch("/api/runpod/asset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category: assetCatalogId,
+          assetName: assetCatalogItem,
+          prompt: assetPrompt,
+          seed,
+          size: "1024x1024",
+        }),
+      });
+      const body = await response.json() as BaseAssetResult & { error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      setAssetResult(body);
+      setAssetHistory((current) => [body, ...current].slice(0, 8));
+      setAssetNotice(`${body.assetName} 생성 완료 · ${body.outputSize} · ${(body.elapsedMs / 1000).toFixed(1)}초`);
+      console.info("[ASSET_CONSOLE][GENERATION_COMPLETE]", body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "기준 에셋 생성 실패";
+      setAssetNotice(`${assetCatalogItem} 생성 실패 · ${message}`);
+      console.error("[ASSET_CONSOLE][GENERATION_FAILED]", { category: assetCatalogId, assetName: assetCatalogItem, message });
+    } finally {
+      setGeneratingAsset(false);
+    }
+  }
+
+  async function loadLatestCatalogAsset() {
+    setAssetNotice(`${selectedAssetCatalog.label} 최근 생성 결과를 조회 중입니다.`);
+    try {
+      const response = await fetch(`/api/runpod/asset?category=${encodeURIComponent(assetCatalogId)}`, { cache: "no-store" });
+      const body = await response.json() as BaseAssetResult & { error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      setAssetCatalogItem(body.assetName);
+      setAssetPrompt(body.prompt);
+      setSeed(body.seed);
+      setAssetResult(body);
+      setAssetHistory((current) => current.some((item) => item.generationId === body.generationId) ? current : [body, ...current].slice(0, 8));
+      setAssetNotice(`${body.assetName} 최근 결과를 불러왔습니다.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "최근 결과 조회 실패";
+      setAssetNotice(message);
+    }
+  }
 
   function applyProjectPaths() {
     setInputs(createInputs(projectId));
@@ -348,10 +488,10 @@ export default function Home() {
           </nav>
         </header>
         <div className="catalog-tabs asset-catalog-tabs" role="tablist" aria-label="에셋 대분류">
-          {ASSET_CATALOG.map((catalog) => <button key={catalog.id} type="button" role="tab" aria-selected={assetCatalogId === catalog.id} className={assetCatalogId === catalog.id ? "is-active" : ""} onClick={() => setAssetCatalogId(catalog.id)} data-testid={`asset-catalog-${catalog.id}`}><span>{catalog.code}</span><strong>{catalog.label}</strong><small>{catalog.summary}</small></button>)}
+          {ASSET_CATALOG.map((catalog) => <button key={catalog.id} type="button" role="tab" aria-selected={assetCatalogId === catalog.id} className={assetCatalogId === catalog.id ? "is-active" : ""} onClick={() => selectAssetCatalog(catalog.id)} data-testid={`asset-catalog-${catalog.id}`}><span>{catalog.code}</span><strong>{catalog.label}</strong><small>{catalog.summary}</small></button>)}
         </div>
         <div className="asset-catalog-body">
-          <aside>
+          <aside className="asset-catalog-summary">
             <span>{selectedAssetCatalog.code}</span>
             <small>SELECTED FAMILY</small>
             <h3>{selectedAssetCatalog.label}</h3>
@@ -361,12 +501,29 @@ export default function Home() {
           </aside>
           <div className="asset-catalog-table-wrap">
             <table>
-              <thead><tr><th>번호</th><th>필요 대상</th><th>대분류</th><th>관리 상태</th></tr></thead>
-              <tbody>{selectedAssetCatalog.items.map((item, index) => <tr key={item}><td>{String(index + 1).padStart(2, "0")}</td><td><strong>{item}</strong></td><td>{selectedAssetCatalog.label} / {selectedAssetCatalog.summary}</td><td><span>목록 정의</span></td></tr>)}</tbody>
+              <thead><tr><th>번호</th><th>필요 대상</th><th>대분류</th><th>생성</th></tr></thead>
+              <tbody>{selectedAssetCatalog.items.map((item, index) => <tr key={item} className={assetCatalogItem === item ? "is-selected" : ""}><td>{String(index + 1).padStart(2, "0")}</td><td><strong>{item}</strong></td><td>{selectedAssetCatalog.label} / {selectedAssetCatalog.summary}</td><td><button type="button" onClick={() => selectAssetItem(item)} data-testid={`select-asset-${selectedAssetCatalog.id}-${index}`}>{assetCatalogItem === item ? "선택됨" : "생성 설정"}</button></td></tr>)}</tbody>
             </table>
           </div>
+          <aside className="asset-generation-panel" data-testid="asset-generation-panel">
+            <header>
+              <div><small>BASE ASSET GENERATOR</small><h3>{assetCatalogItem}</h3></div>
+              <span data-status={imageEndpoint.status}>{assetCatalogId === "guide" ? "로컬 생성" : `이미지 ${imageEndpoint.status}`}</span>
+            </header>
+            <button type="button" className="asset-endpoint-button" onClick={checkImageEndpoint} data-testid="check-image-endpoint">이미지 endpoint 확인</button>
+            <label className="asset-prompt-editor"><span>항목별 생성 프롬프트</span><textarea rows={8} value={assetPrompt} onChange={(event) => setAssetPrompt(event.target.value)} data-testid="catalog-asset-prompt" /></label>
+            <div className="asset-generator-params"><span><small>CANVAS</small><strong>1024×1024</strong></span><label><small>SEED</small><input type="number" min="0" max="2147483647" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label></div>
+            <div className="asset-generator-actions">
+              <button type="button" onClick={randomizeAssetItem}>목록 랜덤</button>
+              <button type="button" onClick={loadLatestCatalogAsset} data-testid="load-latest-catalog-asset">최근 결과</button>
+              <button type="button" className="is-primary" onClick={generateCatalogAsset} disabled={generatingAsset || !assetPrompt.trim() || (assetCatalogId !== "guide" && imageEndpoint.status !== "연결됨")} data-testid="generate-catalog-asset">{generatingAsset ? "생성 중…" : `${assetCatalogItem} 생성`}</button>
+            </div>
+            <p className="asset-generator-notice">{assetNotice}</p>
+            {assetResult ? <div className="asset-generator-output" data-testid="catalog-asset-output"><img src={assetResult.imageUrl} alt={`${assetResult.assetName} 생성 결과`} /><div><strong>{assetResult.assetName}</strong><small>{assetResult.generationId}</small><span>{assetResult.outputSize} · {(assetResult.elapsedMs / 1000).toFixed(1)}초</span><a href={assetResult.metadataUrl} target="_blank" rel="noreferrer">JSON 기록 열기</a></div></div> : <div className="asset-generator-empty">선택한 항목의 생성 결과가 이 칸에 표시됩니다.</div>}
+            <div className="asset-generator-history" data-testid="catalog-asset-history"><strong>이 세션 생성 기록</strong>{assetHistory.length === 0 ? <small>아직 생성 기록이 없습니다.</small> : assetHistory.map((result) => <button type="button" key={result.generationId} onClick={() => { setAssetCatalogId(result.category); setAssetCatalogItem(result.assetName); setAssetPrompt(result.prompt); setSeed(result.seed); setAssetResult(result); }}><span>{result.category.toUpperCase()}</span><div><b>{result.assetName}</b><small>{result.generationId}</small></div></button>)}</div>
+          </aside>
         </div>
-        <footer><strong>상태·variant·Unity 규격은 상세 문서가 원본입니다.</strong><span>이 목록은 생성 모델 변경과 무관하게 삭제하지 않고 계속 유지합니다.</span></footer>
+        <footer><strong>각 행의 ‘생성 설정’에서 대상을 선택합니다.</strong><span>프롬프트·seed·결과·히스토리는 오른쪽 생성 칸에서 관리하며 목록과 상세 문서는 계속 유지합니다.</span></footer>
       </section>
 
       <section className="deployment-note">

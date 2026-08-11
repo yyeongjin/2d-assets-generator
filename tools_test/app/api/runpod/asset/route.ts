@@ -14,7 +14,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 800;
 
-const CATEGORIES = new Set(["tile", "object", "creature", "item", "vfx", "ui", "guide"]);
+const CATEGORIES = new Set(["tile", "object", "character", "creature", "item", "vfx", "ui", "guide"]);
 
 type AssetRequest = {
   category?: unknown;
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
   }
 }
 
-type BaseAssetCategoryLike = "tile" | "object" | "creature" | "item" | "vfx" | "ui" | "guide";
+type BaseAssetCategoryLike = "tile" | "object" | "character" | "creature" | "item" | "vfx" | "ui" | "guide";
 
 function guideRatio(assetName: string) {
   const matched = assetName.match(/(\d)x(\d)/i);
