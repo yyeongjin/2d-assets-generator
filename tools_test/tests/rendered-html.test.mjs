@@ -3,202 +3,175 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = (path) => readFile(new URL(path, import.meta.url), "utf8");
-const [page, css, characterRoute, assetRoute, editRoute, motionRoute, runpodServer, healthRoute, envExample] = await Promise.all([
+const [
+  page,
+  css,
+  layout,
+  envExample,
+  scailServer,
+  healthRoute,
+  jobsRoute,
+  jobRoute,
+  podServer,
+  runtime,
+  client,
+  manifest,
+  guide,
+  readme,
+] = await Promise.all([
   source("../app/page.tsx"),
   source("../app/globals.css"),
-  source("../app/api/runpod/character/route.ts"),
-  source("../app/api/runpod/asset/route.ts"),
-  source("../app/api/runpod/edit/route.ts"),
-  source("../app/api/runpod/motion-sheet/route.ts"),
-  source("../lib/runpod-server.ts"),
-  source("../app/api/runpod/health/route.ts"),
+  source("../app/layout.tsx"),
   source("../.env.example"),
+  source("../lib/scail2-server.ts"),
+  source("../app/api/scail2/health/route.ts"),
+  source("../app/api/scail2/jobs/route.ts"),
+  source("../app/api/scail2/jobs/[jobId]/route.ts"),
+  source("../../runpod/scail2_api/server.py"),
+  source("../../runpod/scail2_api/runtime.py"),
+  source("../../runpod/scail2_client/client.py"),
+  source("../../runpod/scail2_client/example-manifest.json"),
+  source("../../docs/RUNPOD_SCAIL2_GUIDE.md"),
+  source("../../README.md"),
 ]);
 
-test("4방향 기준 캐릭터를 한 번의 요청으로 생성한다", () => {
-  assert.match(page, /data-testid="generate-character-sheet"/);
-  assert.match(page, /\/api\/runpod\/character/);
-  assert.match(page, /Top-left: front view\. Top-right: back view\. Bottom-left: right profile facing right\. Bottom-right: left profile facing left/);
-  assert.match(characterRoute, /blank-white-canvas\.png/);
-  assert.match(characterRoute, /DEFAULT_SIZE = "1024x1024"/);
-  assert.match(characterRoute, /requestImageEdit\(\[inputImage\], settings\)/);
-  assert.match(characterRoute, /cells: \["front", "back", "right", "left"\]/);
+test("활성 화면과 실행 문서는 SCAIL-2 전용이다", () => {
+  const activeSources = [page, layout, envExample, guide, readme].join("\n");
+  assert.match(activeSources, /SCAIL-2/);
+  assert.doesNotMatch(activeSources, /Qwen|2511/i);
+  assert.doesNotMatch(page, /\/api\/runpod\//);
+  assert.doesNotMatch(page, /아이템 착용|기준 캐릭터 생성/);
 });
 
-test("1단계에는 레이아웃 Reference B가 없다", () => {
-  assert.match(page, /레이아웃 B가 아님/);
-  assert.match(page, /빈 흰 캔버스 1장/);
-  assert.doesNotMatch(characterRoute, /mask_image/);
-  assert.doesNotMatch(characterRoute, /layout/);
-  assert.doesNotMatch(characterRoute, /\.extract\(|\.resize\(|\.flop\(/);
-  assert.match(characterRoute, /postprocessed: false/);
+test("화면은 준비된 4방향 입력에서 로컬 32 PNG까지 네 단계를 표시한다", () => {
+  for (const label of ["Canonical 4방향", "Master Walk 17F", "SCAIL-2 4 Jobs", "Local 8-Phase Pick"]) {
+    assert.match(page, new RegExp(label));
+  }
+  assert.match(page, /data-testid="architecture-map"/);
+  assert.match(page, /LOCAL PC/);
+  assert.match(page, /NETWORK VOLUME/);
+  assert.match(page, /ON-DEMAND POD/);
+  assert.match(page, /LOCAL CLIENT/);
+  assert.match(css, /\.architecture-map/);
 });
 
-test("모델 prompt에 픽셀화 지시를 넣지 않는다", () => {
-  const promptSource = page.slice(page.indexOf("function buildPrompt"), page.indexOf("function randomChoice"));
-  const routePromptSource = characterRoute.slice(characterRoute.indexOf("const DEFAULT_PROMPT"), characterRoute.indexOf("type CharacterRequest"));
+test("방향별 canonical RGB·mask와 driving RGB·mask를 독립 입력한다", () => {
+  for (const direction of ["front", "back", "left", "right"]) {
+    assert.match(page, new RegExp(`id: "${direction}"`));
+    assert.match(page, new RegExp(`scail-direction-\\$\\{direction.id\\}`));
+  }
+  for (const key of ["referenceImage", "referenceMask", "drivingVideo", "drivingMask"]) {
+    assert.match(page, new RegExp(key));
+  }
+  assert.match(page, /reference_image/);
+  assert.match(page, /reference_mask/);
+  assert.match(page, /driving_video/);
+  assert.match(page, /driving_mask/);
+  assert.doesNotMatch(page, /Reference B|레이아웃 가이드/);
+});
+
+test("하나의 17-frame master walk를 네 고정 카메라 job에 사용한다", () => {
+  assert.match(page, /하나의 rig·하나의 17-frame closed walk/);
+  assert.match(page, /front.*0°/s);
+  assert.match(page, /back.*180°/s);
+  assert.match(page, /left.*-90°/s);
+  assert.match(page, /right.*\+90°/s);
+  assert.match(page, /4방향 순서대로 등록/);
+  assert.match(page, /for \(const direction of DIRECTIONS\) await submitJob\(direction.id\)/);
+});
+
+test("prompt는 방향별 positive description이며 픽셀화를 요구하지 않는다", () => {
+  const promptSource = page.slice(page.indexOf("const PROMPTS"), page.indexOf("function createInputs"));
+  assert.match(promptSource, /fixed orthographic front view/);
+  assert.match(promptSource, /fixed orthographic back view/);
+  assert.match(promptSource, /fixed orthographic left-profile view/);
+  assert.match(promptSource, /fixed orthographic right-profile view/);
   assert.doesNotMatch(promptSource, /pixel/i);
-  assert.doesNotMatch(routePromptSource, /pixel/i);
-  assert.match(page, /pixel\/pixel art 지시 없음/);
+  assert.match(page, /data-testid={`scail-prompt-\${activeDirection}`}/);
+  assert.match(page, /replace_flag=false/);
 });
 
-test("캐릭터 옵션과 랜덤 선택을 제공한다", () => {
-  for (const key of ["role", "gender", "age", "body", "hair", "clothes", "detail"]) {
-    assert.match(page, new RegExp(`key: "${key}"`));
+test("생성값은 896×512·40 steps·shift 3·CFG 5·UniPC로 시작한다", () => {
+  assert.match(page, /target_width: 896/);
+  assert.match(page, /target_height: 512/);
+  assert.match(page, /sample_steps: 40/);
+  assert.match(page, /sample_shift: 3/);
+  assert.match(page, /sample_guide_scale: 5/);
+  assert.match(page, /sample_solver: "unipc"/);
+  assert.match(manifest, /"width": 896/);
+  assert.match(manifest, /"height": 512/);
+});
+
+test("Next proxy와 Pod API는 job id를 반환하고 상태를 polling한다", () => {
+  assert.match(page, /\/api\/scail2\/health/);
+  assert.match(page, /\/api\/scail2\/jobs/);
+  assert.match(page, /pollJob/);
+  assert.match(jobsRoute, /status: 202/);
+  assert.match(jobRoute, /encodeURIComponent\(jobId\)/);
+  assert.match(podServer, /queue: asyncio\.Queue\[str\]/);
+  assert.match(podServer, /async def gpu_worker/);
+  assert.match(podServer, /await queue\.put\(job_id\)/);
+  assert.match(podServer, /@app\.post\("\/v1\/jobs"/);
+  assert.match(podServer, /@app\.get\("\/v1\/jobs\/\{job_id\}"/);
+});
+
+test("SCAIL-2 pipeline은 한 번 로드하고 Pod는 raw MP4만 생성한다", () => {
+  assert.match(runtime, /def load_model_once/);
+  assert.match(runtime, /wan\.SCAIL2Pipeline/);
+  assert.match(runtime, /_animation_raw\.mp4/);
+  assert.doesNotMatch(runtime, /ffmpeg|extract_frames|select=eq/);
+  assert.doesNotMatch(podServer, /extract_frame/);
+  assert.match(client, /def extract_frames/);
+  assert.match(client, /ffmpeg/);
+});
+
+test("로컬 클라이언트가 S3 업로드·원본 다운로드·8 phase 추출을 맡는다", () => {
+  assert.match(client, /RUNPOD_S3_ENDPOINT/);
+  assert.match(client, /upload_file/);
+  assert.match(client, /download_file/);
+  assert.match(client, /SCAIL2_BASE_URL/);
+  assert.match(client, /SCAIL2_API_TOKEN/);
+  assert.match(manifest, /"indices": \[0, 2, 4, 6, 8, 10, 12, 14\]/);
+  assert.match(page, /const EXTRACT_INDICES = \[0, 2, 4, 6, 8, 10, 12, 14\]/);
+  assert.match(page, /Frame 16은 출력 PNG에서 제외/);
+});
+
+test("다운로드 manifest에는 로컬 파일과 Volume 상대 경로가 함께 들어간다", () => {
+  for (const key of [
+    "local_reference_image",
+    "local_reference_mask",
+    "local_driving_video",
+    "local_driving_mask",
+    "reference_image",
+    "reference_mask",
+    "driving_video",
+    "driving_mask",
+  ]) {
+    assert.match(page, new RegExp(key));
+    assert.match(manifest, new RegExp(`"${key}"`));
   }
-  assert.match(page, /data-testid="random-character"/);
-  assert.match(page, /randomizeAll/);
-  assert.match(page, /GENERATION SEED/);
-  assert.match(page, /data-testid="character-prompt"/);
 });
 
-test("생성 입력과 원본 출력 크기를 화면과 메타데이터에 표시한다", () => {
-  assert.match(page, /실제 전송 INPUT/);
-  assert.match(page, /RUNPOD OUTPUT/);
-  assert.match(page, /CHARACTER_OUTPUT_RENDERED/);
-  assert.match(characterRoute, /inputImageUrl/);
-  assert.match(characterRoute, /outputSize: actualSize/);
-  assert.match(characterRoute, /metadataFilename/);
-  assert.match(characterRoute, /requestImageEdit/);
-});
-
-test("4방향 승인 뒤 실제 아이템을 Reference B로 전송한다", () => {
-  assert.match(page, /data-testid="approve-character-sheet"/);
-  assert.match(page, /data-testid="equip-stage"/);
-  assert.match(page, /REFERENCE A/);
-  assert.match(page, /REFERENCE B/);
-  assert.match(page, /form\.append\("image", sheetBlob/);
-  assert.match(page, /form\.append\("image", itemFile/);
-  assert.match(page, /form\.append\("image", generatedItemBlob/);
-  assert.match(page, /Add exactly one image 2 sword/);
-  assert.match(page, /data-testid="generate-equipped-sheet"/);
-  assert.match(editRoute, /form\.getAll\("image"\)/);
-});
-
-test("기준 에셋 7분류를 RunPod 또는 로컬 가이드 렌더러로 생성한다", () => {
-  for (const category of ["tile", "object", "creature", "item", "vfx", "ui", "guide"]) {
-    assert.match(page, new RegExp(`id: "${category}"`));
-  }
-  assert.match(page, /data-testid=\{`catalog-tab-\$\{group\.id\}`\}/);
-  assert.match(page, /\/api\/runpod\/asset/);
-  assert.match(assetRoute, /requestImageEdit\(\[inputImage\], settings\)/);
-  assert.match(assetRoute, /category === "guide"/);
-  assert.match(assetRoute, /local-guide-renderer\/v1/);
-  assert.match(assetRoute, /renderGuide/);
-  assert.match(assetRoute, /assetName\.includes\("4방향"\)/);
-  assert.match(assetRoute, /assetName\.includes\("포즈"\)/);
-});
-
-test("타일 원본을 바꾸지 않고 2x2 반복 미리보기를 표시한다", () => {
-  assert.match(page, /data-testid="tile-repeat-preview"/);
-  assert.match(page, /2×2 REPEAT CHECK/);
-  assert.match(css, /\.tile-repeat-debug/);
-  assert.match(page, /postprocessed: false/);
-});
-
-test("오브젝트 기준 에셋은 측면이 아닌 정면으로 요청한다", () => {
-  const objectPrompt = page.slice(page.indexOf('if (category === "object")'), page.indexOf('if (category === "creature")'));
-  assert.match(objectPrompt, /True straight-on front view/);
-  assert.match(objectPrompt, /No side view, three-quarter angle, perspective/);
-  assert.match(page, /FRONT_ELEVATION_OBJECTS/);
-  assert.match(page, /Flat orthographic front elevation only/);
-  assert.match(page, /No side wall, side roof, ground, path, plants, scenery, perspective/);
-});
-
-test("에셋 대분류 8종과 상태 히스토리를 표시한다", () => {
-  for (const code of ["TL", "OB", "CH", "CR", "IT", "FX", "UI", "GD"]) {
-    assert.match(page, new RegExp(`\\["${code}"`));
-  }
-  assert.match(page, /상태 · 히스토리/);
-  assert.match(page, /data-testid="history-list"/);
-  assert.match(css, /\.catalog-scope/);
-  assert.match(css, /\.history-list/);
-});
-
-test("화면에서 이미지 endpoint 연결을 확인한다", () => {
-  const healthFunction = page.slice(page.indexOf("async function checkHealth"), page.indexOf("async function generateCharacterSheet"));
-  assert.match(healthFunction, /\/api\/runpod\/health/);
-  assert.match(page, /data-testid="check-image-runpod"/);
-  assert.match(healthRoute, /checkRunPodHealth/);
-});
-
-test("2x2 시트를 중앙에서 정확히 네 방향으로 자른다", () => {
-  assert.match(motionRoute, /const leftWidth = Math\.floor\(width \/ 2\)/);
-  assert.match(motionRoute, /const topHeight = Math\.floor\(height \/ 2\)/);
-  assert.match(motionRoute, /direction === "front".*left: 0, top: 0/s);
-  assert.match(motionRoute, /direction === "back".*left: leftWidth, top: 0/s);
-  assert.match(motionRoute, /direction === "right".*left: 0, top: topHeight/s);
-  assert.match(motionRoute, /left: leftWidth, top: topHeight/);
-  assert.match(motionRoute, /\.extract\(crop\)/);
-  assert.match(page, /원본 셀 1장/);
-});
-
-test("선택한 한 방향의 8프레임을 순차 요청한다", () => {
-  assert.match(page, /for \(let frameIndex = 0; frameIndex < 8; frameIndex \+= 1\)/);
-  assert.doesNotMatch(page, /Promise\.allSettled\(/);
-  assert.match(page, /data-testid="generate-direction-motion-frames"/);
-  assert.match(page, /\/api\/runpod\/motion-sheet/);
-  assert.match(page, /8장을 한 장씩 순차 요청/);
-  assert.doesNotMatch(page, /class .*Queue|processQueue|queueStore/);
-});
-
-test("사용자가 방향별 8개 독립 프롬프트와 원본 결과를 비교한다", () => {
-  assert.match(page, /const WALK_FRAME_PHASES = \[/);
-  assert.match(page, /data-testid={`motion-frame-prompt-\${activeMotionDirection}-\${frameIndex \+ 1}`}/);
-  assert.match(page, /data-testid={`generate-motion-\${activeMotionDirection}-frame-\${frameIndex \+ 1}`}/);
-  assert.match(page, /이 프레임 생성/);
-  assert.match(page, /이 프레임 다시 생성/);
-  assert.match(page, /strict orthographic front view/);
-  assert.match(page, /strict orthographic back view/);
-  assert.match(page, /strict orthographic right-profile view/);
-  assert.match(page, /strict orthographic left-profile view/);
-  assert.match(page, /Animate this exact character into/);
-  assert.match(page, /같은 방향 원본 셀/);
-  assert.match(page, /form\.set\("prompt", framePrompt\)/);
-  assert.match(page, /referenceImageUrl/);
-  assert.match(page, /frame\.imageUrl/);
-  assert.match(page, /data-testid={`motion-loop-\${direction\.id}`}/);
-  assert.match(page, /data-testid="motion-sheet-results"/);
-  assert.match(css, /\.motion-frame-strip/);
-  assert.match(motionRoute, /frameNumber는 1부터 8 사이/);
-  assert.match(motionRoute, /requestImageEdit\(\[reference\], settings\)/);
-});
-
-test("걷기 프롬프트는 픽셀화나 자동 후처리를 요청하지 않는다", () => {
-  const promptSource = page.slice(page.indexOf("const WALK_FRAME_PHASES"), page.indexOf("function buildPrompt"));
-  assert.match(promptSource, /Left Contact/);
-  assert.match(promptSource, /Right Passing/);
-  assert.match(promptSource, /Left Up/);
-  assert.doesNotMatch(promptSource, /pixel/i);
-  assert.match(motionRoute, /postprocessed: false/);
-  assert.doesNotMatch(motionRoute, /chromakey|colorkey|rembg|pixelate/i);
-  assert.match(motionRoute, /requestImageEdit\(\[reference\], settings\)/);
-  assert.match(motionRoute, /const prompt = textValue\(form, "prompt"\)/);
-  assert.doesNotMatch(motionRoute, /silhouette|poseGuide|mask_image/);
-});
-
-test("현재 화면에는 기각한 비디오 생성 영역을 렌더링하지 않는다", () => {
-  assert.doesNotMatch(page, /<video|VIDEO EXPERIMENT|VIDEO 기각|\/api\/runpod\/video/);
-  assert.match(page, /INDIVIDUAL MOTION FRAMES/);
-});
-
-test("RunPod 설정과 디버그 로그에 비밀을 하드코딩하지 않는다", () => {
-  assert.match(runpodServer, /process\.env\.RUNPOD_BASE_URL/);
-  assert.match(runpodServer, /process\.env\.RUNPOD_API_KEY/);
-  assert.doesNotMatch(runpodServer, /rpa_[A-Za-z0-9]+/);
-  assert.doesNotMatch(page, /rpa_[A-Za-z0-9]+/);
-  assert.doesNotMatch(characterRoute, /rpa_[A-Za-z0-9]+/);
-  assert.doesNotMatch(motionRoute, /rpa_[A-Za-z0-9]+/);
-  assert.match(runpodServer, /promptCharacters/);
-  assert.match(characterRoute, /\[CharacterSheet\]\[REQUEST_START\]/);
-  assert.match(characterRoute, /\[CharacterSheet\]\[REQUEST_COMPLETE\]/);
-  assert.match(characterRoute, /\[CharacterSheet\]\[REQUEST_FAILED\]/);
-  assert.match(healthRoute, /\[RunPod\]\[HEALTH_OK\]/);
+test("endpoint와 token은 환경변수로만 읽고 실제 값을 하드코딩하지 않는다", () => {
+  assert.match(scailServer, /process\.env\.SCAIL2_BASE_URL/);
+  assert.match(scailServer, /process\.env\.SCAIL2_API_TOKEN/);
+  assert.match(envExample, /SCAIL2_BASE_URL=https:\/\/your-scail-pod-8000\.proxy\.runpod\.net/);
+  assert.match(envExample, /SCAIL2_API_TOKEN=/);
+  assert.match(podServer, /SCAIL_API_TOKEN/);
+  assert.match(podServer, /secrets\.compare_digest/);
+  assert.match(podServer, /path escapes SCAIL_DATA_ROOT/);
   const realRunPodProxy = /https:\/\/[a-z0-9]+-8000\.proxy\.runpod\.net/i;
-  assert.doesNotMatch(motionRoute, realRunPodProxy);
-  assert.doesNotMatch(page, realRunPodProxy);
-  assert.doesNotMatch(envExample, realRunPodProxy);
-  assert.match(motionRoute, /\[MotionFrame\]\[REQUEST_START\]/);
-  assert.match(motionRoute, /\[MotionFrame\]\[REQUEST_COMPLETE\]/);
-  assert.match(motionRoute, /\[MotionFrame\]\[REQUEST_FAILED\]/);
+  const secret = /rpa_[A-Za-z0-9]+/;
+  for (const checked of [page, envExample, scailServer, healthRoute, jobsRoute, jobRoute, guide, readme]) {
+    assert.doesNotMatch(checked, realRunPodProxy);
+    assert.doesNotMatch(checked, secret);
+  }
+});
+
+test("가이드는 SCAIL-Pose 전처리와 로컬 후처리 경계를 명시한다", () => {
+  assert.match(guide, /SCAIL-Pose/);
+  assert.match(guide, /Pod는 raw MP4까지만/);
+  assert.match(guide, /로컬 클라이언트/);
+  assert.match(guide, /A100.*80GB/);
+  assert.match(guide, /180~200GB/);
 });

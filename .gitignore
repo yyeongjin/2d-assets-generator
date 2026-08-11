@@ -2,3 +2,5 @@ tools_test/.env.local
 tools_test/.next/
 tools_test/node_modules/
 tools_test/public/generated/
+__pycache__/
+*.pyc
