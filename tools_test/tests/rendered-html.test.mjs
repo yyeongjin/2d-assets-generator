@@ -175,3 +175,18 @@ test("가이드는 SCAIL-Pose 전처리와 로컬 후처리 경계를 명시한�
   assert.match(guide, /A100.*80GB/);
   assert.match(guide, /180~200GB/);
 });
+
+test("기존 8대 에셋 카탈로그와 타일·오브젝트 목록표를 유지한다", () => {
+  assert.match(page, /data-testid="asset-catalog"/);
+  for (const id of ["tile", "object", "character", "creature", "item", "vfx", "ui", "guide"]) {
+    assert.match(page, new RegExp(`id: "${id}"`));
+    assert.match(page, new RegExp(`asset-catalog-\\$\\{catalog.id\\}`));
+  }
+  for (const tile of ["잔디 center", "경작지", "해안선", "잔디-흙 전이", "나무 다리", "실내 석조 벽"]) assert.match(page, new RegExp(tile));
+  for (const object of ["일반 나무", "작은 돌", "울타리 문", "허수아비", "용광로", "농가", "온실", "테이블"]) assert.match(page, new RegExp(object));
+  assert.match(page, /TILE_CATALOG\.md/);
+  assert.match(page, /OBJECT_CATALOG\.md/);
+  assert.match(page, /ASSET_CATALOG\.md/);
+  assert.match(page, /<table>/);
+  assert.match(css, /\.asset-catalog-table-wrap/);
+});

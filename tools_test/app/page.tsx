@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 type Direction = "front" | "back" | "left" | "right";
+type AssetCatalogId = "tile" | "object" | "character" | "creature" | "item" | "vfx" | "ui" | "guide";
 type EndpointStatus = "꺼짐" | "확인 중" | "연결됨" | "오류";
 type JobStatus = "입력 준비" | "대기열" | "생성 중" | "영상 완료" | "실패";
 
@@ -48,6 +49,25 @@ const PHASES = [
 
 const EXTRACT_INDICES = [0, 2, 4, 6, 8, 10, 12, 14] as const;
 
+const ASSET_CATALOG: Array<{
+  id: AssetCatalogId;
+  code: string;
+  label: string;
+  summary: string;
+  source: string;
+  sourceHref: string;
+  items: string[];
+}> = [
+  { id: "tile", code: "TL", label: "타일", summary: "지표·물·전이·길·실내", source: "타일 카탈로그", sourceHref: "/docs/TILE_CATALOG.md", items: ["잔디 center", "흙 center", "경작지", "모래", "얕은 물", "깊은 물", "해안선", "잔디-흙 전이", "절벽", "흙길", "나무 길", "돌길", "나무 다리", "계단", "실내 목재 바닥", "실내 석조 벽"] },
+  { id: "object", code: "OB", label: "오브젝트", summary: "자연물·농장·설비·건물·가구", source: "오브젝트 카탈로그", sourceHref: "/docs/OBJECT_CATALOG.md", items: ["일반 나무", "과실수", "관목", "작은 돌", "큰 바위", "작물", "울타리", "울타리 문", "허수아비", "스프링클러", "상자", "작업대", "용광로", "농가", "축사", "온실", "우편함", "침대", "테이블", "의자"] },
+  { id: "character", code: "CH", label: "캐릭터", summary: "플레이어·NPC·초상화·장비 레이어", source: "마스터 에셋 카탈로그", sourceHref: "/docs/ASSET_CATALOG.md#5-캐릭터", items: ["플레이어 body base", "주요 NPC", "서비스 NPC", "주민", "방문객·축제 NPC", "비인간형", "초상화", "머리 레이어", "의상 레이어", "신발 레이어", "모자·액세서리", "held item 레이어", "shadow 레이어"] },
+  { id: "creature", code: "CR", label: "생명체", summary: "가축·반려동물·야생동물·몬스터", source: "마스터 에셋 카탈로그", sourceHref: "/docs/ASSET_CATALOG.md#6-동물과-몬스터", items: ["닭", "소", "양", "돼지", "개", "고양이", "새", "개구리", "물고기", "슬라임", "비행 몬스터", "사족 몬스터"] },
+  { id: "item", code: "IT", label: "아이템", summary: "도구·무기·재료·음식·장비", source: "마스터 에셋 카탈로그", sourceHref: "/docs/ASSET_CATALOG.md#7-아이템-표현", items: ["괭이", "물뿌리개", "도끼", "곡괭이", "낚싯대", "낫", "망치", "한손검", "양손검", "둔기", "창", "활", "방패", "씨앗 주머니", "목재", "돌", "광석", "음식", "모자"] },
+  { id: "vfx", code: "FX", label: "VFX", summary: "이동·도구·농사·환경·날씨", source: "마스터 에셋 카탈로그", sourceHref: "/docs/ASSET_CATALOG.md#8-vfx", items: ["먼지", "잔디 파편", "물 튀김", "눈 발자국", "휘두르기 궤적", "타격 불꽃", "수확 효과", "회복 효과", "비", "눈", "낙엽", "물결", "불꽃", "연기"] },
+  { id: "ui", code: "UI", label: "UI", summary: "HUD·인벤토리·패널·대화·커서", source: "마스터 에셋 카탈로그", sourceHref: "/docs/ASSET_CATALOG.md#9-ui", items: ["체력 아이콘", "스태미나 아이콘", "시간 아이콘", "날씨 아이콘", "인벤토리 슬롯", "선택 슬롯", "대화 상자", "상점 패널", "제작 패널", "기본 커서", "상호작용 커서", "지도 마커", "관계 하트"] },
+  { id: "guide", code: "GD", label: "가이드", summary: "규격·방향·동작·점유·autotile", source: "마스터 에셋 카탈로그", sourceHref: "/docs/ASSET_CATALOG.md#10-생성-가이드-라이브러리", items: ["1x1 점유", "1x2 점유", "2x1 점유", "2x2 점유", "3x2 점유", "4방향 배치", "걷기 접촉 포즈", "한손 무기 포즈", "양손 무기 포즈", "도구 휘두르기 포즈", "활쏘기 포즈", "타일 edge-corner guide"] },
+];
+
 const PROMPTS: Record<Direction, string> = {
   front: "A full-body 2D game character performs one seamless in-place walk cycle in a fixed orthographic front view. The camera, framing, character scale, identity, costume, colors, and ground baseline remain constant.",
   back: "A full-body 2D game character performs one seamless in-place walk cycle in a fixed orthographic back view. The camera, framing, character scale, identity, costume, colors, and ground baseline remain constant.",
@@ -72,6 +92,7 @@ function createJobs(): Record<Direction, JobState> {
 export default function Home() {
   const [projectId, setProjectId] = useState("character-001");
   const [activeDirection, setActiveDirection] = useState<Direction>("front");
+  const [assetCatalogId, setAssetCatalogId] = useState<AssetCatalogId>("tile");
   const [inputs, setInputs] = useState<Record<Direction, DirectionInput>>(() => createInputs("character-001"));
   const [prompts, setPrompts] = useState<Record<Direction, string>>(PROMPTS);
   const [jobs, setJobs] = useState<Record<Direction, JobState>>(() => createJobs());
@@ -83,6 +104,10 @@ export default function Home() {
   const selectedDirection = useMemo(
     () => DIRECTIONS.find((direction) => direction.id === activeDirection) ?? DIRECTIONS[0],
     [activeDirection],
+  );
+  const selectedAssetCatalog = useMemo(
+    () => ASSET_CATALOG.find((catalog) => catalog.id === assetCatalogId) ?? ASSET_CATALOG[0],
+    [assetCatalogId],
   );
 
   function applyProjectPaths() {
@@ -311,6 +336,37 @@ export default function Home() {
         <div className="phase-header"><span>VIEW</span>{PHASES.map((phase, index) => <span key={phase}><b>{index + 1}</b><small>{phase}</small><em>F{EXTRACT_INDICES[index]}</em></span>)}</div>
         {DIRECTIONS.map((direction) => <div className="phase-row" key={direction.id}><strong>{direction.code}<small>{direction.label}</small></strong>{EXTRACT_INDICES.map((frame) => <span key={frame} className={jobs[direction.id].status === "영상 완료" ? "is-download-ready" : ""}><b>PNG</b><small>source F{frame}</small></span>)}</div>)}
         <footer><strong>Frame 16은 출력 PNG에서 제외</strong><span>Frame 0과 같은 pose인지 loop closure 검증에만 사용</span><code>python runpod/scail2_client/client.py manifest.json --views front</code></footer>
+      </section>
+
+      <section className="catalog-workbench asset-catalog-workbench" data-testid="asset-catalog">
+        <header className="catalog-workbench-heading">
+          <div><small>PRESERVED ASSET CATALOG</small><h2>농장 RPG 전체 에셋 목록</h2><p>SCAIL-2 동작 작업과 별개로 기존 타일·오브젝트·캐릭터·생명체·아이템·VFX·UI·가이드 목록을 계속 유지합니다.</p></div>
+          <nav className="catalog-doc-links" aria-label="상세 카탈로그 문서">
+            <a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/TILE_CATALOG.md" target="_blank" rel="noreferrer">타일 상세 표</a>
+            <a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/OBJECT_CATALOG.md" target="_blank" rel="noreferrer">오브젝트 상세 표</a>
+            <a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/ASSET_CATALOG.md" target="_blank" rel="noreferrer">전체 카탈로그</a>
+          </nav>
+        </header>
+        <div className="catalog-tabs asset-catalog-tabs" role="tablist" aria-label="에셋 대분류">
+          {ASSET_CATALOG.map((catalog) => <button key={catalog.id} type="button" role="tab" aria-selected={assetCatalogId === catalog.id} className={assetCatalogId === catalog.id ? "is-active" : ""} onClick={() => setAssetCatalogId(catalog.id)} data-testid={`asset-catalog-${catalog.id}`}><span>{catalog.code}</span><strong>{catalog.label}</strong><small>{catalog.summary}</small></button>)}
+        </div>
+        <div className="asset-catalog-body">
+          <aside>
+            <span>{selectedAssetCatalog.code}</span>
+            <small>SELECTED FAMILY</small>
+            <h3>{selectedAssetCatalog.label}</h3>
+            <p>{selectedAssetCatalog.summary}</p>
+            <strong>{selectedAssetCatalog.items.length}개 기준 대상</strong>
+            <a href={`https://github.com/yyeongjin/2d-assets-generator/blob/main${selectedAssetCatalog.sourceHref}`} target="_blank" rel="noreferrer">{selectedAssetCatalog.source} 열기</a>
+          </aside>
+          <div className="asset-catalog-table-wrap">
+            <table>
+              <thead><tr><th>번호</th><th>필요 대상</th><th>대분류</th><th>관리 상태</th></tr></thead>
+              <tbody>{selectedAssetCatalog.items.map((item, index) => <tr key={item}><td>{String(index + 1).padStart(2, "0")}</td><td><strong>{item}</strong></td><td>{selectedAssetCatalog.label} / {selectedAssetCatalog.summary}</td><td><span>목록 정의</span></td></tr>)}</tbody>
+            </table>
+          </div>
+        </div>
+        <footer><strong>상태·variant·Unity 규격은 상세 문서가 원본입니다.</strong><span>이 목록은 생성 모델 변경과 무관하게 삭제하지 않고 계속 유지합니다.</span></footer>
       </section>
 
       <section className="deployment-note">
