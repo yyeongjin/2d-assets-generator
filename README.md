@@ -16,6 +16,14 @@
 
 캐릭터가 `2×2` 4방향 시트 한 장으로 저장되어 있다면 디버깅 화면에서 다시 네 장으로 분할할 수 있습니다. 분할 순서는 `좌상=정면`, `우상=후면`, `좌하=오른쪽`, `우하=왼쪽`입니다. 이 단계는 모델 생성이나 결과 후처리가 아니라 SCAIL-2 job을 등록하기 전 `Reference RGB` 입력을 준비하는 작업입니다. 분할은 RGB만 대상으로 하며 reference mask와 driving RGB·mask는 바꾸지 않습니다.
 
+## 현재 디버깅 화면
+
+2026-08-12 기준 로컬 `http://localhost:3000` 화면입니다. 캐릭터 조건·랜덤 조합, 직접 수정 가능한 생성 prompt, 기존 4방향 캐릭터 선택, 저장 인벤토리와 방향별 분할 입력을 한 화면에서 확인합니다.
+
+![현재 4-View Walk Factory 화면](tools_test/public/screenshots/current-workbench.png)
+
+![캐릭터 조건·랜덤 생성과 저장 캐릭터 인벤토리](tools_test/public/screenshots/current-character-generator.png)
+
 ## 생성 구조
 
 ```text
