@@ -21,6 +21,7 @@ const [
   assetRoute,
   imageHealthRoute,
   runpodServer,
+  directionSplitRoute,
 ] = await Promise.all([
   source("../app/page.tsx"),
   source("../app/globals.css"),
@@ -39,6 +40,7 @@ const [
   source("../app/api/runpod/asset/route.ts"),
   source("../app/api/runpod/health/route.ts"),
   source("../lib/runpod-server.ts"),
+  source("../app/api/assets/split-directions/route.ts"),
 ]);
 
 test("활성 화면은 기준 에셋 이미지 생성과 SCAIL-2 동작 생성을 분리한다", () => {
@@ -76,6 +78,40 @@ test("방향별 canonical RGB·mask와 driving RGB·mask를 독립 입력한다"
   assert.match(page, /driving_video/);
   assert.match(page, /driving_mask/);
   assert.doesNotMatch(page, /Reference B|레이아웃 가이드/);
+});
+
+test("저장 또는 업로드한 2×2 시트를 네 방향 RGB reference로 실제 분할한다", () => {
+  assert.match(page, /data-testid="direction-sheet-splitter"/);
+  assert.match(page, /data-testid="direction-sheet-upload"/);
+  assert.match(page, /data-testid="direction-sheet-inventory-picker"/);
+  assert.match(page, /data-testid="split-uploaded-direction-sheet"/);
+  assert.match(page, /data-testid="split-inventory-direction-sheet"/);
+  assert.match(page, /\["character", "creature"\]\.map/);
+  assert.match(page, /\/api\/assets\/split-directions\?inventory=1/);
+  assert.match(page, /setDirectionSheetInventory/);
+  assert.match(page, /select-direction-sheet-\$\{result\.generationId\}/);
+  assert.match(page, /directionSheetInventory\.find\(\(item\) => item\.generationId === directionSheetInventoryId\)/);
+  assert.match(page, /\/api\/assets\/split-directions/);
+  assert.match(page, /const DIRECTION_SHEET_ORDER: Direction\[\] = \["front", "back", "right", "left"\]/);
+  assert.match(page, /referenceImage: body\.directions\[direction\.id\]\.referencePath/);
+  assert.match(page, /mask와 driver 경로는 그대로 유지합니다/);
+  assert.match(page, /local_reference_image: directionSplit\?\.directions\[direction\.id\]\.localClientPath/);
+  assert.match(page, /data-testid={`direction-crop-\${directionId}`}/);
+
+  assert.match(directionSplitRoute, /const DIRECTIONS = \["front", "back", "right", "left"\]/);
+  assert.match(directionSplitRoute, /export async function GET/);
+  assert.match(directionSplitRoute, /public.*generated.*character-sheets/s);
+  assert.match(directionSplitRoute, /metadata\.cells\?\.join\(","\) !== "front,back,right,left"/);
+  assert.match(directionSplitRoute, /inventoryKind: "four-direction-sheet"/);
+  assert.match(directionSplitRoute, /direction === "front".*left: 0, top: 0/s);
+  assert.match(directionSplitRoute, /direction === "back".*left: leftWidth, top: 0/s);
+  assert.match(directionSplitRoute, /direction === "right".*left: 0, top: topHeight/s);
+  assert.match(directionSplitRoute, /left: leftWidth, top: topHeight/);
+  assert.match(directionSplitRoute, /\.extract\(crop\)/);
+  assert.match(directionSplitRoute, /references\/\$\{projectId\}\/\$\{direction\}\/ref\.jpg/);
+  assert.doesNotMatch(directionSplitRoute, /referenceMask|drivingVideo|drivingMask/);
+  assert.match(css, /\.direction-split-workbench/);
+  assert.match(css, /\.direction-reference-preview/);
 });
 
 test("하나의 17-frame master walk를 네 고정 카메라 job에 사용한다", () => {

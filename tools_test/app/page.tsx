@@ -58,12 +58,36 @@ type BaseAssetResult = {
   postprocessed: false;
 };
 
+type DirectionSplitCell = {
+  direction: Direction;
+  crop: { left: number; top: number; width: number; height: number };
+  width: number;
+  height: number;
+  url: string;
+  localClientPath: string;
+  referencePath: string;
+};
+
+type DirectionSplitResult = {
+  ok: true;
+  splitId: string;
+  requestId: string;
+  projectId: string;
+  sourceImageUrl: string;
+  metadataUrl: string;
+  source: { label: string; width: number; height: number; layout: "2x2"; order: Direction[] };
+  directions: Record<Direction, DirectionSplitCell>;
+  elapsedMs: number;
+};
+
 const DIRECTIONS = [
   { id: "front", label: "정면", code: "F", camera: "0°" },
   { id: "back", label: "후면", code: "B", camera: "180°" },
   { id: "left", label: "왼쪽", code: "L", camera: "-90°" },
   { id: "right", label: "오른쪽", code: "R", camera: "+90°" },
 ] as const;
+
+const DIRECTION_SHEET_ORDER: Direction[] = ["front", "back", "right", "left"];
 
 const PHASES = [
   "L Contact",
@@ -150,6 +174,14 @@ export default function Home() {
   const [generatingAsset, setGeneratingAsset] = useState(false);
   const [uploadingAsset, setUploadingAsset] = useState(false);
   const [assetUploadFile, setAssetUploadFile] = useState<File | null>(null);
+  const [directionSheetFile, setDirectionSheetFile] = useState<File | null>(null);
+  const [directionSheetPreviewUrl, setDirectionSheetPreviewUrl] = useState("");
+  const [directionSheetSourceMode, setDirectionSheetSourceMode] = useState<"inventory" | "upload">("inventory");
+  const [directionSheetInventory, setDirectionSheetInventory] = useState<BaseAssetResult[]>([]);
+  const [directionSheetInventoryId, setDirectionSheetInventoryId] = useState("");
+  const [directionSplit, setDirectionSplit] = useState<DirectionSplitResult | null>(null);
+  const [splittingDirections, setSplittingDirections] = useState(false);
+  const [directionSplitNotice, setDirectionSplitNotice] = useState("2×2 시트를 선택하면 좌상 정면 · 우상 후면 · 좌하 오른쪽 · 우하 왼쪽으로 분할합니다.");
 
   const selectedDirection = useMemo(
     () => DIRECTIONS.find((direction) => direction.id === activeDirection) ?? DIRECTIONS[0],
@@ -174,6 +206,35 @@ export default function Home() {
       });
     return () => controller.abort();
   }, [assetCatalogId]);
+
+  useEffect(() => () => {
+    if (directionSheetPreviewUrl) URL.revokeObjectURL(directionSheetPreviewUrl);
+  }, [directionSheetPreviewUrl]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.all(["character", "creature"].map(async (category) => {
+      const response = await fetch(`/api/runpod/asset?category=${category}&inventory=1`, { cache: "no-store", signal: controller.signal });
+      const body = await response.json() as { ok?: boolean; items?: BaseAssetResult[]; error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      return body.items ?? [];
+    }).concat((async () => {
+      const response = await fetch("/api/assets/split-directions?inventory=1", { cache: "no-store", signal: controller.signal });
+      const body = await response.json() as { ok?: boolean; items?: BaseAssetResult[]; error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      return body.items ?? [];
+    })()))
+      .then(([characters, creatures, legacySheets]) => {
+        const items = Array.from(new Map([...legacySheets, ...characters, ...creatures].map((item) => [item.generationId, item])).values());
+        setDirectionSheetInventory(items);
+        setDirectionSheetInventoryId((current) => items.some((item) => item.generationId === current) ? current : items[0]?.generationId ?? "");
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setDirectionSplitNotice(`4방향 후보 인벤토리 조회 실패 · ${error instanceof Error ? error.message : "unknown"}`);
+      });
+    return () => controller.abort();
+  }, []);
 
   function selectAssetCatalog(category: AssetCatalogId) {
     const catalog = ASSET_CATALOG.find((item) => item.id === category) ?? ASSET_CATALOG[0];
@@ -242,6 +303,11 @@ export default function Home() {
       if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
       setAssetResult(body);
       setAssetInventory((current) => [body, ...current.filter((item) => item.generationId !== body.generationId)]);
+      if (body.category === "character" || body.category === "creature") {
+        setDirectionSheetInventory((current) => [body, ...current.filter((item) => item.generationId !== body.generationId)]);
+        setDirectionSheetInventoryId(body.generationId);
+        setDirectionSheetSourceMode("inventory");
+      }
       setAssetNotice(`${body.assetName} 생성 완료 · ${body.outputSize} · ${(body.elapsedMs / 1000).toFixed(1)}초`);
       console.info("[ASSET_CONSOLE][GENERATION_COMPLETE]", body);
     } catch (error) {
@@ -270,6 +336,11 @@ export default function Home() {
       if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
       setAssetInventory((current) => [body, ...current.filter((item) => item.generationId !== body.generationId)]);
       setAssetResult(body);
+      if (body.category === "character" || body.category === "creature") {
+        setDirectionSheetInventory((current) => [body, ...current.filter((item) => item.generationId !== body.generationId)]);
+        setDirectionSheetInventoryId(body.generationId);
+        setDirectionSheetSourceMode("inventory");
+      }
       setAssetUploadFile(null);
       setAssetNotice(`${body.assetName}에 업로드한 이미지를 저장했습니다.`);
     } catch (error) {
@@ -290,6 +361,9 @@ export default function Home() {
       const body = await response.json() as { ok?: boolean; error?: string };
       if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
       setAssetInventory((current) => current.filter((item) => item.generationId !== result.generationId));
+      const remainingDirectionSheets = directionSheetInventory.filter((item) => item.generationId !== result.generationId);
+      setDirectionSheetInventory(remainingDirectionSheets);
+      if (directionSheetInventoryId === result.generationId) setDirectionSheetInventoryId(remainingDirectionSheets[0]?.generationId ?? "");
       if (assetResult?.generationId === result.generationId) setAssetResult(null);
       setAssetNotice(`${result.assetName} 결과를 인벤토리에서 제거했습니다.`);
     } catch (error) {
@@ -297,9 +371,49 @@ export default function Home() {
     }
   }
 
+  async function splitDirectionSheet(source: "upload" | "inventory") {
+    const inventorySource = directionSheetInventory.find((item) => item.generationId === directionSheetInventoryId) ?? null;
+    if (source === "upload" && !directionSheetFile) {
+      setDirectionSplitNotice("먼저 2×2 4방향 시트 파일을 선택하세요.");
+      return;
+    }
+    if (source === "inventory" && !inventorySource) {
+      setDirectionSplitNotice("캐릭터 또는 생명체 인벤토리에서 4방향 시트를 먼저 선택하세요.");
+      return;
+    }
+    setSplittingDirections(true);
+    setDirectionSplitNotice("4방향 시트를 중앙 기준으로 분할하고 있습니다.");
+    try {
+      const form = new FormData();
+      form.set("projectId", projectId);
+      if (source === "upload" && directionSheetFile) form.set("file", directionSheetFile);
+      if (source === "inventory" && inventorySource) form.set("imageUrl", inventorySource.imageUrl);
+      const response = await fetch("/api/assets/split-directions", { method: "POST", body: form });
+      const body = await response.json() as DirectionSplitResult & { error?: string };
+      if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
+      setDirectionSplit(body);
+      setInputs((current) => Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {
+        ...current[direction.id],
+        referenceImage: body.directions[direction.id].referencePath,
+      }])) as Record<Direction, DirectionInput>);
+      setJobs(createJobs());
+      setActiveDirection("front");
+      setDirectionSplitNotice(`${body.source.width}×${body.source.height} 시트를 4개 RGB reference로 분할했습니다. mask와 driver 경로는 그대로 유지합니다.`);
+      setNotice(`${body.splitId} 분할 완료 · 방향별 REFERENCE RGB 경로를 적용했습니다.`);
+      console.info("[SCAIL_CONSOLE][DIRECTION_SPLIT_COMPLETE]", body);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "4방향 시트 분할 실패";
+      setDirectionSplitNotice(`분할 실패 · ${message}`);
+      console.error("[SCAIL_CONSOLE][DIRECTION_SPLIT_FAILED]", { message });
+    } finally {
+      setSplittingDirections(false);
+    }
+  }
+
   function applyProjectPaths() {
     setInputs(createInputs(projectId));
     setJobs(createJobs());
+    setDirectionSplit(null);
     setNotice(`${projectId || "CHARACTER_ID"} 경로 템플릿을 적용했습니다. 실제 파일은 로컬 클라이언트가 S3 API로 업로드합니다.`);
   }
 
@@ -428,7 +542,7 @@ export default function Home() {
       project_id: projectId,
       data_root: "/workspace/scail2-data",
       views: Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {
-        local_reference_image: `inputs/${projectId}/${direction.id}/ref.jpg`,
+        local_reference_image: directionSplit?.directions[direction.id].localClientPath ?? `inputs/${projectId}/${direction.id}/ref.jpg`,
         local_reference_mask: `inputs/${projectId}/${direction.id}/ref_mask.jpg`,
         local_driving_video: `inputs/master-walk-17f/${direction.id}/rendered_v2.mp4`,
         local_driving_mask: `inputs/master-walk-17f/${direction.id}/rendered_mask_v2.mp4`,
@@ -452,6 +566,11 @@ export default function Home() {
   const selectedJob = jobs[activeDirection];
   const canSubmit = Object.values(inputs[activeDirection]).every((value) => value.trim()) && prompts[activeDirection].trim();
   const selectedItemInventory = assetInventory.filter((result) => result.assetName === assetCatalogItem);
+  const selectedInventoryDirectionSheet = directionSheetInventory.find((item) => item.generationId === directionSheetInventoryId) ?? null;
+  const directionSheetSourceUrl = directionSheetSourceMode === "inventory"
+    ? selectedInventoryDirectionSheet?.imageUrl ?? directionSheetPreviewUrl
+    : directionSheetPreviewUrl || selectedInventoryDirectionSheet?.imageUrl;
+  const selectedDirectionCrop = directionSplit?.directions[activeDirection];
 
   return (
     <main className="app-shell scail-console">
@@ -473,6 +592,47 @@ export default function Home() {
         <article><small>NETWORK VOLUME</small><strong>/workspace/scail2-data</strong><span>prepared inputs + raw outputs</span></article><b>→</b>
         <article className="is-primary"><small>ON-DEMAND POD</small><strong>SCAIL-2 loaded once</strong><span>FastAPI :8000 · serial GPU queue</span></article><b>→</b>
         <article><small>LOCAL CLIENT</small><strong>download raw videos</strong><span>0·2·4·6·8·10·12·14</span></article>
+      </section>
+
+      <section className="direction-split-workbench" data-testid="direction-sheet-splitter">
+        <header>
+          <div><small>CANONICAL SHEET PREPARATION</small><h2>2×2 4방향 시트 분할</h2><p>기존 분할 규칙을 복원했습니다. 한 시트를 네 방향 RGB reference로 자르고 아래 방향별 입력칸에 연결합니다.</p></div>
+          <strong>TL FRONT · TR BACK · BL RIGHT · BR LEFT</strong>
+        </header>
+        <div className="direction-split-body">
+          <article className="direction-sheet-source">
+            <span>SOURCE 2×2</span>
+            <div className="direction-sheet-preview">
+              {directionSheetSourceUrl
+                ? <><img src={directionSheetSourceUrl} alt="분할할 2×2 4방향 시트" /><i className="split-x" /><i className="split-y" /></>
+                : <small>파일을 고르거나 캐릭터·생명체 인벤토리 이미지를 선택하세요.</small>}
+            </div>
+            <div className="direction-sheet-inventory-picker" data-testid="direction-sheet-inventory-picker">
+              <header><strong>캐릭터·생명체 이미지 인벤토리</strong><small>{directionSheetInventory.length}장</small></header>
+              {directionSheetInventory.length ? <div>{directionSheetInventory.map((result) => <button type="button" key={result.generationId} className={directionSheetInventoryId === result.generationId ? "is-selected" : ""} onClick={() => { setDirectionSheetInventoryId(result.generationId); setDirectionSheetSourceMode("inventory"); setDirectionSplitNotice(`${result.assetName} 이미지를 4방향 분할 대상으로 선택했습니다.`); }} data-testid={`select-direction-sheet-${result.generationId}`} title={`${result.assetName} · ${result.generationId}`}><img src={result.imageUrl} alt={`${result.assetName} 4방향 시트 후보`} /><span>{result.category === "character" ? "CH" : "CR"}</span></button>)}</div> : <small>저장된 캐릭터·생명체 이미지가 없습니다.</small>}
+            </div>
+            <label><span>보조 입력 · 로컬 4방향 시트</span><input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0] ?? null; setDirectionSheetFile(file); setDirectionSheetPreviewUrl(file ? URL.createObjectURL(file) : ""); if (file) setDirectionSheetSourceMode("upload"); }} data-testid="direction-sheet-upload" /></label>
+            <div className="direction-split-actions">
+              <button type="button" onClick={() => splitDirectionSheet("inventory")} disabled={!selectedInventoryDirectionSheet || splittingDirections} data-testid="split-inventory-direction-sheet">선택 인벤토리 분할</button>
+              <button type="button" onClick={() => splitDirectionSheet("upload")} disabled={!directionSheetFile || splittingDirections} data-testid="split-uploaded-direction-sheet">업로드 파일 분할</button>
+            </div>
+            <small className="direction-sheet-selection">{directionSheetSourceMode === "inventory" && selectedInventoryDirectionSheet ? `${selectedInventoryDirectionSheet.assetName} · ${selectedInventoryDirectionSheet.generationId}` : directionSheetFile ? `${directionSheetFile.name} · local file` : "선택된 4방향 시트 없음"}</small>
+          </article>
+
+          <div className="direction-crop-grid" data-testid="direction-crop-results">
+            {DIRECTION_SHEET_ORDER.map((directionId) => {
+              const direction = DIRECTIONS.find((item) => item.id === directionId) ?? DIRECTIONS[0];
+              const crop = directionSplit?.directions[directionId];
+              return <button type="button" key={directionId} className={activeDirection === directionId ? "is-active" : ""} onClick={() => setActiveDirection(directionId)} data-testid={`direction-crop-${directionId}`}>
+                <span>{direction.code} · {direction.camera}</span>
+                <div>{crop ? <img src={`${crop.url}?split=${directionSplit?.splitId}`} alt={`${direction.label} 분할 RGB reference`} /> : <small>{direction.label} crop 대기</small>}</div>
+                <strong>{direction.label}</strong>
+                <small>{crop ? `${crop.width}×${crop.height}` : directionId === "front" ? "좌상" : directionId === "back" ? "우상" : directionId === "right" ? "좌하" : "우하"}</small>
+              </button>;
+            })}
+          </div>
+        </div>
+        <footer><i />{directionSplitNotice}<span>REFERENCE MASK · DRIVING RGB · DRIVING MASK는 변경하지 않습니다.</span></footer>
       </section>
 
       <section className="scail-console-grid">
@@ -502,6 +662,7 @@ export default function Home() {
                 ["drivingMask", "DRIVING MASK 17F", "rendered_mask_v2.mp4"],
               ] as const).map(([key, title, filename]) => <label key={key}><span><b>{title}</b><small>{filename}</small></span><input value={inputs[activeDirection][key]} onChange={(event) => updateInput(key, event.target.value)} data-testid={`scail-path-${activeDirection}-${key}`} /></label>)}
             </div>
+            {selectedDirectionCrop ? <div className="direction-reference-preview" data-testid={`active-direction-reference-${activeDirection}`}><img src={`${selectedDirectionCrop.url}?split=${directionSplit?.splitId}`} alt={`${selectedDirection.label} REFERENCE RGB 미리보기`} /><div><small>분할된 REFERENCE RGB</small><strong>{selectedDirectionCrop.localClientPath}</strong><span>업로드 대상 · {selectedDirectionCrop.referencePath}</span></div></div> : null}
             <label className="prompt-editor"><span>생성될 영상 설명</span><textarea rows={5} value={prompts[activeDirection]} onChange={(event) => setPrompts((current) => ({ ...current, [activeDirection]: event.target.value }))} data-testid={`scail-prompt-${activeDirection}`} /></label>
             <div className="scail-params"><span><small>SIZE</small><strong>896×512</strong></span><span><small>STEPS</small><strong>40</strong></span><span><small>SHIFT</small><strong>3.0</strong></span><span><small>CFG</small><strong>5.0</strong></span><span><small>SOLVER</small><strong>UniPC</strong></span><label><small>SEED</small><input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label></div>
             <div className="job-actions"><div><strong>{selectedJob.status}</strong><small>{selectedJob.jobId ?? "job_id 대기"}</small></div><button type="button" onClick={submitSelected} disabled={endpoint.status !== "연결됨" || submitting || !canSubmit} data-testid="queue-selected-scail-job">{selectedDirection.label} cycle 등록</button><button type="button" onClick={submitAll} disabled={endpoint.status !== "연결됨" || submitting} data-testid="queue-all-scail-jobs">4방향 순서대로 등록</button></div>

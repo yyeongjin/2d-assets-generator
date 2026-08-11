@@ -13,10 +13,13 @@
 
 정면·후면·왼쪽·오른쪽 기준 이미지와 마스크는 미리 준비합니다. 하나의 정확한 17-frame 제자리 걷기 동작을 네 고정 카메라로 렌더링하고, 같은 동작과 timing을 SCAIL-2 Animation Mode로 네 방향에 각각 전이합니다.
 
+캐릭터가 `2×2` 4방향 시트 한 장으로 저장되어 있다면 디버깅 화면에서 다시 네 장으로 분할할 수 있습니다. 분할 순서는 `좌상=정면`, `우상=후면`, `좌하=오른쪽`, `우하=왼쪽`입니다. 이 단계는 모델 생성이나 결과 후처리가 아니라 SCAIL-2 job을 등록하기 전 `Reference RGB` 입력을 준비하는 작업입니다. 분할은 RGB만 대상으로 하며 reference mask와 driving RGB·mask는 바꾸지 않습니다.
+
 ## 생성 구조
 
 ```text
 로컬 PC
+  ├─ 2×2 canonical 시트 → 방향별 reference RGB 분할
   ├─ 방향별 reference RGB + reference mask
   ├─ 방향별 driving RGB 17F + driving mask 17F
   └─ manifest
@@ -67,6 +70,8 @@ npm run dev
 - 기준 에셋 이미지 endpoint 연결 확인과 생성
 - 항목마다 모델 생성본 또는 직접 업로드한 사진을 여러 장 영구 보관
 - 저장된 이미지 썸네일 선택, 크게 보기, 개별 제거
+- 캐릭터·생명체 인벤토리 이미지 또는 업로드한 2×2 시트를 네 방향 RGB로 분할
+- 분할 결과를 각 방향 탭에서 확인하고 `REFERENCE RGB` Volume 경로에 자동 연결
 - 방향별 네 입력 경로와 positive prompt 편집
 - 한 방향 또는 네 방향 job 등록
 - job 상태, 원본 MP4 경로, 실행 시간 확인
