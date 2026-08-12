@@ -12,6 +12,7 @@ const [
   healthRoute,
   jobsRoute,
   jobRoute,
+  jobOutputRoute,
   podServer,
   runtime,
   client,
@@ -32,6 +33,7 @@ const [
   source("../app/api/scail2/health/route.ts"),
   source("../app/api/scail2/jobs/route.ts"),
   source("../app/api/scail2/jobs/[jobId]/route.ts"),
+  source("../app/api/scail2/jobs/[jobId]/output/route.ts"),
   source("../../runpod/scail2_api/server.py"),
   source("../../runpod/scail2_api/runtime.py"),
   source("../../runpod/scail2_client/client.py"),
@@ -82,10 +84,10 @@ test("화면은 준비된 4방향 입력에서 로컬 32 PNG까지 네 단계를
     assert.match(page, new RegExp(label));
   }
   assert.match(page, /data-testid="architecture-map"/);
-  assert.match(page, /LOCAL PC/);
-  assert.match(page, /NETWORK VOLUME/);
-  assert.match(page, /ON-DEMAND POD/);
   assert.match(page, /LOCAL CLIENT/);
+  assert.match(page, /multipart direct upload/);
+  assert.match(page, /ON-DEMAND POD/);
+  assert.match(page, /RESULT ENDPOINT/);
   assert.match(css, /\.architecture-map/);
 });
 
@@ -117,7 +119,8 @@ test("저장 또는 업로드한 2×2 시트를 네 방향 RGB reference로 실�
   assert.match(page, /directionSheetInventory\.find\(\(item\) => item\.generationId === directionSheetInventoryId\)/);
   assert.match(page, /\/api\/assets\/split-directions/);
   assert.match(page, /const DIRECTION_SHEET_ORDER: Direction\[\] = \["front", "back", "right", "left"\]/);
-  assert.match(page, /referenceImage: body\.directions\[direction\.id\]\.referencePath/);
+  assert.match(page, /resolveDirectionFile/);
+  assert.match(page, /new File\(\[blob\], `\$\{direction\}-ref\.png`/);
   assert.match(page, /mask와 driver 경로는 그대로 유지합니다/);
   assert.match(page, /local_reference_image: directionSplit\?\.directions\[direction\.id\]\.localClientPath/);
   assert.match(page, /data-testid={`direction-crop-\${directionId}`}/);
@@ -150,7 +153,7 @@ test("하나의 17-frame master walk를 네 고정 카메라 job에 사용한다
 });
 
 test("prompt는 방향별 positive description이며 픽셀화를 요구하지 않는다", () => {
-  const promptSource = page.slice(page.indexOf("const PROMPTS"), page.indexOf("function createInputs"));
+  const promptSource = page.slice(page.indexOf("const PROMPTS"), page.indexOf("function createJobs"));
   assert.match(promptSource, /fixed orthographic front view/);
   assert.match(promptSource, /fixed orthographic back view/);
   assert.match(promptSource, /fixed orthographic left-profile view/);
@@ -161,12 +164,12 @@ test("prompt는 방향별 positive description이며 픽셀화를 요구하지 �
 });
 
 test("생성값은 896×512·40 steps·shift 3·CFG 5·UniPC로 시작한다", () => {
-  assert.match(page, /target_width: 896/);
-  assert.match(page, /target_height: 512/);
-  assert.match(page, /sample_steps: 40/);
-  assert.match(page, /sample_shift: 3/);
-  assert.match(page, /sample_guide_scale: 5/);
-  assert.match(page, /sample_solver: "unipc"/);
+  assert.match(page, /form\.set\("target_width", "896"\)/);
+  assert.match(page, /form\.set\("target_height", "512"\)/);
+  assert.match(page, /form\.set\("sample_steps", "40"\)/);
+  assert.match(page, /form\.set\("sample_shift", "3"\)/);
+  assert.match(page, /form\.set\("sample_guide_scale", "5"\)/);
+  assert.match(page, /form\.set\("sample_solver", "unipc"\)/);
   assert.match(manifest, /"width": 896/);
   assert.match(manifest, /"height": 512/);
 });
@@ -177,11 +180,14 @@ test("Next proxy와 Pod API는 job id를 반환하고 상태를 polling한다", 
   assert.match(page, /pollJob/);
   assert.match(jobsRoute, /status: 202/);
   assert.match(jobRoute, /encodeURIComponent\(jobId\)/);
+  assert.match(jobOutputRoute, /\/output/);
+  assert.match(jobOutputRoute, /new Response\(response\.body/);
   assert.match(podServer, /queue: asyncio\.Queue\[str\]/);
   assert.match(podServer, /async def gpu_worker/);
   assert.match(podServer, /await queue\.put\(job_id\)/);
   assert.match(podServer, /@app\.post\("\/v1\/jobs"/);
   assert.match(podServer, /@app\.get\("\/v1\/jobs\/\{job_id\}"/);
+  assert.match(podServer, /@app\.get\("\/v1\/jobs\/\{job_id\}\/output"/);
 });
 
 test("SCAIL-2 pipeline은 한 번 로드하고 Pod는 raw MP4만 생성한다", () => {
@@ -194,30 +200,30 @@ test("SCAIL-2 pipeline은 한 번 로드하고 Pod는 raw MP4만 생성한다", 
   assert.match(client, /ffmpeg/);
 });
 
-test("로컬 클라이언트가 S3 업로드·원본 다운로드·8 phase 추출을 맡는다", () => {
-  assert.match(client, /RUNPOD_S3_ENDPOINT/);
-  assert.match(client, /upload_file/);
-  assert.match(client, /download_file/);
+test("로컬 클라이언트가 multipart 업로드·원본 다운로드·8 phase 추출을 맡는다", () => {
+  assert.match(client, /files=files/);
+  assert.match(client, /def download_output/);
+  assert.match(client, /iter_content/);
   assert.match(client, /SCAIL2_BASE_URL/);
   assert.match(client, /SCAIL2_API_TOKEN/);
+  assert.doesNotMatch(client, /boto3|RUNPOD_S3|bucket/i);
   assert.match(manifest, /"indices": \[0, 2, 4, 6, 8, 10, 12, 14\]/);
   assert.match(page, /const EXTRACT_INDICES = \[0, 2, 4, 6, 8, 10, 12, 14\]/);
   assert.match(page, /Frame 16은 출력 PNG에서 제외/);
 });
 
-test("다운로드 manifest에는 로컬 파일과 Volume 상대 경로가 함께 들어간다", () => {
+test("다운로드 manifest에는 로컬 파일 경로만 들어간다", () => {
   for (const key of [
     "local_reference_image",
     "local_reference_mask",
     "local_driving_video",
     "local_driving_mask",
-    "reference_image",
-    "reference_mask",
-    "driving_video",
-    "driving_mask",
   ]) {
     assert.match(page, new RegExp(key));
     assert.match(manifest, new RegExp(`"${key}"`));
+  }
+  for (const serverPathKey of ["data_root", "reference_image", "reference_mask", "driving_video", "driving_mask"]) {
+    assert.doesNotMatch(manifest, new RegExp(`"${serverPathKey}"`));
   }
 });
 
@@ -243,9 +249,10 @@ test("endpoint와 token은 환경변수로만 읽고 실제 값을 하드코딩�
   }
 });
 
-test("가이드는 SCAIL-Pose 전처리와 로컬 후처리 경계를 명시한다", () => {
-  assert.match(guide, /SCAIL-Pose/);
-  assert.match(guide, /Pod는 raw MP4까지만/);
+test("가이드는 RunPod 생성과 로컬 후처리 경계를 명시한다", () => {
+  assert.match(guide, /RunPod에서 할 작업/);
+  assert.match(guide, /로컬에서 할 작업/);
+  assert.match(guide, /결과 MP4 download endpoint/);
   assert.match(guide, /로컬 클라이언트/);
   assert.match(guide, /A100.*80GB/);
   assert.match(guide, /180~200GB/);

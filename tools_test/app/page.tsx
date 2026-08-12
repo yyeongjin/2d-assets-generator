@@ -16,10 +16,12 @@ type DirectionInput = {
   drivingMask: string;
 };
 
+type DirectionUploadFiles = Partial<Record<keyof DirectionInput, File>>;
+
 type JobState = {
   status: JobStatus;
   jobId?: string;
-  outputPath?: string;
+  outputUrl?: string;
   runtimeSeconds?: number;
   error?: string;
 };
@@ -226,30 +228,24 @@ function randomChoice<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function createInputs(projectId: string): Record<Direction, DirectionInput> {
-  const safeId = projectId.trim() || "CHARACTER_ID";
-  return Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {
-    referenceImage: `references/${safeId}/${direction.id}/ref.jpg`,
-    referenceMask: `references/${safeId}/${direction.id}/ref_mask.jpg`,
-    drivingVideo: `drivers/master-walk-17f/${direction.id}/rendered_v2.mp4`,
-    drivingMask: `drivers/master-walk-17f/${direction.id}/rendered_mask_v2.mp4`,
-  }])) as Record<Direction, DirectionInput>;
-}
-
 function createJobs(): Record<Direction, JobState> {
   return Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, { status: "입력 준비" }])) as Record<Direction, JobState>;
+}
+
+function createDirectionUploadFiles(): Record<Direction, DirectionUploadFiles> {
+  return Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {}])) as Record<Direction, DirectionUploadFiles>;
 }
 
 export default function Home() {
   const [projectId, setProjectId] = useState("character-001");
   const [activeDirection, setActiveDirection] = useState<Direction>("front");
   const [assetCatalogId, setAssetCatalogId] = useState<AssetCatalogId>("tile");
-  const [inputs, setInputs] = useState<Record<Direction, DirectionInput>>(() => createInputs("character-001"));
+  const [directionUploadFiles, setDirectionUploadFiles] = useState<Record<Direction, DirectionUploadFiles>>(() => createDirectionUploadFiles());
   const [prompts, setPrompts] = useState<Record<Direction, string>>(PROMPTS);
   const [jobs, setJobs] = useState<Record<Direction, JobState>>(() => createJobs());
   const [endpoint, setEndpoint] = useState<EndpointState>({ status: "꺼짐" });
   const [imageEndpoint, setImageEndpoint] = useState<ImageEndpointState>({ status: "꺼짐" });
-  const [notice, setNotice] = useState("방향별 canonical reference와 master walk driver를 Network Volume에 준비하세요.");
+  const [notice, setNotice] = useState("방향별 reference·mask·driver 파일을 선택하면 RunPod endpoint로 직접 전송합니다.");
   const [submitting, setSubmitting] = useState(false);
   const [seed, setSeed] = useState(4821);
   const [assetCatalogItem, setAssetCatalogItem] = useState(ASSET_CATALOG[0].items[0]);
@@ -597,10 +593,6 @@ export default function Home() {
       const body = await response.json() as DirectionSplitResult & { error?: string };
       if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
       setDirectionSplit(body);
-      setInputs((current) => Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {
-        ...current[direction.id],
-        referenceImage: body.directions[direction.id].referencePath,
-      }])) as Record<Direction, DirectionInput>);
       setJobs(createJobs());
       setActiveDirection("front");
       setDirectionSplitNotice(`${body.source.width}×${body.source.height} 시트를 4개 RGB reference로 분할했습니다. mask와 driver 경로는 그대로 유지합니다.`);
@@ -616,18 +608,35 @@ export default function Home() {
   }
 
   function applyProjectPaths() {
-    setInputs(createInputs(projectId));
+    setDirectionUploadFiles(createDirectionUploadFiles());
     setJobs(createJobs());
     setDirectionSplit(null);
-    setNotice(`${projectId || "CHARACTER_ID"} 경로 템플릿을 적용했습니다. 실제 파일은 로컬 클라이언트가 S3 API로 업로드합니다.`);
+    setNotice(`${projectId || "CHARACTER_ID"} 입력 이름을 초기화했습니다. 실제 파일은 생성 요청 시 RunPod endpoint로 직접 업로드합니다.`);
   }
 
-  function updateInput(key: keyof DirectionInput, value: string) {
-    setInputs((current) => ({
-      ...current,
-      [activeDirection]: { ...current[activeDirection], [key]: value },
-    }));
+  function updateDirectionUpload(key: keyof DirectionInput, file: File | null) {
+    setDirectionUploadFiles((current) => {
+      const nextDirection = { ...current[activeDirection] };
+      if (file) nextDirection[key] = file;
+      else delete nextDirection[key];
+      return { ...current, [activeDirection]: nextDirection };
+    });
     setJobs((current) => ({ ...current, [activeDirection]: { status: "입력 준비" } }));
+  }
+
+  async function resolveDirectionFile(direction: Direction, key: keyof DirectionInput): Promise<File> {
+    const selectedFile = directionUploadFiles[direction][key];
+    if (selectedFile) return selectedFile;
+
+    const splitCell = directionSplit?.directions[direction];
+    if (key === "referenceImage" && splitCell) {
+      const response = await fetch(splitCell.url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${direction} reference RGB를 읽지 못했습니다.`);
+      const blob = await response.blob();
+      return new File([blob], `${direction}-ref.png`, { type: blob.type || "image/png" });
+    }
+
+    throw new Error(`${DIRECTIONS.find((item) => item.id === direction)?.label} ${key} 파일을 선택하세요.`);
   }
 
   async function checkHealth() {
@@ -653,7 +662,7 @@ export default function Home() {
       await new Promise((resolve) => window.setTimeout(resolve, 3000));
       try {
         const response = await fetch(`/api/scail2/jobs/${jobId}`, { cache: "no-store" });
-        const body = await response.json() as { status?: string; output_path?: string; runtime_seconds?: number; error?: string };
+        const body = await response.json() as { status?: string; output_url?: string; runtime_seconds?: number; error?: string };
         if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
         const status: JobStatus = body.status === "completed"
           ? "영상 완료"
@@ -667,13 +676,13 @@ export default function Home() {
           [direction]: {
             ...current[direction],
             status,
-            outputPath: body.output_path,
+            outputUrl: body.output_url ? `/api/scail2/jobs/${jobId}/output` : undefined,
             runtimeSeconds: body.runtime_seconds,
             error: body.error,
           },
         }));
         if (status === "영상 완료" || status === "실패") {
-          setNotice(`${DIRECTIONS.find((item) => item.id === direction)?.label} 작업 ${status}. 영상 완료 뒤 로컬 클라이언트가 다운로드와 8 phase 추출을 수행합니다.`);
+          setNotice(`${DIRECTIONS.find((item) => item.id === direction)?.label} 작업 ${status}.${status === "영상 완료" ? " 결과 MP4를 이 화면에서 내려받을 수 있습니다." : ""}`);
           return;
         }
       } catch (error) {
@@ -686,25 +695,23 @@ export default function Home() {
   }
 
   async function submitJob(direction: Direction) {
-    const directionInputs = inputs[direction];
+    const form = new FormData();
+    form.set("direction", direction);
+    form.set("prompt", prompts[direction]);
+    form.set("reference_image", await resolveDirectionFile(direction, "referenceImage"));
+    form.set("reference_mask", await resolveDirectionFile(direction, "referenceMask"));
+    form.set("driving_video", await resolveDirectionFile(direction, "drivingVideo"));
+    form.set("driving_mask", await resolveDirectionFile(direction, "drivingMask"));
+    form.set("target_width", "896");
+    form.set("target_height", "512");
+    form.set("sample_steps", "40");
+    form.set("sample_shift", "3");
+    form.set("sample_guide_scale", "5");
+    form.set("sample_solver", "unipc");
+    form.set("seed", String(seed));
     const response = await fetch("/api/scail2/jobs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        direction,
-        prompt: prompts[direction],
-        reference_image: directionInputs.referenceImage,
-        reference_mask: directionInputs.referenceMask,
-        driving_video: directionInputs.drivingVideo,
-        driving_mask: directionInputs.drivingMask,
-        target_width: 896,
-        target_height: 512,
-        sample_steps: 40,
-        sample_shift: 3,
-        sample_guide_scale: 5,
-        sample_solver: "unipc",
-        seed,
-      }),
+      body: form,
     });
     const body = await response.json() as { job_id?: string; error?: string };
     if (!response.ok || !body.job_id) throw new Error(body.error || "작업 등록 실패");
@@ -745,16 +752,11 @@ export default function Home() {
   function downloadManifest() {
     const payload = {
       project_id: projectId,
-      data_root: "/workspace/scail2-data",
       views: Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {
         local_reference_image: directionSplit?.directions[direction.id].localClientPath ?? `inputs/${projectId}/${direction.id}/ref.jpg`,
         local_reference_mask: `inputs/${projectId}/${direction.id}/ref_mask.jpg`,
         local_driving_video: `inputs/master-walk-17f/${direction.id}/rendered_v2.mp4`,
         local_driving_mask: `inputs/master-walk-17f/${direction.id}/rendered_mask_v2.mp4`,
-        reference_image: inputs[direction.id].referenceImage,
-        reference_mask: inputs[direction.id].referenceMask,
-        driving_video: inputs[direction.id].drivingVideo,
-        driving_mask: inputs[direction.id].drivingMask,
         prompt: prompts[direction.id],
       }])),
       generation: { width: 896, height: 512, steps: 40, shift: 3, cfg: 5, solver: "unipc", seed },
@@ -769,7 +771,24 @@ export default function Home() {
   }
 
   const selectedJob = jobs[activeDirection];
-  const canSubmit = Object.values(inputs[activeDirection]).every((value) => value.trim()) && prompts[activeDirection].trim();
+  const activeUploads = directionUploadFiles[activeDirection];
+  const canSubmit = Boolean(
+    prompts[activeDirection].trim()
+    && (activeUploads.referenceImage || directionSplit?.directions[activeDirection])
+    && activeUploads.referenceMask
+    && activeUploads.drivingVideo
+    && activeUploads.drivingMask,
+  );
+  const canSubmitAll = DIRECTIONS.every((direction) => {
+    const uploads = directionUploadFiles[direction.id];
+    return Boolean(
+      prompts[direction.id].trim()
+      && (uploads.referenceImage || directionSplit?.directions[direction.id])
+      && uploads.referenceMask
+      && uploads.drivingVideo
+      && uploads.drivingMask,
+    );
+  });
   const selectedItemInventory = assetInventory.filter((result) => result.assetName === assetCatalogItem);
   const storedCharacterSheets = directionSheetInventory.filter((item) => item.category === "character" && item.imageUrl.startsWith("/generated/character-sheets/"));
   const selectedInventoryDirectionSheet = directionSheetInventory.find((item) => item.generationId === directionSheetInventoryId) ?? null;
@@ -782,7 +801,7 @@ export default function Home() {
     <main className="app-shell scail-console">
       <header className="topbar scail-console-topbar">
         <div className="brand"><span>S2</span><div><small>LOCAL SCAIL PRODUCTION CLIENT</small><h1>4-View Walk Factory</h1></div></div>
-        <div className="topology-title">local assets / network volume / one GPU worker</div>
+        <div className="topology-title">local files / direct HTTP upload / one GPU worker</div>
         <div className="endpoint-cluster"><div className="runpod-state" data-status={endpoint.status}><i /><strong>SCAIL-2 {endpoint.status}</strong></div><button type="button" className="secondary-button" onClick={checkHealth} data-testid="check-scail-runpod">Pod 연결 확인</button></div>
       </header>
 
@@ -794,10 +813,9 @@ export default function Home() {
       </nav>
 
       <section className="architecture-map" data-testid="architecture-map">
-        <article><small>LOCAL PC</small><strong>4 refs + 4 drivers</strong><span>S3-compatible upload</span></article><b>→</b>
-        <article><small>NETWORK VOLUME</small><strong>/workspace/scail2-data</strong><span>prepared inputs + raw outputs</span></article><b>→</b>
+        <article><small>LOCAL CLIENT</small><strong>4 refs + 4 drivers</strong><span>multipart direct upload</span></article><b>→</b>
         <article className="is-primary"><small>ON-DEMAND POD</small><strong>SCAIL-2 loaded once</strong><span>FastAPI :8000 · serial GPU queue</span></article><b>→</b>
-        <article><small>LOCAL CLIENT</small><strong>download raw videos</strong><span>0·2·4·6·8·10·12·14</span></article>
+        <article><small>RESULT ENDPOINT</small><strong>client downloads MP4</strong><span>then 0·2·4·6·8·10·12·14</span></article>
       </section>
 
       <section className="character-generator-workbench" data-testid="character-generator">
@@ -885,7 +903,7 @@ export default function Home() {
         <aside className="scail-project-panel">
           <header><small>PROJECT MANIFEST</small><h2>입력 구조</h2></header>
           <label><span>캐릭터 ID</span><input value={projectId} onChange={(event) => setProjectId(event.target.value)} data-testid="scail-project-id" /></label>
-          <button type="button" onClick={applyProjectPaths} data-testid="apply-scail-path-template">Volume 경로 적용</button>
+          <button type="button" onClick={applyProjectPaths} data-testid="apply-scail-path-template">입력 파일 초기화</button>
           <button type="button" onClick={downloadManifest} data-testid="download-scail-manifest">로컬 manifest 저장</button>
           <div className="input-rule"><strong>Reference</strong><p>정면·후면·좌·우 standing neutral 이미지와 각 reference mask를 별도로 준비합니다.</p></div>
           <div className="input-rule"><strong>Master Motion</strong><p>하나의 rig·하나의 17-frame closed walk를 네 고정 camera로 렌더합니다.</p></div>
@@ -906,12 +924,12 @@ export default function Home() {
                 ["referenceMask", "REFERENCE MASK", "ref_mask.jpg"],
                 ["drivingVideo", "DRIVING RGB 17F", "rendered_v2.mp4"],
                 ["drivingMask", "DRIVING MASK 17F", "rendered_mask_v2.mp4"],
-              ] as const).map(([key, title, filename]) => <label key={key}><span><b>{title}</b><small>{filename}</small></span><input value={inputs[activeDirection][key]} onChange={(event) => updateInput(key, event.target.value)} data-testid={`scail-path-${activeDirection}-${key}`} /></label>)}
+              ] as const).map(([key, title, filename]) => <label key={`${activeDirection}-${key}`}><span><b>{title}</b><small>{filename}</small></span><input type="file" accept={key === "referenceImage" || key === "referenceMask" ? "image/*" : "video/*"} onChange={(event) => updateDirectionUpload(key, event.target.files?.[0] ?? null)} data-testid={`scail-file-${activeDirection}-${key}`} /><small>{directionUploadFiles[activeDirection][key]?.name ?? (key === "referenceImage" && selectedDirectionCrop ? "분할된 RGB reference 사용" : "파일 선택 필요")}</small></label>)}
             </div>
-            {selectedDirectionCrop ? <div className="direction-reference-preview" data-testid={`active-direction-reference-${activeDirection}`}><img src={`${selectedDirectionCrop.url}?split=${directionSplit?.splitId}`} alt={`${selectedDirection.label} REFERENCE RGB 미리보기`} /><div><small>분할된 REFERENCE RGB</small><strong>{selectedDirectionCrop.localClientPath}</strong><span>업로드 대상 · {selectedDirectionCrop.referencePath}</span></div></div> : null}
+            {selectedDirectionCrop ? <div className="direction-reference-preview" data-testid={`active-direction-reference-${activeDirection}`}><img src={`${selectedDirectionCrop.url}?split=${directionSplit?.splitId}`} alt={`${selectedDirection.label} REFERENCE RGB 미리보기`} /><div><small>분할된 REFERENCE RGB</small><strong>{selectedDirectionCrop.localClientPath}</strong><span>요청 시 endpoint로 직접 업로드</span></div></div> : null}
             <label className="prompt-editor"><span>생성될 영상 설명</span><textarea rows={5} value={prompts[activeDirection]} onChange={(event) => setPrompts((current) => ({ ...current, [activeDirection]: event.target.value }))} data-testid={`scail-prompt-${activeDirection}`} /></label>
             <div className="scail-params"><span><small>SIZE</small><strong>896×512</strong></span><span><small>STEPS</small><strong>40</strong></span><span><small>SHIFT</small><strong>3.0</strong></span><span><small>CFG</small><strong>5.0</strong></span><span><small>SOLVER</small><strong>UniPC</strong></span><label><small>SEED</small><input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label></div>
-            <div className="job-actions"><div><strong>{selectedJob.status}</strong><small>{selectedJob.jobId ?? "job_id 대기"}</small></div><button type="button" onClick={submitSelected} disabled={endpoint.status !== "연결됨" || submitting || !canSubmit} data-testid="queue-selected-scail-job">{selectedDirection.label} cycle 등록</button><button type="button" onClick={submitAll} disabled={endpoint.status !== "연결됨" || submitting} data-testid="queue-all-scail-jobs">4방향 순서대로 등록</button></div>
+            <div className="job-actions"><div><strong>{selectedJob.status}</strong><small>{selectedJob.jobId ?? "job_id 대기"}</small></div><button type="button" onClick={submitSelected} disabled={endpoint.status !== "연결됨" || submitting || !canSubmit} data-testid="queue-selected-scail-job">{selectedDirection.label} cycle 등록</button><button type="button" onClick={submitAll} disabled={endpoint.status !== "연결됨" || submitting || !canSubmitAll} data-testid="queue-all-scail-jobs">4방향 순서대로 등록</button></div>
           </div>
         </section>
       </section>
@@ -921,7 +939,7 @@ export default function Home() {
         <div className="job-card-grid">
           {DIRECTIONS.map((direction) => {
             const job = jobs[direction.id];
-            return <article key={direction.id} className={`job-card is-${job.status.replace(" ", "-")}`}><header><span>{direction.code}</span><div><strong>{direction.label} 17F cycle</strong><small>{job.status}</small></div></header><div className="job-flow"><span>ref</span><b>+</b><span>driver</span><b>→</b><span>raw mp4</span></div><strong>{job.jobId ?? "작업 미등록"}</strong><small>{job.outputPath ?? "Network Volume output 대기"}</small>{job.runtimeSeconds ? <p>runtime {job.runtimeSeconds.toFixed(1)}s</p> : null}{job.error ? <p className="job-error">{job.error}</p> : null}</article>;
+            return <article key={direction.id} className={`job-card is-${job.status.replace(" ", "-")}`}><header><span>{direction.code}</span><div><strong>{direction.label} 17F cycle</strong><small>{job.status}</small></div></header><div className="job-flow"><span>ref</span><b>+</b><span>driver</span><b>→</b><span>raw mp4</span></div><strong>{job.jobId ?? "작업 미등록"}</strong>{job.outputUrl ? <><video src={job.outputUrl} controls loop playsInline preload="metadata" aria-label={`${direction.label} 생성 결과`} /><a href={job.outputUrl} download={`${direction.id}_animation_raw.mp4`}>원본 MP4 로컬 저장</a></> : <small>결과 다운로드 대기</small>}{job.runtimeSeconds ? <p>runtime {job.runtimeSeconds.toFixed(1)}s</p> : null}{job.error ? <p className="job-error">{job.error}</p> : null}</article>;
           })}
         </div>
       </section>
@@ -989,7 +1007,7 @@ export default function Home() {
 
       <section className="deployment-note">
         <div><small>RUNPOD</small><h2>On-Demand Pod</h2><p>A100 80GB 시작 · Network Volume 약 180~200GB · HTTP 8000</p></div>
-        <code>POST /v1/jobs → job_id → GET /v1/jobs/&#123;id&#125;</code>
+        <code>POST multipart → job_id → GET status → GET output</code>
         <div><strong>로컬 환경변수</strong><small>SCAIL2_BASE_URL · SCAIL2_API_TOKEN</small><a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/RUNPOD_SCAIL2_GUIDE.md" target="_blank" rel="noreferrer">설치·실행 가이드</a></div>
       </section>
     </main>

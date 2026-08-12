@@ -6,12 +6,14 @@ import asyncio
 import json
 import os
 import secrets
+import shutil
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 
@@ -43,6 +45,24 @@ def resolve_input_path(value: str) -> Path:
     if not candidate.is_file():
         raise ValueError(f"input file not found: {value}")
     return candidate
+
+
+def upload_suffix(upload: UploadFile, fallback: str) -> str:
+    suffix = Path(upload.filename or "").suffix.lower()
+    return suffix if suffix and len(suffix) <= 10 else fallback
+
+
+async def save_upload(upload: UploadFile, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with destination.open("wb") as output:
+            while chunk := await upload.read(8 * 1024 * 1024):
+                output.write(chunk)
+    finally:
+        await upload.close()
+
+    if destination.stat().st_size == 0:
+        raise ValueError(f"uploaded file is empty: {upload.filename or destination.name}")
 
 
 class JobRequest(BaseModel):
@@ -134,8 +154,59 @@ async def health():
 
 
 @app.post("/v1/jobs", status_code=202, dependencies=[Depends(require_token)])
-async def create_job(request: JobRequest):
+async def create_job(
+    direction: str = Form(...),
+    prompt: str = Form(...),
+    reference_image: UploadFile = File(...),
+    reference_mask: UploadFile = File(...),
+    driving_video: UploadFile = File(...),
+    driving_mask: UploadFile = File(...),
+    target_width: int = Form(896),
+    target_height: int = Form(512),
+    sample_steps: int = Form(40),
+    sample_shift: float = Form(3.0),
+    sample_guide_scale: float = Form(5.0),
+    sample_solver: str = Form("unipc"),
+    seed: int = Form(4821),
+):
     job_id = uuid.uuid4().hex[:16]
+    relative_input_root = Path("jobs") / job_id / "inputs"
+    absolute_input_root = DATA_ROOT / relative_input_root
+    upload_targets = {
+        "reference_image": relative_input_root / f"ref{upload_suffix(reference_image, '.jpg')}",
+        "reference_mask": relative_input_root / f"ref_mask{upload_suffix(reference_mask, '.jpg')}",
+        "driving_video": relative_input_root / f"driving{upload_suffix(driving_video, '.mp4')}",
+        "driving_mask": relative_input_root / f"driving_mask{upload_suffix(driving_mask, '.mp4')}",
+    }
+
+    try:
+        for field, upload in (
+            ("reference_image", reference_image),
+            ("reference_mask", reference_mask),
+            ("driving_video", driving_video),
+            ("driving_mask", driving_mask),
+        ):
+            await save_upload(upload, DATA_ROOT / upload_targets[field])
+
+        request = JobRequest(
+            direction=direction,
+            prompt=prompt,
+            reference_image=upload_targets["reference_image"],
+            reference_mask=upload_targets["reference_mask"],
+            driving_video=upload_targets["driving_video"],
+            driving_mask=upload_targets["driving_mask"],
+            target_width=target_width,
+            target_height=target_height,
+            sample_steps=sample_steps,
+            sample_shift=sample_shift,
+            sample_guide_scale=sample_guide_scale,
+            sample_solver=sample_solver,
+            seed=seed,
+        )
+    except Exception as exc:
+        shutil.rmtree(absolute_input_root.parent, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     jobs[job_id] = {
         "job_id": job_id,
         "status": "queued",
@@ -145,7 +216,11 @@ async def create_job(request: JobRequest):
     }
     await queue.put(job_id)
     await persist_job(job_id)
-    print(f"[SCAIL2][JOB_QUEUED] id={job_id} direction={request.direction} depth={queue.qsize()}", flush=True)
+    print(
+        f"[SCAIL2][JOB_QUEUED] id={job_id} direction={request.direction} "
+        f"depth={queue.qsize()} input_dir={absolute_input_root}",
+        flush=True,
+    )
     return {"job_id": job_id, "status": "queued", "queue_position": queue.qsize()}
 
 
@@ -154,4 +229,27 @@ async def get_job(job_id: str):
     record = jobs.get(job_id)
     if record is None:
         raise HTTPException(status_code=404, detail="job not found")
-    return {key: value for key, value in record.items() if key != "request"}
+    public_record = {key: value for key, value in record.items() if key not in {"request", "output_path"}}
+    if record["status"] == "completed":
+        public_record["output_url"] = f"/v1/jobs/{job_id}/output"
+    return public_record
+
+
+@app.get("/v1/jobs/{job_id}/output", dependencies=[Depends(require_token)])
+async def download_job_output(job_id: str):
+    record = jobs.get(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if record["status"] != "completed":
+        raise HTTPException(status_code=409, detail=f"job is not completed: {record['status']}")
+
+    output_path = Path(record.get("output_path", "")).resolve()
+    output_root = runtime.SCAIL_OUTPUT_ROOT.resolve()
+    if output_root not in output_path.parents or not output_path.is_file():
+        raise HTTPException(status_code=404, detail="job output file not found")
+
+    return FileResponse(
+        output_path,
+        media_type="video/mp4",
+        filename=f"{record['direction']}_animation_raw.mp4",
+    )

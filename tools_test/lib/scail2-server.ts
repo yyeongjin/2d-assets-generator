@@ -1,4 +1,4 @@
-const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_TIMEOUT_MS = 300_000;
 
 function configuration() {
   const baseUrl = process.env.SCAIL2_BASE_URL?.trim().replace(/\/+$/, "");
@@ -14,7 +14,7 @@ export async function requestScail2(path: string, init: RequestInit = {}) {
   const { baseUrl, apiToken, timeoutMs } = configuration();
   const headers = new Headers(init.headers);
   if (apiToken) headers.set("Authorization", `Bearer ${apiToken}`);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

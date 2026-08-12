@@ -1,41 +1,45 @@
-# RunPod SCAIL-2 설치·실행 가이드
+# RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드
 
-이 문서는 아무 파일도 없는 새 RunPod On-Demand Pod에서 이 프로젝트와 `zai-org/SCAIL-2`를 `git clone`하고, 공식 inference를 한 번 실행하는 명령만 정리한다.
+이 가이드는 작업 위치를 두 곳으로 분리한다.
 
-S3, 별도 API 서버, 로컬 클라이언트, 미리 업로드된 셸 스크립트를 전제로 하지 않는다. 먼저 이 저장소를 clone하므로 RunPod에는 문서와 프로젝트 코드가 실제로 존재한다. `chmod +x`, `cat << EOF`, 저장소 symlink 명령은 필요 없다.
-
-## 먼저 확인할 사실: vLLM으로 실행하는 모델이 아니다
-
-2026-08-12 기준 SCAIL-2는 vLLM-Omni 공식 지원 모델 목록에 없다. 공식 SCAIL-2 저장소도 `vllm serve`가 아니라 `wan-scail2` 브랜치의 `generate.py`를 실행하도록 안내한다.
-
-따라서 다음 명령은 사용하지 않는다.
-
-```bash
-# 지원되지 않는 실행 방식
-vllm serve zai-org/SCAIL-2 --omni
+```text
+[RunPod On-Demand Pod]
+저장소 clone · uv 환경 · SCAIL-2 모델 · FastAPI · GPU 생성
+        ▲                                      │
+        │ multipart 입력                       │ MP4 다운로드
+        │                                      ▼
+[로컬 PC]
+:3000 디버거 · 입력 선택 · prompt · job polling · 결과 저장 · 프레임 추출
 ```
 
-`uv`는 Python 환경과 패키지를 설치하는 데 사용한다. 모델 실행은 공식 `generate.py`가 담당한다.
+S3와 RunPod 웹 UI 수동 파일 업로드는 사용하지 않는다. 로컬 클라이언트가 입력 파일을 endpoint에 직접 전송하고 결과 파일도 endpoint에서 직접 내려받는다.
+
+## 먼저 확인할 사실: SCAIL-2는 vLLM 실행 모델이 아니다
+
+2026-08-12 기준 SCAIL-2는 vLLM-Omni 공식 지원 모델 목록에 없다. 공식 SCAIL-2 저장소의 `wan-scail2` 브랜치는 `generate.py`와 `wan.SCAIL2Pipeline`을 사용한다.
+
+따라서 `vllm serve zai-org/SCAIL-2 --omni`는 사용하지 않는다. 이 프로젝트의 FastAPI가 공식 SCAIL-2 pipeline을 로드하고 HTTP 요청을 연결한다.
 
 - [SCAIL-2 공식 저장소](https://github.com/zai-org/SCAIL-2/tree/wan-scail2)
 - [vLLM-Omni 공식 지원 모델 목록](https://docs.vllm.ai/projects/vllm-omni/en/latest/models/supported_models/)
 
-## 1. Pod 설정
+# RunPod에서 할 작업
 
-첫 실행에서는 다음 정도의 공간을 잡는다.
+## 1. Pod 설정
 
 | 항목 | 설정 |
 |---|---|
 | Pod | RunPod On-Demand Pod |
 | GPU | A100 80GB부터 검증 |
 | Container disk 또는 Network Volume | 180~200GB |
+| HTTP port | `8000` |
 | Python | 3.10~3.12 |
 
-Hugging Face 원본 checkpoint와 wan 브랜치용 변환 safetensors가 동시에 필요하므로 80GB 디스크로는 부족하다. Network Volume은 필수가 아니며, Pod를 지워도 모델을 보존하려는 경우에만 사용한다.
+Hugging Face 원본 checkpoint와 wan 브랜치용 변환 safetensors가 동시에 필요하므로 80GB 디스크로는 부족하다. Network Volume은 모델을 Pod 종료 뒤에도 보존하려는 경우에만 사용한다.
 
 ## 2. 시스템 도구와 uv 설치
 
-새 Pod 터미널에서 그대로 실행한다.
+새 Pod 터미널에서 실행한다.
 
 ```bash
 apt-get update
@@ -49,13 +53,13 @@ source "$HOME/.local/bin/env"
 git lfs install
 ```
 
-## 3. 이 프로젝트와 공식 SCAIL-2 코드 받기
+## 3. 프로젝트와 공식 SCAIL-2 clone
 
 ```bash
 mkdir -p \
   /workspace/models \
   /workspace/huggingface-cache \
-  /workspace/scail2-output
+  /workspace/scail2-data
 
 cd /workspace
 
@@ -73,9 +77,9 @@ cd /workspace/SCAIL-2
 git submodule update --init --recursive
 ```
 
-첫 번째 clone은 이 프로젝트의 문서, 로컬 디버거와 추후 HTTP adapter 코드를 받는다. 두 번째 clone은 실제 모델을 실행하는 공식 SCAIL-2 코드다. `SCAIL-Pose`가 submodule이므로 공식 저장소의 `git submodule update`는 생략하지 않는다.
+첫 번째 저장소에는 이 프로젝트의 FastAPI adapter가 있다. 두 번째 저장소는 실제 모델을 실행하는 공식 SCAIL-2 코드다. `SCAIL-Pose`가 submodule이므로 공식 저장소의 submodule 초기화는 생략하지 않는다.
 
-## 4. Python 3.12 환경 설치
+## 4. Python 3.12 환경과 패키지 설치
 
 ```bash
 cd /workspace/SCAIL-2
@@ -86,15 +90,16 @@ uv venv /workspace/scail2-venv \
 
 source /workspace/scail2-venv/bin/activate
 
-uv pip install -r requirements.txt
+uv pip install -r /workspace/SCAIL-2/requirements.txt
 uv pip install "huggingface_hub[hf_xet]"
+uv pip install -r /workspace/2d-assets-generator/runpod/scail2_api/requirements-api.txt
 ```
 
-공식 requirements에는 PyTorch, Diffusers, Transformers, Flash Attention과 영상 처리 패키지가 포함되어 있다. 별도로 vLLM이나 vLLM-Omni를 설치하지 않는다.
+별도로 vLLM이나 vLLM-Omni를 설치하지 않는다.
 
 ## 5. 모델 다운로드와 변환
 
-Hugging Face 인증이 필요한 환경에서는 먼저 `hf auth login`을 실행한다. 토큰을 저장소나 명령문에 직접 기록하지 않는다.
+Hugging Face 인증이 필요한 환경이면 먼저 `hf auth login`을 실행한다. 토큰은 저장소나 실행 명령에 기록하지 않는다.
 
 ```bash
 source /workspace/scail2-venv/bin/activate
@@ -107,7 +112,7 @@ hf download \
   --local-dir /workspace/models/SCAIL-2
 ```
 
-공식 `wan-scail2` 브랜치는 다운로드한 SAT checkpoint를 safetensors로 한 번 변환해야 한다.
+공식 `wan-scail2` 브랜치에서 사용할 safetensors를 한 번 생성한다.
 
 ```bash
 cd /workspace/SCAIL-2
@@ -117,7 +122,7 @@ python convert.py \
   --save-path /workspace/models/SCAIL-2.safetensors
 ```
 
-파일을 확인한다.
+확인:
 
 ```bash
 test -f /workspace/models/SCAIL-2/model/1/fsdp2_rank_0000_checkpoint.pt \
@@ -131,105 +136,166 @@ du -sh \
   /workspace/models/SCAIL-2.safetensors
 ```
 
-## 6. 입력 파일 배치
+## 6. FastAPI 서버 실행
 
-SCAIL-2 Animation Mode 한 번에는 다음 네 파일이 필요하다.
+`SCAIL_API_TOKEN`에는 직접 정한 긴 임의 문자열을 넣는다. 이 값은 로컬 클라이언트에도 동일하게 설정한다.
+
+```bash
+source /workspace/scail2-venv/bin/activate
+
+export CUDA_VISIBLE_DEVICES=0
+export SCAIL_API_TOKEN='replace-with-a-long-random-token'
+export SCAIL_REPO_ROOT=/workspace/SCAIL-2
+export SCAIL_CHECKPOINT_DIR=/workspace/models/SCAIL-2
+export SCAIL_SAFETENSORS_PATH=/workspace/models/SCAIL-2.safetensors
+export SCAIL_DATA_ROOT=/workspace/scail2-data
+export SCAIL_OUTPUT_ROOT=/workspace/scail2-data/outputs
+export SCAIL_LOAD_ON_START=1
+
+cd /workspace/2d-assets-generator/runpod/scail2_api
+
+uvicorn server:app \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --workers 1
+```
+
+미리 존재하는 스크립트를 가정하지 않으며 `chmod +x`도 필요 없다. 위 명령은 clone된 Python 코드를 직접 실행한다.
+
+RunPod에서 HTTP port `8000`을 노출한다.
 
 ```text
-/workspace/scail2-input/front/
+https://POD_ID-8000.proxy.runpod.net
+```
+
+이 터미널은 모델 load와 job 로그를 확인할 수 있도록 계속 열어 둔다.
+
+## 7. RunPod 서버가 담당하는 일
+
+RunPod에는 사용자가 미리 입력 파일을 올려두지 않는다.
+
+1. `POST /v1/jobs`에서 multipart 입력 4종과 설정을 받는다.
+2. 입력을 `/workspace/scail2-data/jobs/JOB_ID/inputs/`에 저장한다.
+3. 즉시 `job_id`를 반환한다.
+4. 단일 GPU queue가 SCAIL-2를 실행한다.
+5. `GET /v1/jobs/JOB_ID`가 상태와 결과 다운로드 URL을 반환한다.
+6. `GET /v1/jobs/JOB_ID/output`이 결과 MP4를 클라이언트에 전송한다.
+
+서버 내부 `output_path`는 클라이언트 API 응답에 노출하지 않는다.
+
+# 로컬에서 할 작업
+
+## 8. 로컬 클라이언트 설치
+
+로컬 PC에 저장소가 이미 있으면 다시 clone하지 않고 해당 저장소로 이동한다. 없다면 다음처럼 clone한다.
+
+```bash
+git clone \
+  https://github.com/yyeongjin/2d-assets-generator.git
+
+cd 2d-assets-generator
+
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source "$HOME/.local/bin/env"
+
+uv venv .venv-scail-client \
+  --python 3.12 \
+  --seed
+
+source .venv-scail-client/bin/activate
+uv pip install -r runpod/scail2_client/requirements.txt
+```
+
+프레임 추출까지 실행하려면 로컬에 `ffmpeg`가 설치되어 있어야 한다.
+
+## 9. 로컬 입력과 manifest
+
+로컬 PC에 다음 입력을 준비한다.
+
+```text
+inputs/character-001/front/
 ├── ref.jpg
-├── ref_mask.jpg
+└── ref_mask.jpg
+
+inputs/master-walk-17f/front/
 ├── rendered_v2.mp4
 └── rendered_mask_v2.mp4
 ```
 
-각 파일의 의미는 다음과 같다.
+`runpod/scail2_client/example-manifest.json`에는 서버 경로가 아니라 로컬 파일 경로만 기록한다.
 
-| 파일 | 역할 |
+```json
+{
+  "project_id": "character-001",
+  "views": {
+    "front": {
+      "local_reference_image": "inputs/character-001/front/ref.jpg",
+      "local_reference_mask": "inputs/character-001/front/ref_mask.jpg",
+      "local_driving_video": "inputs/master-walk-17f/front/rendered_v2.mp4",
+      "local_driving_mask": "inputs/master-walk-17f/front/rendered_mask_v2.mp4",
+      "prompt": "A full-body 2D game character performs a seamless in-place walk cycle in a fixed orthographic front view."
+    }
+  }
+}
+```
+
+## 10. 로컬에서 요청·다운로드 실행
+
+```bash
+source .venv-scail-client/bin/activate
+
+export SCAIL2_BASE_URL=https://POD_ID-8000.proxy.runpod.net
+export SCAIL2_API_TOKEN='same-token-used-on-runpod'
+
+python runpod/scail2_client/client.py \
+  runpod/scail2_client/example-manifest.json \
+  --views front
+```
+
+로컬 클라이언트의 실제 처리 순서:
+
+```text
+로컬 파일 4종을 multipart로 POST
+  → job_id 수신
+  → 상태 polling
+  → 완료된 MP4 다운로드
+  → 로컬 outputs/scail2/PROJECT_ID/DIRECTION/에 저장
+  → 로컬 ffmpeg로 지정 phase PNG 추출
+```
+
+S3 환경변수, bucket, 서버 내부 파일 경로는 사용하지 않는다.
+
+## 11. 로컬 `:3000` 디버깅 화면
+
+```bash
+cd tools_test
+cp .env.example .env.local
+```
+
+`.env.local`에 RunPod endpoint와 동일한 token을 넣는다.
+
+```dotenv
+SCAIL2_BASE_URL=https://POD_ID-8000.proxy.runpod.net
+SCAIL2_API_TOKEN=same-token-used-on-runpod
+SCAIL2_REQUEST_TIMEOUT_MS=300000
+```
+
+```bash
+npm install
+npm run dev
+```
+
+브라우저에서 `http://localhost:3000`을 연다. 방향별 reference, mask, driving video와 driving mask를 선택하고 생성 요청을 보내면 브라우저가 multipart로 RunPod에 전달한다. 완료 뒤 화면의 `원본 MP4 다운로드`로 결과를 로컬에 내려받는다.
+
+## 최종 책임 분리
+
+| RunPod | 로컬 PC |
 |---|---|
-| `ref.jpg` | 해당 방향 캐릭터 기준 이미지 |
-| `ref_mask.jpg` | 기준 이미지의 SCAIL mask |
-| `rendered_v2.mp4` | 해당 방향의 driving video |
-| `rendered_mask_v2.mp4` | driving video와 같은 프레임 수의 SCAIL mask video |
+| SCAIL-2 코드·checkpoint 보관 | 캐릭터와 driver 원본 보관 |
+| SCAIL-2 pipeline 한 번 로드 | 방향별 입력 선택 |
+| multipart 입력 수신 | prompt와 seed 설정 |
+| 단일 GPU queue 생성 | job 등록과 상태 확인 |
+| 결과 MP4 download endpoint 제공 | 결과 MP4 다운로드 |
+| 원본 MP4가 내려받힐 때까지 임시 보관 | 모든 방향 완료 뒤 프레임 추출·후처리 |
 
-파일은 RunPod 웹 UI의 파일 업로드나 사용자가 선택한 전송 방식으로 `/workspace/scail2-input/front/`에 넣는다. 이 가이드는 S3 사용을 요구하지 않는다.
-
-Mask는 선택 입력이 아니다. 공식 문서상 Animation Mode에서도 올바른 reference mask와 driving mask가 필요하다. 전처리가 필요하면 공식 `SCAIL-Pose` 안내를 따라 별도로 준비한다.
-
-## 7. 먼저 정면 한 방향 직접 실행
-
-서버를 띄우기 전에 공식 CLI로 정면 한 방향이 실제 생성되는지 확인한다.
-
-```bash
-source /workspace/scail2-venv/bin/activate
-export CUDA_VISIBLE_DEVICES=0
-
-cd /workspace/SCAIL-2
-
-python generate.py \
-  --model SCAIL-14B \
-  --ckpt_dir /workspace/models/SCAIL-2 \
-  --scail_path /workspace/models/SCAIL-2.safetensors \
-  --target_w 896 \
-  --target_h 512 \
-  --image /workspace/scail2-input/front/ref.jpg \
-  --mask_image /workspace/scail2-input/front/ref_mask.jpg \
-  --pose /workspace/scail2-input/front/rendered_v2.mp4 \
-  --mask_video /workspace/scail2-input/front/rendered_mask_v2.mp4 \
-  --prompt "A full-body 2D game character performs a seamless in-place walk cycle in a fixed orthographic front view." \
-  --save_file /workspace/scail2-output/front.mp4
-```
-
-Animation Mode에서는 `--replace_flag`를 넣지 않는다. 공식 기본값은 `False`다.
-
-생성 결과를 확인한다.
-
-```bash
-test -f /workspace/scail2-output/front.mp4 \
-  && echo "FRONT OUTPUT READY"
-
-ffprobe \
-  -v error \
-  -show_entries stream=width,height,nb_frames,r_frame_rate \
-  -of default=noprint_wrappers=1 \
-  /workspace/scail2-output/front.mp4
-```
-
-## 8. 나머지 방향 실행
-
-정면 결과에서 캐릭터 정체성, 화면상 크기, baseline과 걷기 동작이 유지된 것을 확인한 뒤 같은 명령의 입력·출력 경로만 바꿔 후면, 오른쪽, 왼쪽을 각각 실행한다.
-
-| 방향 | 입력 폴더 | 출력 파일 |
-|---|---|---|
-| front | `/workspace/scail2-input/front` | `/workspace/scail2-output/front.mp4` |
-| back | `/workspace/scail2-input/back` | `/workspace/scail2-output/back.mp4` |
-| right | `/workspace/scail2-input/right` | `/workspace/scail2-output/right.mp4` |
-| left | `/workspace/scail2-input/left` | `/workspace/scail2-output/left.mp4` |
-
-네 방향을 한 요청에 넣지 않는다. 한 방향의 한 walk cycle이 SCAIL-2 한 번의 생성 단위다.
-
-## 9. 로컬 `:3000` 연결과 모델 실행은 별개다
-
-위 명령은 SCAIL-2 자체가 정상 동작하는지를 검증하는 공식 CLI 실행이다. `generate.py`는 HTTP endpoint를 열지 않는다.
-
-로컬 디버깅 화면에서 RunPod에 요청하려면 모델 실행이 확인된 뒤 HTTP adapter를 별도로 붙여야 한다. 저장소의 `runpod/scail2_api/`는 그 연결을 실험하기 위한 코드이지 SCAIL-2 설치나 첫 실행에 필요한 공식 구성 요소가 아니다.
-
-RunPod에서 clone된 adapter 코드는 다음 경로에 있다.
-
-```text
-/workspace/2d-assets-generator/runpod/scail2_api/
-```
-
-정리하면 순서는 다음과 같다.
-
-```text
-빈 RunPod Pod
-  → 2d-assets-generator git clone
-  → uv 환경 설치
-  → SCAIL-2 공식 코드·모델 준비
-  → generate.py로 정면 한 방향 검증
-  → 네 방향 검증
-  → 그 다음 로컬 :3000용 HTTP adapter 연결
-```
-
-SCAIL-2가 vLLM-Omni에 공식 추가되기 전까지는 `vllm serve` 명령을 가이드에 넣지 않는다.
+RunPod는 결과를 생성하고 전송한다. 로컬은 입력을 보내고 결과를 받아 저장·표시·후처리한다.

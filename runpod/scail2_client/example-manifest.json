@@ -1,16 +1,11 @@
 {
   "project_id": "character-001",
-  "data_root": "/workspace/scail2-data",
   "views": {
     "front": {
       "local_reference_image": "inputs/character-001/front/ref.jpg",
       "local_reference_mask": "inputs/character-001/front/ref_mask.jpg",
       "local_driving_video": "inputs/master-walk-17f/front/rendered_v2.mp4",
       "local_driving_mask": "inputs/master-walk-17f/front/rendered_mask_v2.mp4",
-      "reference_image": "references/character-001/front/ref.jpg",
-      "reference_mask": "references/character-001/front/ref_mask.jpg",
-      "driving_video": "drivers/master-walk-17f/front/rendered_v2.mp4",
-      "driving_mask": "drivers/master-walk-17f/front/rendered_mask_v2.mp4",
       "prompt": "A full-body 2D game character performs one seamless in-place walk cycle in a fixed orthographic front view. The camera, framing, character scale, identity, costume, colors, and ground baseline remain constant."
     }
   },

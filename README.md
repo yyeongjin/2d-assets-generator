@@ -27,26 +27,28 @@
 ## 생성 구조
 
 ```text
-로컬에서 준비
+로컬 클라이언트
   ├─ 2×2 canonical 시트 → 방향별 reference RGB 분할
   ├─ 방향별 reference RGB + reference mask
   └─ 방향별 driving RGB 17F + driving mask 17F
-        │ 입력 파일을 RunPod /workspace에 배치
+        │ multipart로 endpoint에 직접 전송
         ▼
 RunPod On-Demand Pod
   ├─ uv Python 환경
   ├─ SCAIL-2 공식 wan-scail2 코드와 checkpoint
-  ├─ generate.py를 방향마다 한 번씩 실행
+  ├─ FastAPI + 단일 GPU queue
+  ├─ 방향마다 한 cycle 생성
   └─ front/back/right/left raw MP4 생성
-        │ 네 방향 생성과 검수 완료
+        │ 결과 endpoint에서 MP4 다운로드
         ▼
-로컬 후처리
-  └─ 동일 phase의 PNG를 추출
+로컬 클라이언트
+  ├─ 원본 MP4 저장·표시
+  └─ 네 방향 완료 뒤 동일 phase PNG 추출
 ```
 
 Pod 안에서는 프레임 추출, 픽셀화, 스프라이트 패킹을 하지 않습니다. 네 방향의 원본 영상 생성이 모두 끝난 뒤 로컬에서 8 phase를 추출하고 검수합니다. Frame 16은 Frame 0과 같은 자세로 닫히는지 확인하는 loop closure 용도이며 최종 8장에는 포함하지 않습니다.
 
-SCAIL-2는 2026-08-12 기준 vLLM-Omni 공식 지원 모델이 아닙니다. 따라서 `vllm serve`가 아니라 공식 `generate.py`로 먼저 한 방향을 직접 검증합니다. S3와 FastAPI는 모델 실행의 필수 조건이 아니며, 로컬 디버깅 화면과의 HTTP 연결은 직접 inference가 성공한 뒤 별도로 다룹니다.
+SCAIL-2는 2026-08-12 기준 vLLM-Omni 공식 지원 모델이 아닙니다. RunPod의 FastAPI adapter가 공식 SCAIL-2 pipeline을 로드합니다. 로컬 클라이언트는 입력을 직접 전송하고 결과 MP4를 직접 내려받습니다. S3, bucket과 서버 내부 출력 경로는 사용하지 않습니다.
 
 ## 방향별 입력
 
@@ -89,9 +91,9 @@ npm run dev
 
 ## RunPod와 로컬 클라이언트
 
-빈 RunPod Pod에서 이 프로젝트와 공식 SCAIL-2 코드를 `git clone`하고, 시스템 도구 설치, `uv` 환경 구성, 모델 다운로드·변환, 정면 한 방향 직접 실행까지 필요한 명령은 [RunPod SCAIL-2 설치·실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)에 정리했습니다.
+빈 RunPod Pod에서 이 프로젝트와 공식 SCAIL-2 코드를 `git clone`하고, `uv` 환경 구성, 모델 다운로드·변환, FastAPI 실행까지 필요한 명령과 로컬 요청·다운로드 방법은 [RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)에 정리했습니다.
 
-저장소의 `runpod/scail2_api/`와 `runpod/scail2_client/`는 로컬 `:3000` 연결을 위한 실험 코드로 보존합니다. SCAIL-2 자체 설치와 첫 생성에 필수인 공식 구성으로 취급하지 않습니다.
+`runpod/scail2_api/`는 RunPod에서 실행하고 `runpod/scail2_client/`와 `tools_test/`는 로컬에서 실행합니다. 클라이언트가 네 입력 파일을 multipart로 전송하고, 완료된 MP4를 결과 endpoint에서 내려받습니다.
 
 ## 에셋 범위 문서
 
@@ -101,7 +103,7 @@ npm run dev
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
 - [SCAIL-2 4방향 걷기 생성 전략](docs/SCAIL2_WALK_CYCLE_STRATEGY.md)
-- [RunPod SCAIL-2 설치·실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)
+- [RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)
 
 ## 검수 원칙
 
