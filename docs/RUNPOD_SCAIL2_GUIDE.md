@@ -53,19 +53,16 @@ source "$HOME/.local/bin/env"
 git lfs install
 ```
 
-## 3. 프로젝트와 공식 SCAIL-2 clone
+## 3. 공식 SCAIL-2 clone
 
 ```bash
 mkdir -p \
   /workspace/models \
   /workspace/huggingface-cache \
-  /workspace/scail2-data
+  /workspace/scail2-data \
+  /workspace/scail2_api
 
 cd /workspace
-
-git clone \
-  https://github.com/yyeongjin/2d-assets-generator.git \
-  /workspace/2d-assets-generator
 
 git clone \
   --branch wan-scail2 \
@@ -77,9 +74,37 @@ cd /workspace/SCAIL-2
 git submodule update --init --recursive
 ```
 
-첫 번째 저장소에는 이 프로젝트의 FastAPI adapter가 있다. 두 번째 저장소는 실제 모델을 실행하는 공식 SCAIL-2 코드다. `SCAIL-Pose`가 submodule이므로 공식 저장소의 submodule 초기화는 생략하지 않는다.
+RunPod에서 clone하는 저장소는 공식 `zai-org/SCAIL-2` 하나다. 로컬 에셋 생성기 저장소 전체를 RunPod에 clone하지 않는다. `SCAIL-Pose`가 submodule이므로 공식 저장소의 submodule 초기화는 생략하지 않는다.
 
-## 4. Python 3.12 환경과 패키지 설치
+## 4. 로컬에서 API adapter 파일만 RunPod로 전달
+
+FastAPI endpoint에는 다음 세 파일만 필요하다.
+
+```text
+runpod/scail2_api/server.py
+runpod/scail2_api/runtime.py
+runpod/scail2_api/requirements-api.txt
+```
+
+로컬 저장소 루트에서 RunPod의 SSH 접속 정보에 맞춰 파일 세 개만 전달한다.
+
+```bash
+scp -P RUNPOD_SSH_PORT \
+  runpod/scail2_api/server.py \
+  runpod/scail2_api/runtime.py \
+  runpod/scail2_api/requirements-api.txt \
+  root@RUNPOD_SSH_HOST:/workspace/scail2_api/
+```
+
+RunPod 터미널에서 확인한다.
+
+```bash
+ls -al /workspace/scail2_api
+```
+
+이 단계는 로컬 프로젝트 전체를 RunPod에 복제하는 과정이 아니다. GPU endpoint 실행에 필요한 adapter 파일 세 개만 배포한다.
+
+## 5. Python 3.12 환경과 패키지 설치
 
 ```bash
 cd /workspace/SCAIL-2
@@ -92,12 +117,12 @@ source /workspace/scail2-venv/bin/activate
 
 uv pip install -r /workspace/SCAIL-2/requirements.txt
 uv pip install "huggingface_hub[hf_xet]"
-uv pip install -r /workspace/2d-assets-generator/runpod/scail2_api/requirements-api.txt
+uv pip install -r /workspace/scail2_api/requirements-api.txt
 ```
 
 별도로 vLLM이나 vLLM-Omni를 설치하지 않는다.
 
-## 5. 모델 다운로드와 변환
+## 6. 모델 다운로드와 변환
 
 Hugging Face 인증이 필요한 환경이면 먼저 `hf auth login`을 실행한다. 토큰은 저장소나 실행 명령에 기록하지 않는다.
 
@@ -136,7 +161,7 @@ du -sh \
   /workspace/models/SCAIL-2.safetensors
 ```
 
-## 6. FastAPI 서버 실행
+## 7. FastAPI 서버 실행
 
 `SCAIL_API_TOKEN`에는 직접 정한 긴 임의 문자열을 넣는다. 이 값은 로컬 클라이언트에도 동일하게 설정한다.
 
@@ -152,7 +177,7 @@ export SCAIL_DATA_ROOT=/workspace/scail2-data
 export SCAIL_OUTPUT_ROOT=/workspace/scail2-data/outputs
 export SCAIL_LOAD_ON_START=1
 
-cd /workspace/2d-assets-generator/runpod/scail2_api
+cd /workspace/scail2_api
 
 uvicorn server:app \
   --host 0.0.0.0 \
@@ -160,7 +185,7 @@ uvicorn server:app \
   --workers 1
 ```
 
-미리 존재하는 스크립트를 가정하지 않으며 `chmod +x`도 필요 없다. 위 명령은 clone된 Python 코드를 직접 실행한다.
+`chmod +x`나 별도 시작 스크립트는 필요 없다. 위 명령은 전달한 Python adapter를 직접 실행한다.
 
 RunPod에서 HTTP port `8000`을 노출한다.
 
@@ -170,7 +195,7 @@ https://POD_ID-8000.proxy.runpod.net
 
 이 터미널은 모델 load와 job 로그를 확인할 수 있도록 계속 열어 둔다.
 
-## 7. RunPod 서버가 담당하는 일
+## 8. RunPod 서버가 담당하는 일
 
 RunPod에는 사용자가 미리 입력 파일을 올려두지 않는다.
 
@@ -185,7 +210,7 @@ RunPod에는 사용자가 미리 입력 파일을 올려두지 않는다.
 
 # 로컬에서 할 작업
 
-## 8. 로컬 클라이언트 설치
+## 9. 로컬 클라이언트 설치
 
 로컬 PC에 저장소가 이미 있으면 다시 clone하지 않고 해당 저장소로 이동한다. 없다면 다음처럼 clone한다.
 
@@ -208,7 +233,7 @@ uv pip install -r runpod/scail2_client/requirements.txt
 
 프레임 추출까지 실행하려면 로컬에 `ffmpeg`가 설치되어 있어야 한다.
 
-## 9. 로컬 입력과 manifest
+## 10. 로컬 입력과 manifest
 
 로컬 PC에 다음 입력을 준비한다.
 
@@ -239,7 +264,7 @@ inputs/master-walk-17f/front/
 }
 ```
 
-## 10. 로컬에서 요청·다운로드 실행
+## 11. 로컬에서 요청·다운로드 실행
 
 ```bash
 source .venv-scail-client/bin/activate
@@ -265,7 +290,7 @@ python runpod/scail2_client/client.py \
 
 S3 환경변수, bucket, 서버 내부 파일 경로는 사용하지 않는다.
 
-## 11. 로컬 `:3000` 디버깅 화면
+## 12. 로컬 `:3000` 디버깅 화면
 
 ```bash
 cd tools_test

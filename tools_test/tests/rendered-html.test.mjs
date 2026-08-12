@@ -250,8 +250,12 @@ test("endpoint와 token은 환경변수로만 읽고 실제 값을 하드코딩�
 });
 
 test("가이드는 RunPod 생성과 로컬 후처리 경계를 명시한다", () => {
+  const runPodSection = guide.slice(0, guide.indexOf("# 로컬에서 할 작업"));
   assert.match(guide, /RunPod에서 할 작업/);
   assert.match(guide, /로컬에서 할 작업/);
+  assert.match(runPodSection, /github\.com\/zai-org\/SCAIL-2/);
+  assert.doesNotMatch(runPodSection, /github\.com\/yyeongjin\/2d-assets-generator/);
+  assert.match(runPodSection, /\/workspace\/scail2_api/);
   assert.match(guide, /결과 MP4 download endpoint/);
   assert.match(guide, /로컬 클라이언트/);
   assert.match(guide, /A100.*80GB/);

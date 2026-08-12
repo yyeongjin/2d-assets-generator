@@ -80,18 +80,18 @@ npm run dev
 - 항목마다 모델 생성본 또는 직접 업로드한 사진을 여러 장 영구 보관
 - 저장된 이미지 썸네일 선택, 크게 보기, 개별 제거
 - 캐릭터·생명체 인벤토리 이미지 또는 업로드한 2×2 시트를 네 방향 RGB로 분할
-- 분할 결과를 각 방향 탭에서 확인하고 `REFERENCE RGB` Volume 경로에 자동 연결
-- 방향별 네 입력 경로와 positive prompt 편집
+- 분할 결과를 각 방향 탭에서 확인하고 `REFERENCE RGB` 입력에 자동 연결
+- 방향별 네 로컬 입력 파일과 positive prompt 편집
 - 한 방향 또는 네 방향 job 등록
-- job 상태, 원본 MP4 경로, 실행 시간 확인
-- 로컬 업로드·다운로드용 manifest 저장
+- job 상태, 원본 MP4 재생·다운로드, 실행 시간 확인
+- 로컬 입력 manifest 저장
 - 동일 phase 32 PNG 추출 규칙 확인
 
 기준 에셋 이미지 endpoint는 `RUNPOD_BASE_URL`, `RUNPOD_API_KEY`, `RUNPOD_MODEL_ID`에서 읽고, 동작 endpoint는 `SCAIL2_BASE_URL`, `SCAIL2_API_TOKEN`에서 읽습니다. 실제 endpoint와 token은 코드나 manifest에 넣지 않고 `.env.local`에서만 관리합니다.
 
 ## RunPod와 로컬 클라이언트
 
-빈 RunPod Pod에서 이 프로젝트와 공식 SCAIL-2 코드를 `git clone`하고, `uv` 환경 구성, 모델 다운로드·변환, FastAPI 실행까지 필요한 명령과 로컬 요청·다운로드 방법은 [RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)에 정리했습니다.
+빈 RunPod Pod에서는 공식 `zai-org/SCAIL-2`만 `git clone`합니다. FastAPI adapter는 로컬 저장소의 파일 세 개만 RunPod에 전달합니다. `uv` 환경 구성, 모델 다운로드·변환, FastAPI 실행과 로컬 요청·다운로드 방법은 [RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)에 정리했습니다.
 
 `runpod/scail2_api/`는 RunPod에서 실행하고 `runpod/scail2_client/`와 `tools_test/`는 로컬에서 실행합니다. 클라이언트가 네 입력 파일을 multipart로 전송하고, 완료된 MP4를 결과 endpoint에서 내려받습니다.
 
