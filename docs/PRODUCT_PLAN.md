@@ -16,10 +16,10 @@ flowchart LR
     D --> F
     F --> G{"착용 일관성 승인"}
     G --> H["4방향 이미지 분리"]
-    H --> I["동작 생성 방식 재검토"]
-    I --> J{"정체성·크기·phase 통과"}
-    J -->|"실패"| I
-    J -->|"통과"| K["프레임 검수·스프라이트"]
+    H --> I["Kimodo / ARDY로 3D 동작 생성"]
+    I --> J["Motion Adapter로 체형·4방향 포즈 변환"]
+    J --> K["One-to-All로 방향별 캐릭터 작화"]
+    K --> L["17F에서 8F씩 추출·32 PNG"]
 ```
 
 ## 2. 1단계 — 4방향 기준 캐릭터 생성
@@ -110,25 +110,74 @@ prompt에 `pixel`, `pixel art`, 출력 pixel 규격, 레이아웃 윤곽선 설�
 | 크기 | 캐릭터 대비 아이템 크기가 네 셀에서 동일함 |
 | 셀 구조 | A의 셀 순서, 캐릭터 크기, 발 위치와 배경 유지 |
 
-## 4. 3단계 — 동작 생성 방식 재검토
+## 4. 3단계 — 예정 동작 생성 구조
 
-일반 I2V 영상 생성, Qwen 프레임별 독립 생성과 SCAIL-2 동작 전이는 현재 제작 경로에서 모두 기각한다. 특히 SCAIL-2는 4방향 정지 캐릭터에서 걷기 동작을 만드는 모델이 아니라, 이미 완성된 Driving RGB video의 움직임을 Reference 캐릭터로 전이하는 모델이다.
+일반 I2V 영상 생성, Qwen 프레임별 독립 생성과 SCAIL-2 동작 전이는 기각한다. SCAIL-2 기각 이유는 [SCAIL-2 동작 생성 경로 기각 기록](SCAIL2_WALK_CYCLE_STRATEGY.md)에 보존한다.
 
-SCAIL-2를 사용하려면 우리가 생성하려던 걷기·무기·도구 동작을 먼저 Driving video로 제작하고, 방향별 Reference/Driving mask까지 준비해야 한다. Prompt는 동작 phase를 설계하지 않으며 Reference identity와 pixel scale도 보장하지 않는다. 전체 근거는 [SCAIL-2 동작 생성 경로 기각 기록](SCAIL2_WALK_CYCLE_STRATEGY.md)에 보존한다.
+다음 구조로 동작 생성을 구성할 예정이다.
 
-따라서 동작 생성 방식은 특정 모델로 확정하지 않는다. 아래 조건을 실제 출력으로 통과한 방식만 채택한다.
+```text
+[1. 동작 만들기]
+Kimodo / ARDY
+        ↓
+걷는 사람의 뼈 움직임 생성
+        ↓
+[2. 우리 캐릭터용으로 변환]
+Motion Adapter
+        ↓
+같은 걷기를 Front / Back / Left / Right
+4방향 포즈로 변환
+        ↓
+[3. 캐릭터 그림 입히기]
+One-to-All
+        ↓
+각 방향 원본 이미지에
+그 방향의 포즈를 적용해 애니메이션 생성
+        ↓
+[4. 결과 자르기]
+17프레임 → 8프레임 × 4방향
+        ↓
+32 PNG
+```
 
-### 4.1 다음 방식의 필수 입력·출력 조건
+### 4.1 Kimodo / ARDY — 동작 만들기
 
-- 입력은 승인한 정면, 후면, 오른쪽, 왼쪽 기준 이미지다.
-- 외부에서 완성한 Driving video를 필수로 요구하지 않아야 한다.
-- 걷기 phase 또는 동작 pose 순서를 사용자가 통제할 수 있어야 한다.
-- 출력 전체에서 캐릭터 정체성, 의상, 색, 비율과 높이를 유지해야 한다.
-- 모든 frame이 같은 캔버스와 ground baseline을 사용해야 한다.
-- 네 방향의 같은 phase가 같은 발·무기·도구 상태를 보여야 한다.
-- 프레임 수를 모델이 임의로 정하더라도 셀 경계와 순서를 안정적으로 식별할 수 있어야 한다.
+캐릭터 이미지를 입력하지 않고 `자연스럽게 걷기` 같은 요청으로 하나의 3D 뼈 움직임을 만든다.
 
-### 4.2 동작 목록
+### 4.2 Motion Adapter — 캐릭터 체형과 4방향 포즈
+
+Kimodo / ARDY가 만든 하나의 동작을 캐릭터의 팔 길이, 다리 길이, 몸통 길이와 어깨 폭에 맞춘다. 같은 phase를 Front / Back / Left / Right 포즈로 변환하고 발 위치와 카메라를 고정한다.
+
+```text
+같은 3번째 phase
+├─ front_3
+├─ back_3
+├─ left_3
+└─ right_3
+```
+
+### 4.3 One-to-All — 캐릭터 그림 입히기
+
+각 방향 원본 이미지와 해당 방향 pose sequence를 입력해 캐릭터 애니메이션을 만든다.
+
+```text
+front.png + Front pose sequence → Front animation
+back.png  + Back pose sequence  → Back animation
+left.png  + Left pose sequence  → Left animation
+right.png + Right pose sequence → Right animation
+```
+
+One-to-All에는 걷기 자체를 설계시키지 않고 같은 캐릭터 외형을 유지하면서 주어진 포즈대로 그리는 역할을 맡길 예정이다.
+
+### 4.4 결과 자르기
+
+방향별 17프레임에서 8프레임을 추출한다.
+
+```text
+Front 8 + Back 8 + Left 8 + Right 8 = 32 PNG
+```
+
+### 4.5 동작 목록
 
 | ID | 동작 | 필요한 결과 |
 |---|---|---|
@@ -139,18 +188,6 @@ SCAIL-2를 사용하려면 우리가 생성하려던 걷기·무기·도구 동�
 | `bow_shoot` | 활 쏘기 | 들기, 당기기, 발사 |
 | `carry_front` | 물건을 앞에 들기 | 앞쪽 양손 운반 |
 | `carry_overhead` | 물건을 머리 위에 들기 | 머리 위 양손 운반 |
-
-### 4.3 검증 순서
-
-1. 승인된 `2×2` 방향 시트를 정면·후면·오른쪽·왼쪽 이미지로 분리
-2. 한 캐릭터와 한 동작의 한 방향만 먼저 생성
-3. 동작 phase, 정체성, 높이, ground baseline, 카메라와 배경 검사
-4. 실패하면 나머지 방향과 캐릭터를 자동으로 계속 생성하지 않음
-5. 한 방향이 반복 통과한 뒤 같은 설정으로 나머지 방향 검증
-6. 네 방향의 동일 phase와 캐릭터 크기 검수
-7. 전 frame 승인 뒤에만 픽셀화, 최종 규격 리사이즈, 스프라이트 패킹과 Unity manifest 생성
-
-프레임 수와 추출 index는 모델 검증 전에 `17F`, `8F`, `32F`로 고정하지 않는다. 실제 출력이 반복 가능한 closed cycle인지 확인한 뒤 저장 규격을 결정한다.
 
 ## 5. 캐릭터 외 에셋
 
@@ -204,7 +241,7 @@ target_height_px = visual_cells_y × pixels_per_cell
 | 승인 | 4방향 기준 A 승인·취소 |
 | 아이템 착용 | Reference A, Reference B, 원본 출력 |
 | 기각된 SCAIL-2 실험 | 방향별 reference·driving·mask와 job 화면을 실패 기록으로만 표시 |
-| 동작 생성 검증 | 방향별 기준 이미지, 실제 입력, 원본 출력, frame별 정체성·크기·phase 검사 |
+| 예정 동작 생성 | Kimodo/ARDY 동작, Motion Adapter 4방향 포즈, One-to-All 방향별 결과, 32 PNG |
 | 상태·히스토리 | 진행, 완료, 실패, generation ID, 크기, seed, 시간 |
 | 카탈로그 | 전체 8개 대분류와 문서 목록 |
 
@@ -229,9 +266,9 @@ target_height_px = visual_cells_y × pixels_per_cell
 3. 실제 아이템을 Reference B로 넣어 착용 일관성 검증
 4. 여러 캐릭터·아이템 조합으로 성공률 기록
 5. 승인한 4방향 시트를 네 방향 입력으로 자동 분리
-6. 외부 Driving video 없이 동작을 생성할 후보 방식 선정
-7. 한 캐릭터·한 방향·한 동작에서 정체성, 크기, ground baseline과 phase 반복 검증
-8. 통과한 방식만 네 방향과 다른 동작으로 확대
+6. Kimodo/ARDY로 하나의 3D 동작 생성
+7. Motion Adapter로 캐릭터 체형에 맞춘 4방향 pose sequence 생성
+8. One-to-All로 네 방향 원본 이미지에 pose sequence 적용
 9. 전 프레임 승인 뒤 픽셀화·최종 리사이즈·스프라이트 시트 생성
 10. 같은 구조를 생명체 동작에 검증하고 타일·오브젝트·아이템 카탈로그는 기존 이미지 생성 경로 유지
 11. Unity import·slice·pivot·animation 검증 연결
