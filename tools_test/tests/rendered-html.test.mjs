@@ -255,6 +255,8 @@ test("가이드는 RunPod 생성과 로컬 후처리 경계를 명시한다", ()
   assert.match(guide, /로컬에서 할 작업/);
   assert.match(runPodSection, /github\.com\/zai-org\/SCAIL-2/);
   assert.doesNotMatch(runPodSection, /github\.com\/yyeongjin\/2d-assets-generator/);
+  assert.doesNotMatch(runPodSection, /\bscp\b/);
+  assert.match(runPodSection, /cat <<'PY' > \/workspace\/scail2_api\/server\.py/);
   assert.match(runPodSection, /\/workspace\/scail2_api/);
   assert.match(guide, /결과 MP4 download endpoint/);
   assert.match(guide, /로컬 클라이언트/);

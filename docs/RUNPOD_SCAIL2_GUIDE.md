@@ -76,33 +76,299 @@ git submodule update --init --recursive
 
 RunPod에서 clone하는 저장소는 공식 `zai-org/SCAIL-2` 하나다. 로컬 에셋 생성기 저장소 전체를 RunPod에 clone하지 않는다. `SCAIL-Pose`가 submodule이므로 공식 저장소의 submodule 초기화는 생략하지 않는다.
 
-## 4. 로컬에서 API adapter 파일만 RunPod로 전달
+## 4. RunPod 터미널에서 API 파일 생성
 
-FastAPI endpoint에는 다음 세 파일만 필요하다.
-
-```text
-runpod/scail2_api/server.py
-runpod/scail2_api/runtime.py
-runpod/scail2_api/requirements-api.txt
-```
-
-로컬 저장소 루트에서 RunPod의 SSH 접속 정보에 맞춰 파일 세 개만 전달한다.
+다른 저장소를 추가로 clone하지 않고 RunPod 터미널에서 endpoint 파일을 직접 만든다.
 
 ```bash
-scp -P RUNPOD_SSH_PORT \
-  runpod/scail2_api/server.py \
-  runpod/scail2_api/runtime.py \
-  runpod/scail2_api/requirements-api.txt \
-  root@RUNPOD_SSH_HOST:/workspace/scail2_api/
+mkdir -p /workspace/scail2_api
+
+cat <<'EOF' > /workspace/scail2_api/requirements-api.txt
+fastapi==0.116.1
+python-multipart==0.0.20
+uvicorn[standard]==0.35.0
+EOF
 ```
 
-RunPod 터미널에서 확인한다.
+아래 서버는 모델을 한 번만 로드하고, 업로드된 작업을 한 GPU에서 순서대로 처리하며, 결과 MP4를 다운로드 endpoint로 돌려준다.
+
+```bash
+cat <<'PY' > /workspace/scail2_api/server.py
+from __future__ import annotations
+
+import asyncio
+import os
+import secrets
+import sys
+import threading
+import time
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from types import SimpleNamespace
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+SCAIL_REPO_ROOT = Path(os.environ.get("SCAIL_REPO_ROOT", "/workspace/SCAIL-2")).resolve()
+SCAIL_CHECKPOINT_DIR = Path(os.environ.get("SCAIL_CHECKPOINT_DIR", "/workspace/models/SCAIL-2")).resolve()
+SCAIL_SAFETENSORS_PATH = Path(os.environ.get("SCAIL_SAFETENSORS_PATH", "/workspace/models/SCAIL-2.safetensors")).resolve()
+DATA_ROOT = Path(os.environ.get("SCAIL_DATA_ROOT", "/workspace/scail2-data")).resolve()
+OUTPUT_ROOT = Path(os.environ.get("SCAIL_OUTPUT_ROOT", "/workspace/scail2-data/outputs")).resolve()
+API_TOKEN = os.environ.get("SCAIL_API_TOKEN", "").strip()
+DEVICE_ID = int(os.environ.get("SCAIL_DEVICE_ID", "0"))
+
+security = HTTPBearer(auto_error=False)
+queue: asyncio.Queue[str] = asyncio.Queue()
+jobs: dict[str, dict] = {}
+model_lock = threading.Lock()
+pipeline = None
+config = None
+generate_video = None
+model_state = "not_loaded"
+model_error = None
+
+
+def require_token(credentials: HTTPAuthorizationCredentials | None = Depends(security)):
+    if not API_TOKEN:
+        raise HTTPException(status_code=503, detail="SCAIL_API_TOKEN is not configured")
+    valid = credentials and credentials.scheme.lower() == "bearer" and secrets.compare_digest(credentials.credentials, API_TOKEN)
+    if not valid:
+        raise HTTPException(status_code=401, detail="invalid API token")
+
+
+def load_model_once():
+    global pipeline, config, generate_video, model_state, model_error
+    if pipeline is not None:
+        return pipeline
+    with model_lock:
+        if pipeline is not None:
+            return pipeline
+        model_state = "loading"
+        try:
+            if not SCAIL_REPO_ROOT.is_dir():
+                raise FileNotFoundError(f"SCAIL repository not found: {SCAIL_REPO_ROOT}")
+            if not SCAIL_SAFETENSORS_PATH.is_file():
+                raise FileNotFoundError(f"SCAIL safetensors not found: {SCAIL_SAFETENSORS_PATH}")
+            sys.path.insert(0, str(SCAIL_REPO_ROOT))
+            import wan
+            from generate import generate_video as official_generate_video
+            from wan.configs import SCAIL_CONFIGS, SCAIL_CONFIG_PATHS
+
+            config = SCAIL_CONFIGS["SCAIL-14B"]
+            pipeline = wan.SCAIL2Pipeline(
+                config=config,
+                checkpoint_dir=str(SCAIL_CHECKPOINT_DIR),
+                scail_safetensors_path=str(SCAIL_SAFETENSORS_PATH),
+                scail_config_path=SCAIL_CONFIG_PATHS["SCAIL-14B"],
+                device_id=DEVICE_ID,
+                rank=0,
+                t5_fsdp=False,
+                dit_fsdp=False,
+                use_usp=False,
+                t5_cpu=False,
+                lora_path=None,
+                lora_alpha=1.0,
+            )
+            generate_video = official_generate_video
+            model_state = "ready"
+            model_error = None
+            print("[SCAIL2][MODEL_READY]", flush=True)
+            return pipeline
+        except Exception as exc:
+            model_state = "failed"
+            model_error = str(exc)
+            print(f"[SCAIL2][MODEL_FAILED] {exc}", flush=True)
+            raise
+
+
+async def save_upload(upload: UploadFile, path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("wb") as output:
+            while chunk := await upload.read(8 * 1024 * 1024):
+                output.write(chunk)
+    finally:
+        await upload.close()
+    if path.stat().st_size == 0:
+        raise ValueError(f"empty upload: {upload.filename}")
+
+
+def run_job(job_id: str, job: dict):
+    loaded_pipeline = load_model_once()
+    output_dir = OUTPUT_ROOT / job_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"{job['direction']}_animation_raw.mp4"
+    args = SimpleNamespace(
+        target_h=job["target_height"],
+        target_w=job["target_width"],
+        sample_shift=job["sample_shift"],
+        sample_solver=job["sample_solver"],
+        segment_len=81,
+        segment_overlap=5,
+        sample_steps=job["sample_steps"],
+        sample_guide_scale=job["sample_guide_scale"],
+        base_seed=job["seed"],
+        offload_model=True,
+        save_file=str(output_path),
+        prompt=job["prompt"],
+    )
+    started_at = time.monotonic()
+    generate_video(
+        loaded_pipeline,
+        job["prompt"],
+        str(job["reference_image"]),
+        str(job["reference_mask"]),
+        str(job["driving_video"]),
+        str(job["driving_mask"]),
+        args,
+        DEVICE_ID,
+        0,
+        config,
+        None,
+        False,
+    )
+    if not output_path.is_file():
+        raise FileNotFoundError(f"output video not found: {output_path}")
+    return output_path, time.monotonic() - started_at
+
+
+async def gpu_worker():
+    while True:
+        job_id = await queue.get()
+        job = jobs[job_id]
+        job["status"] = "running"
+        try:
+            output_path, runtime_seconds = await asyncio.to_thread(run_job, job_id, job)
+            job.update(status="completed", output_path=output_path, runtime_seconds=runtime_seconds)
+        except Exception as exc:
+            job.update(status="failed", error=str(exc))
+            print(f"[SCAIL2][JOB_FAILED] id={job_id} error={exc}", flush=True)
+        finally:
+            queue.task_done()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    worker = asyncio.create_task(gpu_worker())
+    preload = asyncio.create_task(asyncio.to_thread(load_model_once))
+    yield
+    worker.cancel()
+    preload.cancel()
+
+
+app = FastAPI(title="SCAIL-2 Pod API", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health():
+    return {
+        "ok": model_state != "failed",
+        "model": "SCAIL-14B",
+        "model_state": model_state,
+        "model_error": model_error,
+        "queue_depth": queue.qsize(),
+    }
+
+
+@app.post("/v1/jobs", status_code=202, dependencies=[Depends(require_token)])
+async def create_job(
+    direction: str = Form(...),
+    prompt: str = Form(...),
+    reference_image: UploadFile = File(...),
+    reference_mask: UploadFile = File(...),
+    driving_video: UploadFile = File(...),
+    driving_mask: UploadFile = File(...),
+    target_width: int = Form(896),
+    target_height: int = Form(512),
+    sample_steps: int = Form(40),
+    sample_shift: float = Form(3.0),
+    sample_guide_scale: float = Form(5.0),
+    sample_solver: str = Form("unipc"),
+    seed: int = Form(4821),
+):
+    if direction not in {"front", "back", "left", "right"}:
+        raise HTTPException(status_code=422, detail="invalid direction")
+    if target_width % 32 or target_height % 32:
+        raise HTTPException(status_code=422, detail="width and height must be multiples of 32")
+    if not prompt.strip():
+        raise HTTPException(status_code=422, detail="prompt is empty")
+
+    job_id = uuid.uuid4().hex[:16]
+    input_dir = DATA_ROOT / "jobs" / job_id / "inputs"
+    paths = {
+        "reference_image": input_dir / "ref.jpg",
+        "reference_mask": input_dir / "ref_mask.jpg",
+        "driving_video": input_dir / "rendered_v2.mp4",
+        "driving_mask": input_dir / "rendered_mask_v2.mp4",
+    }
+    for key, upload in (
+        ("reference_image", reference_image),
+        ("reference_mask", reference_mask),
+        ("driving_video", driving_video),
+        ("driving_mask", driving_mask),
+    ):
+        await save_upload(upload, paths[key])
+
+    jobs[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "direction": direction,
+        "prompt": prompt,
+        **paths,
+        "target_width": target_width,
+        "target_height": target_height,
+        "sample_steps": sample_steps,
+        "sample_shift": sample_shift,
+        "sample_guide_scale": sample_guide_scale,
+        "sample_solver": sample_solver,
+        "seed": seed,
+    }
+    await queue.put(job_id)
+    print(f"[SCAIL2][JOB_QUEUED] id={job_id} direction={direction}", flush=True)
+    return {"job_id": job_id, "status": "queued", "queue_position": queue.qsize()}
+
+
+@app.get("/v1/jobs/{job_id}", dependencies=[Depends(require_token)])
+async def get_job(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    response = {
+        "job_id": job_id,
+        "status": job["status"],
+        "direction": job["direction"],
+        "runtime_seconds": job.get("runtime_seconds"),
+        "error": job.get("error"),
+    }
+    if job["status"] == "completed":
+        response["output_url"] = f"/v1/jobs/{job_id}/output"
+    return response
+
+
+@app.get("/v1/jobs/{job_id}/output", dependencies=[Depends(require_token)])
+async def download_output(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job["status"] != "completed":
+        raise HTTPException(status_code=409, detail=f"job is not completed: {job['status']}")
+    output_path = Path(job["output_path"]).resolve()
+    if OUTPUT_ROOT not in output_path.parents or not output_path.is_file():
+        raise HTTPException(status_code=404, detail="output file not found")
+    return FileResponse(output_path, media_type="video/mp4", filename=f"{job['direction']}_animation_raw.mp4")
+PY
+```
+
+RunPod 터미널에서 두 파일이 생겼는지 확인한다.
 
 ```bash
 ls -al /workspace/scail2_api
+python -m py_compile /workspace/scail2_api/server.py
 ```
-
-이 단계는 로컬 프로젝트 전체를 RunPod에 복제하는 과정이 아니다. GPU endpoint 실행에 필요한 adapter 파일 세 개만 배포한다.
 
 ## 5. Python 3.12 환경과 패키지 설치
 
@@ -212,13 +478,10 @@ RunPod에는 사용자가 미리 입력 파일을 올려두지 않는다.
 
 ## 9. 로컬 클라이언트 설치
 
-로컬 PC에 저장소가 이미 있으면 다시 clone하지 않고 해당 저장소로 이동한다. 없다면 다음처럼 clone한다.
+로컬 PC에서 이미 작업 중인 에셋 생성기 저장소 루트로 이동한다. RunPod 설치를 위해 로컬 저장소를 다시 clone할 필요는 없다.
 
 ```bash
-git clone \
-  https://github.com/yyeongjin/2d-assets-generator.git
-
-cd 2d-assets-generator
+cd /LOCAL_PATH/2d-assets-generator
 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source "$HOME/.local/bin/env"

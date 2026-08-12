@@ -91,7 +91,7 @@ npm run dev
 
 ## RunPod와 로컬 클라이언트
 
-빈 RunPod Pod에서는 공식 `zai-org/SCAIL-2`만 `git clone`합니다. FastAPI adapter는 로컬 저장소의 파일 세 개만 RunPod에 전달합니다. `uv` 환경 구성, 모델 다운로드·변환, FastAPI 실행과 로컬 요청·다운로드 방법은 [RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)에 정리했습니다.
+빈 RunPod Pod에서는 공식 `zai-org/SCAIL-2`만 `git clone`합니다. FastAPI adapter는 RunPod 터미널에서 `cat <<'EOF'`로 직접 생성합니다. `uv` 환경 구성, 모델 다운로드·변환, FastAPI 실행과 로컬 요청·다운로드 방법은 [RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)에 정리했습니다.
 
 `runpod/scail2_api/`는 RunPod에서 실행하고 `runpod/scail2_client/`와 `tools_test/`는 로컬에서 실행합니다. 클라이언트가 네 입력 파일을 multipart로 전송하고, 완료된 MP4를 결과 endpoint에서 내려받습니다.
 
