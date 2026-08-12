@@ -4,15 +4,16 @@
 
 ```text
 [RunPod On-Demand Pod]
-저장소 clone · uv 환경 · SCAIL-2 모델 · FastAPI · GPU 생성
-        ▲                                      │
-        │ multipart 입력                       │ MP4 다운로드
-        │                                      ▼
+공식 저장소 clone · uv 환경 · SCAIL-2 모델 · FastAPI · GPU 생성
+        ▲                                               │
+        │ multipart 입력                                │ MP4 stream
+        │                                               ▼
 [로컬 PC]
-:3000 디버거 · 입력 선택 · prompt · job polling · 결과 저장 · 프레임 추출
+:3000 브라우저 → 같은 origin의 Next API proxy → RunPod
+Python client → RunPod 직접 요청 → 결과 저장 · 프레임 추출 · 원격 임시파일 삭제
 ```
 
-S3와 RunPod 웹 UI 수동 파일 업로드는 사용하지 않는다. 로컬 클라이언트가 입력 파일을 endpoint에 직접 전송하고 결과 파일도 endpoint에서 직접 내려받는다.
+S3와 RunPod 웹 UI 수동 파일 업로드는 사용하지 않는다. Python 클라이언트는 endpoint에 직접 요청하고, `:3000` 브라우저는 같은 origin의 Next API route를 거친다. 두 경로 모두 결과 MP4를 로컬로 내려받는다.
 
 ## 먼저 확인할 사실: SCAIL-2는 vLLM 실행 모델이 아니다
 
@@ -99,6 +100,7 @@ from __future__ import annotations
 import asyncio
 import os
 import secrets
+import shutil
 import sys
 import threading
 import time
@@ -107,7 +109,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+import cv2
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -128,6 +131,7 @@ config = None
 generate_video = None
 model_state = "not_loaded"
 model_error = None
+EXPECTED_DRIVING_FRAMES = 17
 
 
 def require_token(credentials: HTTPAuthorizationCredentials | None = Depends(security)):
@@ -136,6 +140,35 @@ def require_token(credentials: HTTPAuthorizationCredentials | None = Depends(sec
     valid = credentials and credentials.scheme.lower() == "bearer" and secrets.compare_digest(credentials.credentials, API_TOKEN)
     if not valid:
         raise HTTPException(status_code=401, detail="invalid API token")
+
+
+def get_video_frame_count(path: Path) -> int:
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise ValueError(f"cannot open video: {path}")
+    try:
+        count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if count > 0:
+            return count
+        count = 0
+        while True:
+            ok, _frame = capture.read()
+            if not ok:
+                break
+            count += 1
+        return count
+    finally:
+        capture.release()
+
+
+def validate_driving_pair(video: Path, mask: Path):
+    video_frames = get_video_frame_count(video)
+    mask_frames = get_video_frame_count(mask)
+    if video_frames != EXPECTED_DRIVING_FRAMES:
+        raise ValueError(f"driving video must contain exactly 17 frames, got {video_frames}")
+    if mask_frames != EXPECTED_DRIVING_FRAMES:
+        raise ValueError(f"driving mask must contain exactly 17 frames, got {mask_frames}")
+    print(f"[SCAIL2][INPUT_VALIDATED] driving_frames={video_frames} mask_frames={mask_frames}", flush=True)
 
 
 def load_model_once():
@@ -157,11 +190,14 @@ def load_model_once():
             from wan.configs import SCAIL_CONFIGS, SCAIL_CONFIG_PATHS
 
             config = SCAIL_CONFIGS["SCAIL-14B"]
+            scail_config_path = (SCAIL_REPO_ROOT / SCAIL_CONFIG_PATHS["SCAIL-14B"]).resolve()
+            if not scail_config_path.is_file():
+                raise FileNotFoundError(f"SCAIL config not found: {scail_config_path}")
             pipeline = wan.SCAIL2Pipeline(
                 config=config,
                 checkpoint_dir=str(SCAIL_CHECKPOINT_DIR),
                 scail_safetensors_path=str(SCAIL_SAFETENSORS_PATH),
-                scail_config_path=SCAIL_CONFIG_PATHS["SCAIL-14B"],
+                scail_config_path=str(scail_config_path),
                 device_id=DEVICE_ID,
                 rank=0,
                 t5_fsdp=False,
@@ -196,6 +232,7 @@ async def save_upload(upload: UploadFile, path: Path):
 
 
 def run_job(job_id: str, job: dict):
+    validate_driving_pair(job["driving_video"], job["driving_mask"])
     loaded_pipeline = load_model_once()
     output_dir = OUTPUT_ROOT / job_id
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -313,6 +350,12 @@ async def create_job(
     ):
         await save_upload(upload, paths[key])
 
+    try:
+        validate_driving_pair(paths["driving_video"], paths["driving_mask"])
+    except Exception as exc:
+        shutil.rmtree(DATA_ROOT / "jobs" / job_id, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     jobs[job_id] = {
         "job_id": job_id,
         "status": "queued",
@@ -360,6 +403,20 @@ async def download_output(job_id: str):
     if OUTPUT_ROOT not in output_path.parents or not output_path.is_file():
         raise HTTPException(status_code=404, detail="output file not found")
     return FileResponse(output_path, media_type="video/mp4", filename=f"{job['direction']}_animation_raw.mp4")
+
+
+@app.delete("/v1/jobs/{job_id}", status_code=204, dependencies=[Depends(require_token)])
+async def delete_job(job_id: str):
+    job = jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    if job["status"] in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail=f"job is still active: {job['status']}")
+    shutil.rmtree(DATA_ROOT / "jobs" / job_id, ignore_errors=True)
+    shutil.rmtree(OUTPUT_ROOT / job_id, ignore_errors=True)
+    jobs.pop(job_id, None)
+    print(f"[SCAIL2][JOB_DELETED] id={job_id}", flush=True)
+    return Response(status_code=204)
 PY
 ```
 
@@ -381,12 +438,25 @@ uv venv /workspace/scail2-venv \
 
 source /workspace/scail2-venv/bin/activate
 
-uv pip install -r /workspace/SCAIL-2/requirements.txt
+# 공식 requirements에서 flash_attn만 분리해서 먼저 나머지를 설치한다.
+grep -v '^flash_attn$' \
+  /workspace/SCAIL-2/requirements.txt \
+  > /tmp/scail2-requirements.txt
+
+uv pip install -r /tmp/scail2-requirements.txt
+uv pip install packaging ninja
+
+# CUDA toolkit과 nvcc가 있는 PyTorch development 이미지에서 실행한다.
+nvcc -V
+MAX_JOBS=4 uv pip install flash-attn --no-build-isolation
+
 uv pip install "huggingface_hub[hf_xet]"
 uv pip install -r /workspace/scail2_api/requirements-api.txt
 ```
 
 별도로 vLLM이나 vLLM-Omni를 설치하지 않는다.
+
+`flash-attn`은 일반 wheel 설치처럼 처리하지 않는다. RunPod 템플릿은 `nvcc -V`가 동작하는 CUDA/PyTorch development 이미지를 사용하고, build isolation을 끈 상태에서 설치한다. 공식 SCAIL-2 requirements에 `opencv-python`도 포함되므로 위 17F 검증 코드가 별도 OpenCV 설치 없이 동작한다.
 
 ## 6. 모델 다운로드와 변환
 
@@ -441,7 +511,6 @@ export SCAIL_CHECKPOINT_DIR=/workspace/models/SCAIL-2
 export SCAIL_SAFETENSORS_PATH=/workspace/models/SCAIL-2.safetensors
 export SCAIL_DATA_ROOT=/workspace/scail2-data
 export SCAIL_OUTPUT_ROOT=/workspace/scail2-data/outputs
-export SCAIL_LOAD_ON_START=1
 
 cd /workspace/scail2_api
 
@@ -461,16 +530,20 @@ https://POD_ID-8000.proxy.runpod.net
 
 이 터미널은 모델 load와 job 로그를 확인할 수 있도록 계속 열어 둔다.
 
+RunPod HTTP proxy의 한 연결 제한 때문에 생성이 끝날 때까지 `POST` 연결을 유지하지 않는다. `POST /v1/jobs`는 업로드 검증 뒤 `202 + job_id`를 즉시 반환하고, 긴 GPU 추론은 queue에서 계속된다. multipart 업로드와 최종 MP4 다운로드는 각각 proxy 제한 안에 끝나야 하며, 로컬의 `SCAIL2_REQUEST_TIMEOUT_MS`를 늘려도 RunPod 앞단 제한 자체가 늘어나지는 않는다.
+
 ## 8. RunPod 서버가 담당하는 일
 
 RunPod에는 사용자가 미리 입력 파일을 올려두지 않는다.
 
 1. `POST /v1/jobs`에서 multipart 입력 4종과 설정을 받는다.
 2. 입력을 `/workspace/scail2-data/jobs/JOB_ID/inputs/`에 저장한다.
-3. 즉시 `job_id`를 반환한다.
-4. 단일 GPU queue가 SCAIL-2를 실행한다.
-5. `GET /v1/jobs/JOB_ID`가 상태와 결과 다운로드 URL을 반환한다.
-6. `GET /v1/jobs/JOB_ID/output`이 결과 MP4를 클라이언트에 전송한다.
+3. driving RGB와 driving mask가 각각 정확히 17프레임인지 검증한다.
+4. 즉시 `job_id`를 반환한다.
+5. 단일 GPU queue가 SCAIL-2를 실행한다.
+6. `GET /v1/jobs/JOB_ID`가 상태와 결과 다운로드 URL을 반환한다.
+7. `GET /v1/jobs/JOB_ID/output`이 결과 MP4를 클라이언트에 전송한다.
+8. 클라이언트 저장 완료 뒤 `DELETE /v1/jobs/JOB_ID`가 해당 입력과 결과를 삭제한다.
 
 서버 내부 `output_path`는 클라이언트 API 응답에 노출하지 않는다.
 
@@ -549,9 +622,12 @@ python runpod/scail2_client/client.py \
   → 완료된 MP4 다운로드
   → 로컬 outputs/scail2/PROJECT_ID/DIRECTION/에 저장
   → 로컬 ffmpeg로 지정 phase PNG 추출
+  → 성공하면 RunPod job 입력·결과 임시파일 삭제
 ```
 
 S3 환경변수, bucket, 서버 내부 파일 경로는 사용하지 않는다.
+
+기본값은 로컬 저장과 프레임 추출이 모두 성공한 뒤 원격 job을 삭제한다. 장애 분석을 위해 RunPod 파일을 남겨야 할 때만 `--keep-remote-job`을 추가한다.
 
 ## 12. 로컬 `:3000` 디버깅 화면
 
@@ -573,7 +649,7 @@ npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:3000`을 연다. 방향별 reference, mask, driving video와 driving mask를 선택하고 생성 요청을 보내면 브라우저가 multipart로 RunPod에 전달한다. 완료 뒤 화면의 `원본 MP4 다운로드`로 결과를 로컬에 내려받는다.
+브라우저에서 `http://localhost:3000`을 연다. 방향별 reference, mask, driving video와 driving mask를 선택하면 브라우저는 같은 origin의 `/api/scail2/*`에 요청하고, Next 서버가 Bearer token을 추가해 RunPod로 전달한다. 따라서 현재 구조에서는 FastAPI CORS 설정도, 브라우저 번들에 token을 넣는 코드도 필요 없다. 완료 뒤 `원본 MP4 로컬 저장`을 누르면 인증된 Next output proxy가 MP4를 stream한다. 저장을 확인한 뒤 `RunPod 임시 파일 삭제`를 누른다.
 
 ## 최종 책임 분리
 
@@ -583,7 +659,8 @@ npm run dev
 | SCAIL-2 pipeline 한 번 로드 | 방향별 입력 선택 |
 | multipart 입력 수신 | prompt와 seed 설정 |
 | 단일 GPU queue 생성 | job 등록과 상태 확인 |
-| 결과 MP4 download endpoint 제공 | 결과 MP4 다운로드 |
-| 원본 MP4가 내려받힐 때까지 임시 보관 | 모든 방향 완료 뒤 프레임 추출·후처리 |
+| 결과 MP4 download·job delete endpoint 제공 | 인증된 Next proxy 또는 Python client로 결과 MP4 다운로드 |
+| 원본 MP4가 내려받힐 때까지 임시 보관 | 저장·추출 성공 뒤 RunPod 임시 job 삭제 |
+| 브라우저 CORS를 열지 않음 | 브라우저는 같은 origin의 `/api/scail2/*`만 호출 |
 
 RunPod는 결과를 생성하고 전송한다. 로컬은 입력을 보내고 결과를 받아 저장·표시·후처리한다.

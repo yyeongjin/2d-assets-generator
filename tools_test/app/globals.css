@@ -866,6 +866,8 @@ button { color: inherit; }
 .job-card .job-error { color: var(--red); }
 .job-card > video { display: block; width: 100%; margin-top: 10px; background: #101614; border: 1px solid var(--line); border-radius: 8px; }
 .job-card > a { display: inline-block; margin-top: 8px; color: var(--blue); font-size: 9px; font-weight: 850; }
+.job-card > .remote-job-delete { width: 100%; margin-top: 8px; padding: 8px; color: #8b3228; background: #fff6f3; border: 1px solid #e6b5ad; border-radius: 7px; cursor: pointer; font-size: 8px; font-weight: 850; }
+.job-card > .remote-job-delete:hover { background: #ffe9e3; }
 
 .frame-board > header { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px; border-bottom: 1px solid var(--line); }
 .frame-board > header p { margin: 6px 0 0; color: var(--muted); font-size: 10px; }

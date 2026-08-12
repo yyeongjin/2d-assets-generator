@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
@@ -21,7 +21,6 @@ import runtime
 
 DATA_ROOT = Path(os.environ.get("SCAIL_DATA_ROOT", "/workspace/scail2-data")).resolve()
 API_TOKEN = os.environ.get("SCAIL_API_TOKEN", "").strip()
-PRELOAD_MODEL = os.environ.get("SCAIL_LOAD_ON_START", "1") == "1"
 security = HTTPBearer(auto_error=False)
 queue: asyncio.Queue[str] = asyncio.Queue()
 jobs: dict[str, dict] = {}
@@ -131,11 +130,10 @@ async def lifespan(_app: FastAPI):
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     runtime.SCAIL_OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     worker_task = asyncio.create_task(gpu_worker())
-    preload_task = asyncio.create_task(asyncio.to_thread(runtime.load_model_once)) if PRELOAD_MODEL else None
+    preload_task = asyncio.create_task(asyncio.to_thread(runtime.load_model_once))
     yield
     worker_task.cancel()
-    if preload_task:
-        preload_task.cancel()
+    preload_task.cancel()
 
 
 app = FastAPI(title="SCAIL-2 Pod API", version="0.1.0", lifespan=lifespan)
@@ -203,6 +201,7 @@ async def create_job(
             sample_solver=sample_solver,
             seed=seed,
         )
+        runtime.validate_driving_pair(request.driving_video, request.driving_mask)
     except Exception as exc:
         shutil.rmtree(absolute_input_root.parent, ignore_errors=True)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -253,3 +252,20 @@ async def download_job_output(job_id: str):
         media_type="video/mp4",
         filename=f"{record['direction']}_animation_raw.mp4",
     )
+
+
+@app.delete("/v1/jobs/{job_id}", status_code=204, dependencies=[Depends(require_token)])
+async def delete_job(job_id: str):
+    record = jobs.get(job_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    if record["status"] in {"queued", "running"}:
+        raise HTTPException(status_code=409, detail=f"job is still active: {record['status']}")
+
+    input_root = DATA_ROOT / "jobs" / job_id
+    output_root = runtime.SCAIL_OUTPUT_ROOT / job_id
+    shutil.rmtree(input_root, ignore_errors=True)
+    shutil.rmtree(output_root, ignore_errors=True)
+    jobs.pop(job_id, None)
+    print(f"[SCAIL2][JOB_DELETED] id={job_id}", flush=True)
+    return Response(status_code=204)

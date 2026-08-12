@@ -108,6 +108,16 @@ def download_output(api_url: str, api_token: str, job_id: str, destination: Path
         raise
 
 
+def delete_remote_job(api_url: str, api_token: str, job_id: str) -> None:
+    response = requests.delete(
+        f"{api_url}/v1/jobs/{job_id}",
+        headers=authorization(api_token),
+        timeout=30,
+    )
+    response.raise_for_status()
+    print(f"[LOCAL][REMOTE_CLEANUP] id={job_id}", flush=True)
+
+
 def extract_frames(video_path: Path, output_dir: Path, indices: list[int]) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for phase, frame_index in enumerate(indices, start=1):
@@ -130,6 +140,7 @@ def main() -> None:
     parser.add_argument("--views", nargs="+", choices=DIRECTIONS)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/scail2"))
     parser.add_argument("--skip-frame-extraction", action="store_true")
+    parser.add_argument("--keep-remote-job", action="store_true")
     args = parser.parse_args()
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
@@ -148,6 +159,8 @@ def main() -> None:
         download_output(api_url, api_token, job_id, video_path)
         if not args.skip_frame_extraction:
             extract_frames(video_path, project_root / direction / "frames", manifest["local_extract"]["indices"])
+        if not args.keep_remote_job:
+            delete_remote_job(api_url, api_token, job_id)
         runtime_seconds = float(result.get("runtime_seconds", 0))
         print(f"[LOCAL][COMPLETE] direction={direction} runtime={runtime_seconds:.1f}s", flush=True)
 

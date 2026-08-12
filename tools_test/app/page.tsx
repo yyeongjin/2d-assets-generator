@@ -245,7 +245,7 @@ export default function Home() {
   const [jobs, setJobs] = useState<Record<Direction, JobState>>(() => createJobs());
   const [endpoint, setEndpoint] = useState<EndpointState>({ status: "꺼짐" });
   const [imageEndpoint, setImageEndpoint] = useState<ImageEndpointState>({ status: "꺼짐" });
-  const [notice, setNotice] = useState("방향별 reference·mask·driver 파일을 선택하면 RunPod endpoint로 직접 전송합니다.");
+  const [notice, setNotice] = useState("방향별 reference·mask·driver 파일은 로컬 Next proxy가 RunPod endpoint로 전송합니다.");
   const [submitting, setSubmitting] = useState(false);
   const [seed, setSeed] = useState(4821);
   const [assetCatalogItem, setAssetCatalogItem] = useState(ASSET_CATALOG[0].items[0]);
@@ -611,7 +611,7 @@ export default function Home() {
     setDirectionUploadFiles(createDirectionUploadFiles());
     setJobs(createJobs());
     setDirectionSplit(null);
-    setNotice(`${projectId || "CHARACTER_ID"} 입력 이름을 초기화했습니다. 실제 파일은 생성 요청 시 RunPod endpoint로 직접 업로드합니다.`);
+    setNotice(`${projectId || "CHARACTER_ID"} 입력 이름을 초기화했습니다. 실제 파일은 생성 요청 시 로컬 Next proxy를 거쳐 RunPod에 업로드합니다.`);
   }
 
   function updateDirectionUpload(key: keyof DirectionInput, file: File | null) {
@@ -749,6 +749,26 @@ export default function Home() {
     }
   }
 
+  async function deleteRemoteJob(direction: Direction) {
+    const job = jobs[direction];
+    if (!job.jobId || !["영상 완료", "실패"].includes(job.status)) return;
+    if (job.outputUrl && !window.confirm(`${DIRECTIONS.find((item) => item.id === direction)?.label} MP4를 로컬에 저장했나요? 삭제하면 RunPod 결과를 다시 받을 수 없습니다.`)) return;
+    try {
+      const response = await fetch(`/api/scail2/jobs/${job.jobId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const body = await response.json() as { error?: string; detail?: string };
+        throw new Error(body.error || body.detail || `HTTP ${response.status}`);
+      }
+      setJobs((current) => ({ ...current, [direction]: { status: "입력 준비" } }));
+      setNotice(`${DIRECTIONS.find((item) => item.id === direction)?.label} RunPod 입력·결과 임시 파일을 삭제했습니다.`);
+      console.info("[SCAIL_CONSOLE][REMOTE_JOB_DELETED]", { direction, jobId: job.jobId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "RunPod 작업 삭제 실패";
+      setNotice(`${direction} RunPod 작업 삭제 실패 · ${message}`);
+      console.error("[SCAIL_CONSOLE][REMOTE_JOB_DELETE_FAILED]", { direction, jobId: job.jobId, message });
+    }
+  }
+
   function downloadManifest() {
     const payload = {
       project_id: projectId,
@@ -801,7 +821,7 @@ export default function Home() {
     <main className="app-shell scail-console">
       <header className="topbar scail-console-topbar">
         <div className="brand"><span>S2</span><div><small>LOCAL SCAIL PRODUCTION CLIENT</small><h1>4-View Walk Factory</h1></div></div>
-        <div className="topology-title">local files / direct HTTP upload / one GPU worker</div>
+        <div className="topology-title">browser / local Next proxy / one GPU worker</div>
         <div className="endpoint-cluster"><div className="runpod-state" data-status={endpoint.status}><i /><strong>SCAIL-2 {endpoint.status}</strong></div><button type="button" className="secondary-button" onClick={checkHealth} data-testid="check-scail-runpod">Pod 연결 확인</button></div>
       </header>
 
@@ -813,7 +833,7 @@ export default function Home() {
       </nav>
 
       <section className="architecture-map" data-testid="architecture-map">
-        <article><small>LOCAL CLIENT</small><strong>4 refs + 4 drivers</strong><span>multipart direct upload</span></article><b>→</b>
+        <article><small>LOCAL CLIENT</small><strong>4 refs + 4 drivers</strong><span>same-origin Next proxy</span></article><b>→</b>
         <article className="is-primary"><small>ON-DEMAND POD</small><strong>SCAIL-2 loaded once</strong><span>FastAPI :8000 · serial GPU queue</span></article><b>→</b>
         <article><small>RESULT ENDPOINT</small><strong>client downloads MP4</strong><span>then 0·2·4·6·8·10·12·14</span></article>
       </section>
@@ -926,7 +946,7 @@ export default function Home() {
                 ["drivingMask", "DRIVING MASK 17F", "rendered_mask_v2.mp4"],
               ] as const).map(([key, title, filename]) => <label key={`${activeDirection}-${key}`}><span><b>{title}</b><small>{filename}</small></span><input type="file" accept={key === "referenceImage" || key === "referenceMask" ? "image/*" : "video/*"} onChange={(event) => updateDirectionUpload(key, event.target.files?.[0] ?? null)} data-testid={`scail-file-${activeDirection}-${key}`} /><small>{directionUploadFiles[activeDirection][key]?.name ?? (key === "referenceImage" && selectedDirectionCrop ? "분할된 RGB reference 사용" : "파일 선택 필요")}</small></label>)}
             </div>
-            {selectedDirectionCrop ? <div className="direction-reference-preview" data-testid={`active-direction-reference-${activeDirection}`}><img src={`${selectedDirectionCrop.url}?split=${directionSplit?.splitId}`} alt={`${selectedDirection.label} REFERENCE RGB 미리보기`} /><div><small>분할된 REFERENCE RGB</small><strong>{selectedDirectionCrop.localClientPath}</strong><span>요청 시 endpoint로 직접 업로드</span></div></div> : null}
+            {selectedDirectionCrop ? <div className="direction-reference-preview" data-testid={`active-direction-reference-${activeDirection}`}><img src={`${selectedDirectionCrop.url}?split=${directionSplit?.splitId}`} alt={`${selectedDirection.label} REFERENCE RGB 미리보기`} /><div><small>분할된 REFERENCE RGB</small><strong>{selectedDirectionCrop.localClientPath}</strong><span>요청 시 로컬 Next proxy가 RunPod로 업로드</span></div></div> : null}
             <label className="prompt-editor"><span>생성될 영상 설명</span><textarea rows={5} value={prompts[activeDirection]} onChange={(event) => setPrompts((current) => ({ ...current, [activeDirection]: event.target.value }))} data-testid={`scail-prompt-${activeDirection}`} /></label>
             <div className="scail-params"><span><small>SIZE</small><strong>896×512</strong></span><span><small>STEPS</small><strong>40</strong></span><span><small>SHIFT</small><strong>3.0</strong></span><span><small>CFG</small><strong>5.0</strong></span><span><small>SOLVER</small><strong>UniPC</strong></span><label><small>SEED</small><input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label></div>
             <div className="job-actions"><div><strong>{selectedJob.status}</strong><small>{selectedJob.jobId ?? "job_id 대기"}</small></div><button type="button" onClick={submitSelected} disabled={endpoint.status !== "연결됨" || submitting || !canSubmit} data-testid="queue-selected-scail-job">{selectedDirection.label} cycle 등록</button><button type="button" onClick={submitAll} disabled={endpoint.status !== "연결됨" || submitting || !canSubmitAll} data-testid="queue-all-scail-jobs">4방향 순서대로 등록</button></div>
@@ -939,7 +959,7 @@ export default function Home() {
         <div className="job-card-grid">
           {DIRECTIONS.map((direction) => {
             const job = jobs[direction.id];
-            return <article key={direction.id} className={`job-card is-${job.status.replace(" ", "-")}`}><header><span>{direction.code}</span><div><strong>{direction.label} 17F cycle</strong><small>{job.status}</small></div></header><div className="job-flow"><span>ref</span><b>+</b><span>driver</span><b>→</b><span>raw mp4</span></div><strong>{job.jobId ?? "작업 미등록"}</strong>{job.outputUrl ? <><video src={job.outputUrl} controls loop playsInline preload="metadata" aria-label={`${direction.label} 생성 결과`} /><a href={job.outputUrl} download={`${direction.id}_animation_raw.mp4`}>원본 MP4 로컬 저장</a></> : <small>결과 다운로드 대기</small>}{job.runtimeSeconds ? <p>runtime {job.runtimeSeconds.toFixed(1)}s</p> : null}{job.error ? <p className="job-error">{job.error}</p> : null}</article>;
+            return <article key={direction.id} className={`job-card is-${job.status.replace(" ", "-")}`}><header><span>{direction.code}</span><div><strong>{direction.label} 17F cycle</strong><small>{job.status}</small></div></header><div className="job-flow"><span>ref</span><b>+</b><span>driver</span><b>→</b><span>raw mp4</span></div><strong>{job.jobId ?? "작업 미등록"}</strong>{job.outputUrl ? <><video src={job.outputUrl} controls loop playsInline preload="metadata" aria-label={`${direction.label} 생성 결과`} /><a href={job.outputUrl} download={`${direction.id}_animation_raw.mp4`}>원본 MP4 로컬 저장</a></> : <small>결과 다운로드 대기</small>}{job.jobId && ["영상 완료", "실패"].includes(job.status) ? <button type="button" className="remote-job-delete" onClick={() => deleteRemoteJob(direction.id)} data-testid={`delete-scail-job-${direction.id}`}>RunPod 임시 파일 삭제</button> : null}{job.runtimeSeconds ? <p>runtime {job.runtimeSeconds.toFixed(1)}s</p> : null}{job.error ? <p className="job-error">{job.error}</p> : null}</article>;
           })}
         </div>
       </section>

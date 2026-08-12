@@ -31,7 +31,7 @@
   ├─ 2×2 canonical 시트 → 방향별 reference RGB 분할
   ├─ 방향별 reference RGB + reference mask
   └─ 방향별 driving RGB 17F + driving mask 17F
-        │ multipart로 endpoint에 직접 전송
+        │ Python client 직접 또는 :3000 Next API proxy로 multipart 전송
         ▼
 RunPod On-Demand Pod
   ├─ uv Python 환경
@@ -39,16 +39,17 @@ RunPod On-Demand Pod
   ├─ FastAPI + 단일 GPU queue
   ├─ 방향마다 한 cycle 생성
   └─ front/back/right/left raw MP4 생성
-        │ 결과 endpoint에서 MP4 다운로드
+        │ 인증된 결과 endpoint에서 MP4 다운로드
         ▼
 로컬 클라이언트
   ├─ 원본 MP4 저장·표시
-  └─ 네 방향 완료 뒤 동일 phase PNG 추출
+  ├─ 네 방향 완료 뒤 동일 phase PNG 추출
+  └─ 저장 성공 뒤 RunPod job 입력·결과 임시파일 삭제
 ```
 
 Pod 안에서는 프레임 추출, 픽셀화, 스프라이트 패킹을 하지 않습니다. 네 방향의 원본 영상 생성이 모두 끝난 뒤 로컬에서 8 phase를 추출하고 검수합니다. Frame 16은 Frame 0과 같은 자세로 닫히는지 확인하는 loop closure 용도이며 최종 8장에는 포함하지 않습니다.
 
-SCAIL-2는 2026-08-12 기준 vLLM-Omni 공식 지원 모델이 아닙니다. RunPod의 FastAPI adapter가 공식 SCAIL-2 pipeline을 로드합니다. 로컬 클라이언트는 입력을 직접 전송하고 결과 MP4를 직접 내려받습니다. S3, bucket과 서버 내부 출력 경로는 사용하지 않습니다.
+SCAIL-2는 2026-08-12 기준 vLLM-Omni 공식 지원 모델이 아닙니다. RunPod의 FastAPI adapter가 공식 SCAIL-2 pipeline을 로드합니다. Python 클라이언트는 RunPod에 직접 요청하고, 브라우저는 token을 노출하지 않도록 같은 origin의 Next API proxy를 사용합니다. S3, bucket과 서버 내부 출력 경로는 사용하지 않습니다.
 
 ## 방향별 입력
 
@@ -84,6 +85,7 @@ npm run dev
 - 방향별 네 로컬 입력 파일과 positive prompt 편집
 - 한 방향 또는 네 방향 job 등록
 - job 상태, 원본 MP4 재생·다운로드, 실행 시간 확인
+- MP4 저장 뒤 방향별 RunPod 임시 job 삭제
 - 로컬 입력 manifest 저장
 - 동일 phase 32 PNG 추출 규칙 확인
 
@@ -93,7 +95,7 @@ npm run dev
 
 빈 RunPod Pod에서는 공식 `zai-org/SCAIL-2`만 `git clone`합니다. FastAPI adapter는 RunPod 터미널에서 `cat <<'EOF'`로 직접 생성합니다. `uv` 환경 구성, 모델 다운로드·변환, FastAPI 실행과 로컬 요청·다운로드 방법은 [RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)에 정리했습니다.
 
-`runpod/scail2_api/`는 RunPod에서 실행하고 `runpod/scail2_client/`와 `tools_test/`는 로컬에서 실행합니다. 클라이언트가 네 입력 파일을 multipart로 전송하고, 완료된 MP4를 결과 endpoint에서 내려받습니다.
+`runpod/scail2_api/`는 RunPod에서 실행하고 `runpod/scail2_client/`와 `tools_test/`는 로컬에서 실행합니다. 서버는 SCAIL config를 공식 저장소 기준 절대경로로 읽고, driving RGB·mask가 각각 정확히 17프레임인지 GPU queue 등록 전에 검증합니다. 클라이언트는 네 입력 파일을 multipart로 전송하고, 완료된 MP4를 내려받은 뒤 원격 임시 job을 정리합니다.
 
 ## 에셋 범위 문서
 

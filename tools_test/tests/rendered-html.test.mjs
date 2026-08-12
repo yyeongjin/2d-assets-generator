@@ -85,7 +85,7 @@ test("화면은 준비된 4방향 입력에서 로컬 32 PNG까지 네 단계를
   }
   assert.match(page, /data-testid="architecture-map"/);
   assert.match(page, /LOCAL CLIENT/);
-  assert.match(page, /multipart direct upload/);
+  assert.match(page, /same-origin Next proxy/);
   assert.match(page, /ON-DEMAND POD/);
   assert.match(page, /RESULT ENDPOINT/);
   assert.match(css, /\.architecture-map/);
@@ -180,6 +180,8 @@ test("Next proxy와 Pod API는 job id를 반환하고 상태를 polling한다", 
   assert.match(page, /pollJob/);
   assert.match(jobsRoute, /status: 202/);
   assert.match(jobRoute, /encodeURIComponent\(jobId\)/);
+  assert.match(jobRoute, /export async function DELETE/);
+  assert.match(jobRoute, /method: "DELETE"/);
   assert.match(jobOutputRoute, /\/output/);
   assert.match(jobOutputRoute, /new Response\(response\.body/);
   assert.match(podServer, /queue: asyncio\.Queue\[str\]/);
@@ -188,11 +190,21 @@ test("Next proxy와 Pod API는 job id를 반환하고 상태를 polling한다", 
   assert.match(podServer, /@app\.post\("\/v1\/jobs"/);
   assert.match(podServer, /@app\.get\("\/v1\/jobs\/\{job_id\}"/);
   assert.match(podServer, /@app\.get\("\/v1\/jobs\/\{job_id\}\/output"/);
+  assert.match(podServer, /@app\.delete\("\/v1\/jobs\/\{job_id\}"/);
+  assert.match(podServer, /JOB_DELETED/);
+  assert.match(page, /RunPod 임시 파일 삭제/);
+  assert.match(page, /deleteRemoteJob/);
 });
 
 test("SCAIL-2 pipeline은 한 번 로드하고 Pod는 raw MP4만 생성한다", () => {
   assert.match(runtime, /def load_model_once/);
   assert.match(runtime, /wan\.SCAIL2Pipeline/);
+  assert.match(runtime, /SCAIL_REPO_ROOT \/ SCAIL_CONFIG_PATHS\["SCAIL-14B"\]/);
+  assert.match(runtime, /_require_file\(config_path, "SCAIL config"\)/);
+  assert.match(runtime, /scail_config_path=str\(config_path\)/);
+  assert.match(runtime, /EXPECTED_DRIVING_FRAMES = 17/);
+  assert.match(runtime, /def validate_driving_pair/);
+  assert.match(podServer, /runtime\.validate_driving_pair/);
   assert.match(runtime, /_animation_raw\.mp4/);
   assert.doesNotMatch(runtime, /ffmpeg|extract_frames|select=eq/);
   assert.doesNotMatch(podServer, /extract_frame/);
@@ -203,6 +215,9 @@ test("SCAIL-2 pipeline은 한 번 로드하고 Pod는 raw MP4만 생성한다", 
 test("로컬 클라이언트가 multipart 업로드·원본 다운로드·8 phase 추출을 맡는다", () => {
   assert.match(client, /files=files/);
   assert.match(client, /def download_output/);
+  assert.match(client, /def delete_remote_job/);
+  assert.match(client, /requests\.delete/);
+  assert.match(client, /--keep-remote-job/);
   assert.match(client, /iter_content/);
   assert.match(client, /SCAIL2_BASE_URL/);
   assert.match(client, /SCAIL2_API_TOKEN/);
@@ -258,10 +273,15 @@ test("가이드는 RunPod 생성과 로컬 후처리 경계를 명시한다", ()
   assert.doesNotMatch(runPodSection, /\bscp\b/);
   assert.match(runPodSection, /cat <<'PY' > \/workspace\/scail2_api\/server\.py/);
   assert.match(runPodSection, /\/workspace\/scail2_api/);
-  assert.match(guide, /결과 MP4 download endpoint/);
+  assert.match(guide, /결과 MP4 download/);
   assert.match(guide, /로컬 클라이언트/);
   assert.match(guide, /A100.*80GB/);
   assert.match(guide, /180~200GB/);
+  assert.match(guide, /flash-attn --no-build-isolation/);
+  assert.match(guide, /nvcc -V/);
+  assert.match(guide, /DELETE \/v1\/jobs\/JOB_ID/);
+  assert.match(guide, /같은 origin의 `\/api\/scail2\/\*`/);
+  assert.doesNotMatch(guide, /SCAIL_LOAD_ON_START/);
 });
 
 test("기존 8대 에셋 카탈로그와 타일·오브젝트 목록표를 유지한다", () => {

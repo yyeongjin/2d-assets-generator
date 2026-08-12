@@ -9,12 +9,15 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import cv2
+
 SCAIL_REPO_ROOT = Path(os.environ.get("SCAIL_REPO_ROOT", "/workspace/SCAIL-2")).resolve()
 SCAIL_CHECKPOINT_DIR = Path(os.environ.get("SCAIL_CHECKPOINT_DIR", "/workspace/models/SCAIL-2")).resolve()
 SCAIL_SAFETENSORS_PATH = Path(os.environ.get("SCAIL_SAFETENSORS_PATH", "/workspace/models/SCAIL-2.safetensors")).resolve()
 SCAIL_OUTPUT_ROOT = Path(os.environ.get("SCAIL_OUTPUT_ROOT", "/workspace/scail2-data/outputs")).resolve()
 SCAIL_CONFIG_PATH = os.environ.get("SCAIL_CONFIG_PATH") or None
 SCAIL_DEVICE_ID = int(os.environ.get("SCAIL_DEVICE_ID", "0"))
+EXPECTED_DRIVING_FRAMES = 17
 
 _PIPELINE = None
 _CONFIG = None
@@ -27,6 +30,45 @@ MODEL_ERROR: str | None = None
 def _require_file(path: Path, label: str) -> None:
     if not path.is_file():
         raise FileNotFoundError(f"{label} not found: {path}")
+
+
+def get_video_frame_count(path: Path) -> int:
+    """Read the decoded frame count before a job reaches the GPU queue."""
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise ValueError(f"cannot open video: {path}")
+    try:
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if frame_count > 0:
+            return frame_count
+
+        frame_count = 0
+        while True:
+            ok, _frame = capture.read()
+            if not ok:
+                break
+            frame_count += 1
+        return frame_count
+    finally:
+        capture.release()
+
+
+def validate_driving_pair(video: Path, mask: Path) -> tuple[int, int]:
+    video_frames = get_video_frame_count(video)
+    mask_frames = get_video_frame_count(mask)
+    if video_frames != EXPECTED_DRIVING_FRAMES:
+        raise ValueError(
+            f"driving video must contain exactly {EXPECTED_DRIVING_FRAMES} frames, got {video_frames}"
+        )
+    if mask_frames != EXPECTED_DRIVING_FRAMES:
+        raise ValueError(
+            f"driving mask must contain exactly {EXPECTED_DRIVING_FRAMES} frames, got {mask_frames}"
+        )
+    print(
+        f"[SCAIL2][INPUT_VALIDATED] driving_frames={video_frames} mask_frames={mask_frames}",
+        flush=True,
+    )
+    return video_frames, mask_frames
 
 
 def load_model_once():
@@ -49,13 +91,20 @@ def load_model_once():
             from wan.configs import SCAIL_CONFIGS, SCAIL_CONFIG_PATHS  # type: ignore
 
             config = SCAIL_CONFIGS["SCAIL-14B"]
-            config_path = SCAIL_CONFIG_PATH or SCAIL_CONFIG_PATHS["SCAIL-14B"]
+            if SCAIL_CONFIG_PATH:
+                config_path = Path(SCAIL_CONFIG_PATH).expanduser()
+                if not config_path.is_absolute():
+                    config_path = SCAIL_REPO_ROOT / config_path
+                config_path = config_path.resolve()
+            else:
+                config_path = (SCAIL_REPO_ROOT / SCAIL_CONFIG_PATHS["SCAIL-14B"]).resolve()
+            _require_file(config_path, "SCAIL config")
             print("[SCAIL2][MODEL_LOAD_START]", flush=True)
             _PIPELINE = wan.SCAIL2Pipeline(
                 config=config,
                 checkpoint_dir=str(SCAIL_CHECKPOINT_DIR),
                 scail_safetensors_path=str(SCAIL_SAFETENSORS_PATH),
-                scail_config_path=config_path,
+                scail_config_path=str(config_path),
                 device_id=SCAIL_DEVICE_ID,
                 rank=0,
                 t5_fsdp=False,
@@ -79,6 +128,7 @@ def load_model_once():
 
 
 def generate_job(job_id: str, request) -> dict:
+    validate_driving_pair(request.driving_video, request.driving_mask)
     pipeline = load_model_once()
     assert _CONFIG is not None and _GENERATE_VIDEO is not None
     job_root = SCAIL_OUTPUT_ROOT / job_id
