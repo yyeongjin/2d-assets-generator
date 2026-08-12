@@ -116,9 +116,9 @@ prompt에 `pixel`, `pixel art`, 출력 pixel 규격, 레이아웃 윤곽선 설�
 
 일반 I2V 영상 생성, Qwen 프레임별 독립 생성과 SCAIL-2 동작 전이는 현재 제작 경로에서 모두 기각한다.
 
-- 일반 I2V는 정지 캐릭터에서 걷기를 생성하는 과정에서 외형·배경·동작이 변하고 방향별 결과가 반복되지 않았다. 세부 결과는 [기각된 RunPod Wan2.2 걷기 영상 실험](RUNPOD_WAN_VIDEO.md)에 보존한다.
-- Qwen 프레임별 독립 생성은 좌우 발, 착지 순서, 캐릭터 정체성과 크기를 안정적으로 유지하지 못했다. 세부 생성 ID와 중단 지점은 [Qwen 정면 걷기 프레임 실패 기록](QWEN_WALK_FRAME_FAILURES.md)에 보존한다.
-- SCAIL-2는 4방향 정지 캐릭터에서 걷기 동작을 만드는 모델이 아니라 이미 완성된 Driving RGB video의 움직임을 Reference 캐릭터로 전이하는 모델이다. 세부 근거는 [SCAIL-2 동작 생성 경로 기각 기록](SCAIL2_WALK_CYCLE_STRATEGY.md)에 보존한다.
+- 일반 I2V는 정지 캐릭터에서 걷기를 생성하는 과정에서 외형·배경·동작이 변하고 방향별 결과가 반복되지 않았다. 세부 결과는 [기각된 RunPod Wan2.2 걷기 영상 실험](failures/RUNPOD_WAN_VIDEO.md)에 보존한다.
+- Qwen 프레임별 독립 생성은 좌우 발, 착지 순서, 캐릭터 정체성과 크기를 안정적으로 유지하지 못했다. 세부 생성 ID와 중단 지점은 [Qwen 정면 걷기 프레임 실패 기록](failures/QWEN_WALK_FRAME_FAILURES.md)에 보존한다.
+- SCAIL-2는 4방향 정지 캐릭터에서 걷기 동작을 만드는 모델이 아니라 이미 완성된 Driving RGB video의 움직임을 Reference 캐릭터로 전이하는 모델이다. 세부 근거는 [SCAIL-2 동작 생성 경로 기각 기록](failures/SCAIL2_WALK_CYCLE_STRATEGY.md)에 보존한다.
 
 SCAIL-2를 사용하려면 우리가 생성하려던 걷기·무기·도구 동작을 먼저 Driving video로 제작하고, 방향별 Reference/Driving mask까지 준비해야 한다. Prompt는 동작 phase를 설계하지 않으며 Reference identity와 pixel scale도 보장하지 않는다.
 

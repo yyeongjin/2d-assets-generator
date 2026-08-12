@@ -1028,7 +1028,7 @@ export default function Home() {
       <section className="deployment-note">
         <div><small>RUNPOD</small><h2>On-Demand Pod</h2><p>A100 80GB 시작 · Network Volume 약 180~200GB · HTTP 8000</p></div>
         <code>POST multipart → job_id → GET status → GET output</code>
-        <div><strong>로컬 환경변수</strong><small>SCAIL2_BASE_URL · SCAIL2_API_TOKEN</small><a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/RUNPOD_SCAIL2_GUIDE.md" target="_blank" rel="noreferrer">설치·실행 가이드</a></div>
+        <div><strong>로컬 환경변수</strong><small>SCAIL2_BASE_URL · SCAIL2_API_TOKEN</small><a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/failures/RUNPOD_SCAIL2_GUIDE.md" target="_blank" rel="noreferrer">설치·실행 가이드</a></div>
       </section>
     </main>
   );

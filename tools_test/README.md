@@ -6,9 +6,9 @@ RunPod 이미지 모델로 농장 RPG의 캐릭터·타일·오브젝트·생명
 
 [생성 에셋 썸네일 갤러리](public/assets/catalog/README.md)에서 종류별 최신 원본과 생성 ID를 바로 확인할 수 있습니다.
 
-정면 걷기 8장 개별 생성은 좌우 발과 착지 순서를 안정적으로 제어하지 못해 중단했습니다. 현재 화면은 성공한 생성기가 아니라 실패 과정을 재현하고 prompt를 비교하기 위한 상태입니다. 세부 생성 ID와 중단 지점은 [Qwen 정면 걷기 프레임 실패 기록](../docs/QWEN_WALK_FRAME_FAILURES.md)에 보존합니다.
+정면 걷기 8장 개별 생성은 좌우 발과 착지 순서를 안정적으로 제어하지 못해 중단했습니다. 현재 화면은 성공한 생성기가 아니라 실패 과정을 재현하고 prompt를 비교하기 위한 상태입니다. 세부 생성 ID와 중단 지점은 [Qwen 정면 걷기 프레임 실패 기록](../docs/failures/QWEN_WALK_FRAME_FAILURES.md)에 보존합니다.
 
-SCAIL-2 동작 전이도 현재 제작 경로에서 기각했습니다. SCAIL-2는 정지 캐릭터와 동작 이름에서 걷기 phase를 만드는 모델이 아니라, 이미 동작이 완성된 Driving RGB video를 Reference 캐릭터로 전이하는 모델입니다. 화면의 Reference/Driving RGB·mask와 job 제어 영역은 성공한 기능이 아니라 endpoint 구성 실험 기록으로만 남아 있습니다. 자세한 구조적 이유는 [SCAIL-2 동작 생성 경로 기각 기록](../docs/SCAIL2_WALK_CYCLE_STRATEGY.md)을 확인합니다.
+SCAIL-2 동작 전이도 현재 제작 경로에서 기각했습니다. SCAIL-2는 정지 캐릭터와 동작 이름에서 걷기 phase를 만드는 모델이 아니라, 이미 동작이 완성된 Driving RGB video를 Reference 캐릭터로 전이하는 모델입니다. 화면의 Reference/Driving RGB·mask와 job 제어 영역은 성공한 기능이 아니라 endpoint 구성 실험 기록으로만 남아 있습니다. 자세한 구조적 이유는 [SCAIL-2 동작 생성 경로 기각 기록](../docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)을 확인합니다.
 
 ## 실행
 
@@ -55,7 +55,7 @@ RUNPOD_REQUEST_TIMEOUT_MS=600000
 
 ![오른쪽 측면 제자리 걷기 40프레임 검사](public/screenshots/wan-right-walk-official-sampling-frames.png)
 
-이 실험은 [acatovic/ai-game-studio](https://github.com/acatovic/ai-game-studio)의 흐름에서 영감을 얻었습니다. 실행 방법은 [기각된 RunPod Wan2.2 영상 실험 기록](../docs/RUNPOD_WAN_VIDEO.md)에 보존합니다.
+이 실험은 [acatovic/ai-game-studio](https://github.com/acatovic/ai-game-studio)의 흐름에서 영감을 얻었습니다. 실행 방법은 [기각된 RunPod Wan2.2 영상 실험 기록](../docs/failures/RUNPOD_WAN_VIDEO.md)에 보존합니다.
 
 ## 화면에서 확인하는 순서
 

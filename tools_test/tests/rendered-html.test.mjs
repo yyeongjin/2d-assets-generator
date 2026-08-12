@@ -38,7 +38,7 @@ const [
   source("../../runpod/scail2_api/runtime.py"),
   source("../../runpod/scail2_client/client.py"),
   source("../../runpod/scail2_client/example-manifest.json"),
-  source("../../docs/RUNPOD_SCAIL2_GUIDE.md"),
+  source("../../docs/failures/RUNPOD_SCAIL2_GUIDE.md"),
   source("../../README.md"),
   source("../app/api/runpod/asset/route.ts"),
   source("../app/api/runpod/health/route.ts"),

@@ -50,7 +50,7 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 `pose-free`는 Driving video가 없다는 뜻이 아니라 OpenPose·skeleton 같은 중간 pose representation 없이 RGB video를 직접 사용한다는 뜻입니다. Reference/Driving mask는 동작을 만들지 않고 캐릭터 binding을 지정합니다. Prompt도 gait planner가 아니라 생성될 영상의 설명입니다.
 
-전체 기각 사유와 공식 코드 근거는 [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/SCAIL2_WALK_CYCLE_STRATEGY.md)에 정리했습니다.
+전체 기각 사유와 공식 코드 근거는 [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)에 정리했습니다.
 
 ## 현재 유효한 흐름
 
@@ -102,8 +102,8 @@ RUNPOD_MODEL_ID=
 - [타일 카탈로그](docs/TILE_CATALOG.md)
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
-- [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/SCAIL2_WALK_CYCLE_STRATEGY.md)
-- [기각된 RunPod SCAIL-2 실행 실험 기록](docs/RUNPOD_SCAIL2_GUIDE.md)
+- [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)
+- [기각된 RunPod SCAIL-2 실행 실험 기록](docs/failures/RUNPOD_SCAIL2_GUIDE.md)
 
 ## 현재 검수 기준
 
