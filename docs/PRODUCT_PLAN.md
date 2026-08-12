@@ -16,9 +16,10 @@ flowchart LR
     D --> F
     F --> G{"착용 일관성 승인"}
     G --> H["4방향 이미지 분리"]
-    H --> I["17-frame master driving·mask"]
-    I --> J["SCAIL-2 방향별 Animation Mode"]
-    J --> K["동일 phase 추출·검수·스프라이트"]
+    H --> I["동작 생성 방식 재검토"]
+    I --> J{"정체성·크기·phase 통과"}
+    J -->|"실패"| I
+    J -->|"통과"| K["프레임 검수·스프라이트"]
 ```
 
 ## 2. 1단계 — 4방향 기준 캐릭터 생성
@@ -109,21 +110,23 @@ prompt에 `pixel`, `pixel art`, 출력 pixel 규격, 레이아웃 윤곽선 설�
 | 크기 | 캐릭터 대비 아이템 크기가 네 셀에서 동일함 |
 | 셀 구조 | A의 셀 순서, 캐릭터 크기, 발 위치와 배경 유지 |
 
-## 4. 3단계 — SCAIL-2 동작 전이와 스프라이트
+## 4. 3단계 — 동작 생성 방식 재검토
 
-정지 이미지 한 장에서 일반 I2V 모델이 걷기를 추론하게 하는 방식과 Qwen으로 프레임을 한 장씩 독립 생성하는 방식은 모두 기각한다. 다음 검증은 하나의 정확한 RGB driving cycle을 SCAIL-2 Animation Mode로 방향별 canonical reference에 전이한다.
+일반 I2V 영상 생성, Qwen 프레임별 독립 생성과 SCAIL-2 동작 전이는 현재 제작 경로에서 모두 기각한다. 특히 SCAIL-2는 4방향 정지 캐릭터에서 걷기 동작을 만드는 모델이 아니라, 이미 완성된 Driving RGB video의 움직임을 Reference 캐릭터로 전이하는 모델이다.
 
-상세 입력 규격, 17-frame cycle, mask, 방향별 job과 8-frame 추출 규칙은 [SCAIL-2 4방향 걷기 생성 전략](SCAIL2_WALK_CYCLE_STRATEGY.md)에서 관리한다.
+SCAIL-2를 사용하려면 우리가 생성하려던 걷기·무기·도구 동작을 먼저 Driving video로 제작하고, 방향별 Reference/Driving mask까지 준비해야 한다. Prompt는 동작 phase를 설계하지 않으며 Reference identity와 pixel scale도 보장하지 않는다. 전체 근거는 [SCAIL-2 동작 생성 경로 기각 기록](SCAIL2_WALK_CYCLE_STRATEGY.md)에 보존한다.
 
-### 4.1 입력
+따라서 동작 생성 방식은 특정 모델로 확정하지 않는다. 아래 조건을 실제 출력으로 통과한 방식만 채택한다.
 
-- 승인한 정면, 후면, 오른쪽, 왼쪽 canonical reference
-- 방향별 reference mask
-- 하나의 master walk animation을 네 고정 카메라로 렌더링한 17-frame RGB driving video
-- 방향별 17-frame driving mask video
-- 캐릭터 외형과 driving motion을 설명하는 prompt
+### 4.1 다음 방식의 필수 입력·출력 조건
 
-네 방향은 하나의 video job에 이어 붙이지 않고 방향당 하나씩 총 네 번 실행한다. 각 job은 같은 master animation timeline을 공유한다.
+- 입력은 승인한 정면, 후면, 오른쪽, 왼쪽 기준 이미지다.
+- 외부에서 완성한 Driving video를 필수로 요구하지 않아야 한다.
+- 걷기 phase 또는 동작 pose 순서를 사용자가 통제할 수 있어야 한다.
+- 출력 전체에서 캐릭터 정체성, 의상, 색, 비율과 높이를 유지해야 한다.
+- 모든 frame이 같은 캔버스와 ground baseline을 사용해야 한다.
+- 네 방향의 같은 phase가 같은 발·무기·도구 상태를 보여야 한다.
+- 프레임 수를 모델이 임의로 정하더라도 셀 경계와 순서를 안정적으로 식별할 수 있어야 한다.
 
 ### 4.2 동작 목록
 
@@ -137,19 +140,17 @@ prompt에 `pixel`, `pixel art`, 출력 pixel 규격, 레이아웃 윤곽선 설�
 | `carry_front` | 물건을 앞에 들기 | 앞쪽 양손 운반 |
 | `carry_overhead` | 물건을 머리 위에 들기 | 머리 위 양손 운반 |
 
-### 4.3 생성과 프레임 추출
+### 4.3 검증 순서
 
-1. 승인된 `2×2` 방향 시트를 네 canonical reference로 분리하고 각 mask를 검수
-2. 하나의 rig와 walk animation에서 17-frame 제자리 driving을 네 방향으로 렌더링
-3. 오른쪽 측면 한 방향으로 SCAIL-2 Animation Mode를 먼저 실행
-4. motion fidelity, 정체성, 크기, 배경과 loop가 통과하면 나머지 세 방향 실행
-5. 방향별 원본 영상과 17개 원본 프레임 저장
-6. 각 방향에서 `0, 2, 4, 6, 8, 10, 12, 14`번 프레임 추출
-7. frame 16과 frame 0을 비교해 loop closure 검사
-8. 네 방향의 동일 phase가 같은 발 상태인지 검수
-9. 32프레임 승인 뒤에만 픽셀화, 최종 규격 리사이즈, 스프라이트 패킹, Unity manifest 생성
+1. 승인된 `2×2` 방향 시트를 정면·후면·오른쪽·왼쪽 이미지로 분리
+2. 한 캐릭터와 한 동작의 한 방향만 먼저 생성
+3. 동작 phase, 정체성, 높이, ground baseline, 카메라와 배경 검사
+4. 실패하면 나머지 방향과 캐릭터를 자동으로 계속 생성하지 않음
+5. 한 방향이 반복 통과한 뒤 같은 설정으로 나머지 방향 검증
+6. 네 방향의 동일 phase와 캐릭터 크기 검수
+7. 전 frame 승인 뒤에만 픽셀화, 최종 규격 리사이즈, 스프라이트 패킹과 Unity manifest 생성
 
-SCAIL-2는 motion transfer와 시간 일관성을 담당하지만 픽셀 단위 외형 고정을 보장하지 않는다. 결과를 production-ready sprite가 아니라 검수할 master animation strip으로 취급한다.
+프레임 수와 추출 index는 모델 검증 전에 `17F`, `8F`, `32F`로 고정하지 않는다. 실제 출력이 반복 가능한 closed cycle인지 확인한 뒤 저장 규격을 결정한다.
 
 ## 5. 캐릭터 외 에셋
 
@@ -202,7 +203,8 @@ target_height_px = visual_cells_y × pixels_per_cell
 | 방향 순서 | 정면, 후면, 오른쪽, 왼쪽 셀 순서 |
 | 승인 | 4방향 기준 A 승인·취소 |
 | 아이템 착용 | Reference A, Reference B, 원본 출력 |
-| SCAIL-2 동작 | 방향별 reference·driving·mask, 4개 job 상태, 17-frame 원본, 8-frame 추출 결과, 승인·반려 |
+| 기각된 SCAIL-2 실험 | 방향별 reference·driving·mask와 job 화면을 실패 기록으로만 표시 |
+| 동작 생성 검증 | 방향별 기준 이미지, 실제 입력, 원본 출력, frame별 정체성·크기·phase 검사 |
 | 상태·히스토리 | 진행, 완료, 실패, generation ID, 크기, seed, 시간 |
 | 카탈로그 | 전체 8개 대분류와 문서 목록 |
 
@@ -227,9 +229,9 @@ target_height_px = visual_cells_y × pixels_per_cell
 3. 실제 아이템을 Reference B로 넣어 착용 일관성 검증
 4. 여러 캐릭터·아이템 조합으로 성공률 기록
 5. 승인한 4방향 시트를 네 방향 입력으로 자동 분리
-6. SCAIL-2용 17-frame master driving과 방향별 mask 준비
-7. 오른쪽 측면 1회 검증 뒤 통과 설정으로 네 방향 Animation Mode 실행
-8. 동일 phase 8장씩 추출하고 32프레임·loop 승인
+6. 외부 Driving video 없이 동작을 생성할 후보 방식 선정
+7. 한 캐릭터·한 방향·한 동작에서 정체성, 크기, ground baseline과 phase 반복 검증
+8. 통과한 방식만 네 방향과 다른 동작으로 확대
 9. 전 프레임 승인 뒤 픽셀화·최종 리사이즈·스프라이트 시트 생성
 10. 같은 구조를 생명체 동작에 검증하고 타일·오브젝트·아이템 카탈로그는 기존 이미지 생성 경로 유지
 11. Unity import·slice·pivot·animation 검증 연결

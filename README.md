@@ -12,11 +12,11 @@
 
 ![캐릭터 조건과 4방향 기준 시트](tools_test/public/screenshots/current-workbench.png)
 
-### 저장된 4방향 시트 분할과 방향별 입력
+### 저장된 4방향 시트 분할과 기각된 동작 전이 실험
 
-인벤토리에서 캐릭터 또는 생명체의 `2×2` 시트를 선택하고 `좌상=정면`, `우상=후면`, `좌하=오른쪽`, `우하=왼쪽` 규칙으로 네 Reference RGB를 만듭니다. Reference mask와 방향별 Driving RGB·mask는 별도 입력입니다.
+인벤토리에서 캐릭터 또는 생명체의 `2×2` 시트를 선택하고 `좌상=정면`, `우상=후면`, `좌하=오른쪽`, `우하=왼쪽` 규칙으로 네 방향 이미지를 만듭니다. 화면에 남아 있는 Reference mask와 Driving RGB·mask 입력은 SCAIL-2 검토 흔적이며 현재 제작 경로가 아닙니다.
 
-![4방향 시트 분할과 SCAIL-2 입력](tools_test/public/screenshots/current-character-generator.png)
+![4방향 시트 분할과 기각된 SCAIL-2 입력 실험](tools_test/public/screenshots/current-character-generator.png)
 
 ### 에셋 목록과 항목별 이미지 인벤토리
 
@@ -37,60 +37,42 @@
 
 생성 이미지와 메타데이터는 로컬 `tools_test/app/generated/` 아래에 저장합니다. 화면의 인벤토리는 이 파일들을 다시 읽어 구성하므로 최신 결과 하나만 사용하는 구조가 아닙니다.
 
-### 4방향 걷기 동작 생성
+### 동작 생성 현황
 
-SCAIL-2에는 방향마다 다음 네 파일을 하나의 job으로 전달합니다.
+SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습니다. SCAIL-2는 정지 이미지와 동작 이름에서 걷기를 만드는 모델이 아니라, 이미 동작이 들어 있는 Driving RGB video를 Reference 캐릭터로 전이하는 모델입니다.
 
-| 입력 | 역할 |
+| 프로젝트가 필요로 하는 것 | SCAIL-2가 요구하는 것 |
 |---|---|
-| Reference RGB | 해당 방향의 캐릭터 또는 생명체 외형 |
-| Reference mask | Reference RGB의 대상 영역 |
-| Driving RGB 17F | 해당 방향에서 렌더링한 17-frame closed walk |
-| Driving mask 17F | Driving RGB의 대상 영역 |
+| 4방향 정지 이미지에서 걷기 phase 생성 | 동작이 완성된 방향별 Driving RGB video |
+| 동작 이름·포즈 조건으로 motion 설계 | Driving video를 VAE로 encode한 motion condition |
+| 캐릭터별 높이·발 기준선·외형 고정 | 새 noise에서 생성하므로 pixel 고정 보장 없음 |
+| 바로 분리 가능한 스프라이트 프레임 | 생성 영상의 별도 검수·추출·정렬 필요 |
 
-정면·후면·왼쪽·오른쪽은 하나의 rig와 하나의 animation timeline을 네 고정 카메라로 렌더한 Driving 영상을 사용합니다. 자세와 발 순서는 prompt가 아니라 Driving RGB가 결정합니다.
+`pose-free`는 Driving video가 없다는 뜻이 아니라 OpenPose·skeleton 같은 중간 pose representation 없이 RGB video를 직접 사용한다는 뜻입니다. Reference/Driving mask는 동작을 만들지 않고 캐릭터 binding을 지정합니다. Prompt도 gait planner가 아니라 생성될 영상의 설명입니다.
 
-## 전체 흐름
+전체 기각 사유와 공식 코드 근거는 [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/SCAIL2_WALK_CYCLE_STRATEGY.md)에 정리했습니다.
+
+## 현재 유효한 흐름
 
 ```text
 로컬 :3000 화면
   ├─ 기준 에셋 목록과 항목별 인벤토리
   ├─ 캐릭터 조건·랜덤 4방향 시트 생성
   ├─ 저장된 2×2 시트 선택과 네 방향 RGB 분할
-  └─ 방향별 RGB·mask·17F driver를 Next API에 전달
+  ├─ 아이템 착용 4방향 이미지 검증
+  └─ 생성·업로드 결과 저장, 선택, 제거와 히스토리
                          │
                          ▼
 로컬 Next API proxy
-  ├─ RunPod endpoint와 token은 서버 환경변수에서만 읽음
-  └─ multipart 등록·상태 조회·결과 다운로드를 중계
+  ├─ 이미지 모델 endpoint와 token은 서버 환경변수에서만 읽음
+  └─ 기준 에셋 생성 요청과 원본 결과 저장을 중계
                          │
                          ▼
 RunPod On-Demand Pod
-  ├─ SCAIL-2를 Pod 시작 시 한 번 로드
-  ├─ FastAPI :8000
-  ├─ 단일 GPU 직렬 queue
-  ├─ 202 + job_id 반환
-  └─ 방향별 raw MP4 생성
-                         │
-                         ▼
-로컬 클라이언트
-  ├─ MP4 다운로드와 재생
-  ├─ 네 방향 생성 완료 후 동일 phase PNG 추출
-  └─ 다운로드 확인 후 RunPod 임시 job 제거
+  └─ 기준 이미지·4방향 시트·아이템 착용 이미지 생성
 ```
 
-브라우저는 RunPod로 직접 요청하지 않습니다. 같은 origin의 Next API proxy만 호출하므로 token이 브라우저에 노출되지 않고 RunPod 서버에 별도 CORS 허용도 필요하지 않습니다. Python 클라이언트는 RunPod FastAPI에 직접 요청할 수 있습니다.
-
-## SCAIL-2 처리 규칙
-
-- SCAIL-2는 vLLM으로 실행하지 않습니다. RunPod FastAPI adapter가 공식 pipeline을 직접 로드합니다.
-- SCAIL config는 공식 저장소 내부 파일의 절대경로로 전달합니다.
-- Driving RGB와 Driving mask는 GPU queue에 넣기 전에 각각 정확히 17프레임인지 검사합니다.
-- 모델 생성은 raw MP4까지 담당합니다.
-- PNG 추출, 픽셀화, 리사이즈와 스프라이트 패킹은 네 방향 생성이 모두 끝난 뒤 로컬에서 따로 실행합니다.
-- `0·2·4·6·8·10·12·14` 프레임을 동일 phase 후보로 사용합니다.
-- Frame 16은 Frame 0과 같은 자세로 닫히는지 확인하는 loop closure 검사용이며 최종 8장에서는 제외합니다.
-- RunPod HTTP 연결에 긴 추론을 매달지 않고 `POST → 202 job_id → polling → output download` 순서로 처리합니다.
+SCAIL-2 입력 화면, API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 실험 기록으로만 남깁니다. 동작 생성 방식은 외부 Driving video 없이 phase를 만들고 캐릭터 정체성·크기·발 기준선을 유지하는 실제 결과를 확인한 뒤 다시 결정합니다.
 
 ## 로컬 실행
 
@@ -109,21 +91,9 @@ RUNPOD_BASE_URL=
 RUNPOD_API_KEY=
 RUNPOD_MODEL_ID=
 
-# SCAIL-2 FastAPI endpoint
-SCAIL2_BASE_URL=
-SCAIL2_API_TOKEN=
 ```
 
 실제 endpoint와 token은 코드, README와 manifest에 기록하지 않습니다.
-
-## RunPod와 로컬의 책임
-
-| 위치 | 실행하는 것 |
-|---|---|
-| RunPod | 공식 `zai-org/SCAIL-2` clone, `uv` 환경 구성, checkpoint 준비, FastAPI adapter 실행, GPU 추론 |
-| 로컬 | `tools_test` 화면, 에셋 인벤토리, multipart 요청, polling, MP4 다운로드, 프레임 추출과 후처리 |
-
-빈 RunPod Pod에서 개인 프로젝트 저장소를 clone하거나 `scp`로 파일을 옮기는 과정은 필요하지 않습니다. RunPod 터미널에서 공식 SCAIL-2 저장소를 clone하고 FastAPI adapter 파일을 `cat <<'EOF'`로 만드는 전체 명령은 [RunPod SCAIL-2 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)에 정리했습니다.
 
 ## 에셋 범위 문서
 
@@ -132,13 +102,13 @@ SCAIL2_API_TOKEN=
 - [타일 카탈로그](docs/TILE_CATALOG.md)
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
-- [SCAIL-2 4방향 걷기 생성 전략](docs/SCAIL2_WALK_CYCLE_STRATEGY.md)
-- [RunPod SCAIL-2 실행 가이드](docs/RUNPOD_SCAIL2_GUIDE.md)
+- [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/SCAIL2_WALK_CYCLE_STRATEGY.md)
+- [기각된 RunPod SCAIL-2 실행 실험 기록](docs/RUNPOD_SCAIL2_GUIDE.md)
 
 ## 현재 검수 기준
 
 - 네 방향 모두 같은 캐릭터 정체성, 의상, 색상, 비율과 화면상 크기를 유지해야 합니다.
-- 네 방향 모두 같은 ground baseline과 같은 phase timing을 사용해야 합니다.
+- 네 방향 모두 같은 ground baseline을 사용해야 합니다.
 - 생성 prompt에는 픽셀화를 요구하지 않습니다.
-- 네 방향의 원본 MP4가 모두 생성되기 전에 후처리를 자동으로 시작하지 않습니다.
+- 생성 결과 전체를 검수하기 전에 픽셀화·최종 리사이즈·스프라이트 패킹을 자동으로 시작하지 않습니다.
 - 실패 결과도 입력, prompt, seed와 실행 시간을 함께 남겨 다음 실험에서 비교합니다.

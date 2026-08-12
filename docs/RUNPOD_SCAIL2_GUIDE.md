@@ -1,6 +1,10 @@
-# RunPod SCAIL-2 서버와 로컬 클라이언트 실행 가이드
+# 기각된 실험 기록 — RunPod SCAIL-2 서버와 로컬 클라이언트
 
-이 가이드는 작업 위치를 두 곳으로 분리한다.
+> **상태: 사용 중단.** 이 문서는 현재 권장 실행 가이드가 아니라 SCAIL-2 endpoint 구성 실험을 재현하기 위한 기록이다. SCAIL-2는 이미 존재하는 Driving RGB video의 motion을 Reference 캐릭터에 전이하며, 4방향 정지 이미지에서 걷기 동작 자체를 생성하지 않는다. 프로젝트 목표와 맞지 않아 주 동작 생성 경로에서 기각했다. 전체 판단 근거는 [SCAIL-2 4방향 걷기 생성 경로 기각 기록](SCAIL2_WALK_CYCLE_STRATEGY.md)을 따른다.
+
+아래 명령과 API 코드는 실행 흔적을 보존하기 위해 남긴다. 새 RunPod Pod를 만들거나 추가 GPU 비용을 사용해 이 경로를 계속 검증하지 않는다.
+
+실험 당시 작업 위치는 두 곳으로 분리했다.
 
 ```text
 [RunPod On-Demand Pod]
@@ -444,7 +448,7 @@ grep -v '^flash_attn$' \
   > /tmp/scail2-requirements.txt
 
 uv pip install -r /tmp/scail2-requirements.txt
-uv pip install packaging ninja
+uv pip install packaging ninja einops decord
 
 # CUDA toolkit과 nvcc가 있는 PyTorch development 이미지에서 실행한다.
 nvcc -V
