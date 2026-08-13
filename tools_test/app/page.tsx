@@ -2,21 +2,13 @@
 
 /* eslint-disable @next/next/no-img-element -- generated local files are shown without image optimization. */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Direction = "front" | "back" | "left" | "right";
 type AssetCatalogId = "tile" | "object" | "character" | "creature" | "item" | "vfx" | "ui" | "guide";
 type EndpointStatus = "꺼짐" | "확인 중" | "연결됨" | "오류";
-type JobStatus = "입력 준비" | "대기열" | "생성 중" | "영상 완료" | "실패";
-
-type DirectionInput = {
-  referenceImage: string;
-  referenceMask: string;
-  drivingVideo: string;
-  drivingMask: string;
-};
-
-type DirectionUploadFiles = Partial<Record<keyof DirectionInput, File>>;
+type JobStatus = "입력 준비" | "대기열" | "처리 중" | "완료" | "실패";
+type DirectionUploadFiles = Partial<Record<Direction, File>>;
 
 type JobState = {
   status: JobStatus;
@@ -28,7 +20,8 @@ type JobState = {
 
 type EndpointState = {
   status: EndpointStatus;
-  modelState?: string;
+  kimodoState?: string;
+  oneToAllState?: string;
   queueDepth?: number;
   message?: string;
 };
@@ -195,12 +188,7 @@ const ASSET_CATALOG: Array<{
   { id: "guide", code: "GD", label: "가이드", summary: "규격·방향·동작·점유·autotile", source: "마스터 에셋 카탈로그", sourceHref: "/docs/ASSET_CATALOG.md#10-생성-가이드-라이브러리", items: ["1x1 점유", "1x2 점유", "2x1 점유", "2x2 점유", "3x2 점유", "4방향 배치", "걷기 접촉 포즈", "한손 무기 포즈", "양손 무기 포즈", "도구 휘두르기 포즈", "활쏘기 포즈", "타일 edge-corner guide"] },
 ];
 
-const PROMPTS: Record<Direction, string> = {
-  front: "A full-body 2D game character performs one seamless in-place walk cycle in a fixed orthographic front view. The camera, framing, character scale, identity, costume, colors, and ground baseline remain constant.",
-  back: "A full-body 2D game character performs one seamless in-place walk cycle in a fixed orthographic back view. The camera, framing, character scale, identity, costume, colors, and ground baseline remain constant.",
-  left: "A full-body 2D game character performs one seamless in-place walk cycle in a fixed orthographic left-profile view. The camera, framing, character scale, identity, costume, colors, and ground baseline remain constant.",
-  right: "A full-body 2D game character performs one seamless in-place walk cycle in a fixed orthographic right-profile view. The camera, framing, character scale, identity, costume, colors, and ground baseline remain constant.",
-};
+const DEFAULT_MOTION_PROMPT = "Create one natural, seamless in-place walk cycle. Keep the supplied character identity, clothing, colors, proportions, scale, framing, and ground baseline consistent across all four directions.";
 
 function buildAssetPrompt(category: AssetCatalogId, item: string) {
   const subject = item.trim();
@@ -228,24 +216,18 @@ function randomChoice<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function createJobs(): Record<Direction, JobState> {
-  return Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, { status: "입력 준비" }])) as Record<Direction, JobState>;
-}
-
-function createDirectionUploadFiles(): Record<Direction, DirectionUploadFiles> {
-  return Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {}])) as Record<Direction, DirectionUploadFiles>;
-}
-
 export default function Home() {
   const [projectId, setProjectId] = useState("character-001");
   const [activeDirection, setActiveDirection] = useState<Direction>("front");
   const [assetCatalogId, setAssetCatalogId] = useState<AssetCatalogId>("tile");
-  const [directionUploadFiles, setDirectionUploadFiles] = useState<Record<Direction, DirectionUploadFiles>>(() => createDirectionUploadFiles());
-  const [prompts, setPrompts] = useState<Record<Direction, string>>(PROMPTS);
-  const [jobs, setJobs] = useState<Record<Direction, JobState>>(() => createJobs());
+  const [directionUploadFiles, setDirectionUploadFiles] = useState<DirectionUploadFiles>({});
+  const [directionUploadPreviewUrls, setDirectionUploadPreviewUrls] = useState<Partial<Record<Direction, string>>>({});
+  const directionPreviewUrlsRef = useRef<Partial<Record<Direction, string>>>({});
+  const [motionPrompt, setMotionPrompt] = useState(DEFAULT_MOTION_PROMPT);
+  const [job, setJob] = useState<JobState>({ status: "입력 준비" });
   const [endpoint, setEndpoint] = useState<EndpointState>({ status: "꺼짐" });
   const [imageEndpoint, setImageEndpoint] = useState<ImageEndpointState>({ status: "꺼짐" });
-  const [notice, setNotice] = useState("방향별 reference·mask·driver 파일은 로컬 Next proxy가 RunPod endpoint로 전송합니다.");
+  const [notice, setNotice] = useState("정면·후면·왼쪽·오른쪽 RGB 이미지 네 장을 한 작업으로 RunPod endpoint에 전송합니다.");
   const [submitting, setSubmitting] = useState(false);
   const [seed, setSeed] = useState(4821);
   const [assetCatalogItem, setAssetCatalogItem] = useState(ASSET_CATALOG[0].items[0]);
@@ -271,10 +253,6 @@ export default function Home() {
   const [characterNotice, setCharacterNotice] = useState("조건을 선택하거나 전체 랜덤으로 조합한 뒤 이미지 endpoint에 4방향 시트를 요청하세요.");
   const [generatingCharacter, setGeneratingCharacter] = useState(false);
 
-  const selectedDirection = useMemo(
-    () => DIRECTIONS.find((direction) => direction.id === activeDirection) ?? DIRECTIONS[0],
-    [activeDirection],
-  );
   const selectedAssetCatalog = useMemo(
     () => ASSET_CATALOG.find((catalog) => catalog.id === assetCatalogId) ?? ASSET_CATALOG[0],
     [assetCatalogId],
@@ -302,6 +280,10 @@ export default function Home() {
   useEffect(() => () => {
     if (directionSheetPreviewUrl) URL.revokeObjectURL(directionSheetPreviewUrl);
   }, [directionSheetPreviewUrl]);
+
+  useEffect(() => () => {
+    Object.values(directionPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -593,249 +575,208 @@ export default function Home() {
       const body = await response.json() as DirectionSplitResult & { error?: string };
       if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
       setDirectionSplit(body);
-      setJobs(createJobs());
+      setJob({ status: "입력 준비" });
       setActiveDirection("front");
-      setDirectionSplitNotice(`${body.source.width}×${body.source.height} 시트를 4개 RGB reference로 분할했습니다. mask와 driver 경로는 그대로 유지합니다.`);
-      setNotice(`${body.splitId} 분할 완료 · 방향별 REFERENCE RGB 경로를 적용했습니다.`);
-      console.info("[SCAIL_CONSOLE][DIRECTION_SPLIT_COMPLETE]", body);
+      setDirectionSplitNotice(`${body.source.width}×${body.source.height} 시트를 정면·후면·왼쪽·오른쪽 RGB 네 장으로 분할했습니다.`);
+      setNotice(`${body.splitId} 분할 완료 · 네 방향 이미지가 단일 동작 요청 입력에 연결됐습니다.`);
+      console.info("[MOTION_PIPELINE][DIRECTION_SPLIT_COMPLETE]", body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "4방향 시트 분할 실패";
       setDirectionSplitNotice(`분할 실패 · ${message}`);
-      console.error("[SCAIL_CONSOLE][DIRECTION_SPLIT_FAILED]", { message });
+      console.error("[MOTION_PIPELINE][DIRECTION_SPLIT_FAILED]", { message });
     } finally {
       setSplittingDirections(false);
     }
   }
 
-  function applyProjectPaths() {
-    setDirectionUploadFiles(createDirectionUploadFiles());
-    setJobs(createJobs());
-    setDirectionSplit(null);
-    setNotice(`${projectId || "CHARACTER_ID"} 입력 이름을 초기화했습니다. 실제 파일은 생성 요청 시 로컬 Next proxy를 거쳐 RunPod에 업로드합니다.`);
+  function resetMotionRequest() {
+    Object.values(directionPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    directionPreviewUrlsRef.current = {};
+    setDirectionUploadFiles({});
+    setDirectionUploadPreviewUrls({});
+    setJob({ status: "입력 준비" });
+    setNotice(`${projectId || "CHARACTER_ID"} 명시적 업로드를 초기화했습니다. 분할된 네 방향 이미지는 계속 사용할 수 있습니다.`);
   }
 
-  function updateDirectionUpload(key: keyof DirectionInput, file: File | null) {
+  function updateDirectionUpload(direction: Direction, file: File | null) {
     setDirectionUploadFiles((current) => {
-      const nextDirection = { ...current[activeDirection] };
-      if (file) nextDirection[key] = file;
-      else delete nextDirection[key];
-      return { ...current, [activeDirection]: nextDirection };
+      const next = { ...current };
+      if (file) next[direction] = file;
+      else delete next[direction];
+      return next;
     });
-    setJobs((current) => ({ ...current, [activeDirection]: { status: "입력 준비" } }));
+    setDirectionUploadPreviewUrls((current) => {
+      const previous = current[direction];
+      if (previous) URL.revokeObjectURL(previous);
+      const next = { ...current };
+      if (file) next[direction] = URL.createObjectURL(file);
+      else delete next[direction];
+      directionPreviewUrlsRef.current = next;
+      return next;
+    });
+    setJob({ status: "입력 준비" });
   }
 
-  async function resolveDirectionFile(direction: Direction, key: keyof DirectionInput): Promise<File> {
-    const selectedFile = directionUploadFiles[direction][key];
+  async function resolveDirectionImage(direction: Direction): Promise<File> {
+    const selectedFile = directionUploadFiles[direction];
     if (selectedFile) return selectedFile;
 
     const splitCell = directionSplit?.directions[direction];
-    if (key === "referenceImage" && splitCell) {
+    if (splitCell) {
       const response = await fetch(splitCell.url, { cache: "no-store" });
-      if (!response.ok) throw new Error(`${direction} reference RGB를 읽지 못했습니다.`);
+      if (!response.ok) throw new Error(`${direction} RGB 이미지를 읽지 못했습니다.`);
       const blob = await response.blob();
-      return new File([blob], `${direction}-ref.png`, { type: blob.type || "image/png" });
+      return new File([blob], `${direction}.png`, { type: blob.type || "image/png" });
     }
 
-    throw new Error(`${DIRECTIONS.find((item) => item.id === direction)?.label} ${key} 파일을 선택하세요.`);
+    throw new Error(`${DIRECTIONS.find((item) => item.id === direction)?.label} 이미지를 선택하세요.`);
   }
 
   async function checkHealth() {
     setEndpoint({ status: "확인 중" });
-    setNotice("SCAIL-2 Pod와 단일 GPU worker 상태를 확인 중입니다.");
+    setNotice("Kimodo·One-to-All 상주 worker와 단일 GPU queue 상태를 확인 중입니다.");
     try {
-      const response = await fetch("/api/scail2/health", { cache: "no-store" });
-      const body = await response.json() as { ok?: boolean; model_state?: string; queue_depth?: number; message?: string };
+      const response = await fetch("/api/motion-pipeline/health", { cache: "no-store" });
+      const body = await response.json() as { ok?: boolean; kimodo_state?: string; one_to_all_state?: string; queue_depth?: number; message?: string };
       if (!response.ok || !body.ok) throw new Error(body.message || `HTTP ${response.status}`);
-      setEndpoint({ status: "연결됨", modelState: body.model_state, queueDepth: body.queue_depth });
-      setNotice(`Pod 연결 완료 · model ${body.model_state ?? "unknown"} · queue ${body.queue_depth ?? 0}`);
-      console.info("[SCAIL_CONSOLE][HEALTH_OK]", body);
+      setEndpoint({ status: "연결됨", kimodoState: body.kimodo_state, oneToAllState: body.one_to_all_state, queueDepth: body.queue_depth });
+      setNotice(`Pod 연결 완료 · Kimodo ${body.kimodo_state ?? "unknown"} · One-to-All ${body.one_to_all_state ?? "unknown"} · queue ${body.queue_depth ?? 0}`);
+      console.info("[MOTION_PIPELINE][HEALTH_OK]", body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Pod 연결 실패";
       setEndpoint({ status: "오류", message });
       setNotice(`Pod 연결 실패 · ${message}`);
-      console.error("[SCAIL_CONSOLE][HEALTH_FAILED]", { message });
+      console.error("[MOTION_PIPELINE][HEALTH_FAILED]", { message });
     }
   }
 
-  async function pollJob(direction: Direction, jobId: string) {
+  async function pollJob(jobId: string) {
     for (let attempt = 0; attempt < 600; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, 3000));
       try {
-        const response = await fetch(`/api/scail2/jobs/${jobId}`, { cache: "no-store" });
-        const body = await response.json() as { status?: string; output_url?: string; runtime_seconds?: number; error?: string };
+        const response = await fetch(`/api/motion-pipeline/jobs/${jobId}`, { cache: "no-store" });
+        const body = await response.json() as { status?: string; stage?: string; output_url?: string; runtime_seconds?: number; error?: string };
         if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
         const status: JobStatus = body.status === "completed"
-          ? "영상 완료"
+          ? "완료"
           : body.status === "failed"
             ? "실패"
             : body.status === "running"
-              ? "생성 중"
+              ? "처리 중"
               : "대기열";
-        setJobs((current) => ({
+        setJob((current) => ({
           ...current,
-          [direction]: {
-            ...current[direction],
-            status,
-            outputUrl: body.output_url ? `/api/scail2/jobs/${jobId}/output` : undefined,
-            runtimeSeconds: body.runtime_seconds,
-            error: body.error,
-          },
+          status,
+          outputUrl: body.output_url ? `/api/motion-pipeline/jobs/${jobId}/output` : undefined,
+          runtimeSeconds: body.runtime_seconds,
+          error: body.error,
         }));
-        if (status === "영상 완료" || status === "실패") {
-          setNotice(`${DIRECTIONS.find((item) => item.id === direction)?.label} 작업 ${status}.${status === "영상 완료" ? " 결과 MP4를 이 화면에서 내려받을 수 있습니다." : ""}`);
+        if (status === "처리 중" && body.stage) setNotice(`${jobId} · ${body.stage}`);
+        if (status === "완료" || status === "실패") {
+          setNotice(`4방향 동작 작업 ${status}.${status === "완료" ? " result.zip을 이 화면에서 내려받을 수 있습니다." : ""}`);
           return;
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "작업 조회 실패";
-        setJobs((current) => ({ ...current, [direction]: { ...current[direction], status: "실패", error: message } }));
-        setNotice(`${direction} 작업 조회 실패 · ${message}`);
+        setJob((current) => ({ ...current, status: "실패", error: message }));
+        setNotice(`작업 조회 실패 · ${message}`);
         return;
       }
     }
   }
 
-  async function submitJob(direction: Direction) {
-    const form = new FormData();
-    form.set("direction", direction);
-    form.set("prompt", prompts[direction]);
-    form.set("reference_image", await resolveDirectionFile(direction, "referenceImage"));
-    form.set("reference_mask", await resolveDirectionFile(direction, "referenceMask"));
-    form.set("driving_video", await resolveDirectionFile(direction, "drivingVideo"));
-    form.set("driving_mask", await resolveDirectionFile(direction, "drivingMask"));
-    form.set("target_width", "896");
-    form.set("target_height", "512");
-    form.set("sample_steps", "40");
-    form.set("sample_shift", "3");
-    form.set("sample_guide_scale", "5");
-    form.set("sample_solver", "unipc");
-    form.set("seed", String(seed));
-    const response = await fetch("/api/scail2/jobs", {
-      method: "POST",
-      body: form,
-    });
-    const body = await response.json() as { job_id?: string; error?: string };
-    if (!response.ok || !body.job_id) throw new Error(body.error || "작업 등록 실패");
-    setJobs((current) => ({ ...current, [direction]: { status: "대기열", jobId: body.job_id } }));
-    console.info("[SCAIL_CONSOLE][JOB_QUEUED]", { direction, jobId: body.job_id });
-    void pollJob(direction, body.job_id);
-  }
-
-  async function submitSelected() {
+  async function submitMotionJob() {
     if (submitting || endpoint.status !== "연결됨") return;
     setSubmitting(true);
-    setNotice(`${selectedDirection.label} 한 cycle job을 등록합니다.`);
+    setNotice("네 방향 RGB 이미지를 하나의 동작 생성 작업으로 등록합니다.");
+    setJob({ status: "대기열" });
     try {
-      await submitJob(activeDirection);
+      const form = new FormData();
+      for (const direction of DIRECTIONS) form.set(direction.id, await resolveDirectionImage(direction.id));
+      form.set("action", "walk");
+      form.set("prompt", motionPrompt);
+      form.set("seed", String(seed));
+      const response = await fetch("/api/motion-pipeline/jobs", {
+        method: "POST",
+        body: form,
+      });
+      const body = await response.json() as { job_id?: string; error?: string };
+      if (!response.ok || !body.job_id) throw new Error(body.error || "작업 등록 실패");
+      setJob({ status: "대기열", jobId: body.job_id });
+      console.info("[MOTION_PIPELINE][JOB_QUEUED]", { jobId: body.job_id });
+      void pollJob(body.job_id);
     } catch (error) {
       const message = error instanceof Error ? error.message : "작업 등록 실패";
-      setJobs((current) => ({ ...current, [activeDirection]: { status: "실패", error: message } }));
-      setNotice(`${selectedDirection.label} 등록 실패 · ${message}`);
+      setJob({ status: "실패", error: message });
+      setNotice(`4방향 작업 등록 실패 · ${message}`);
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function submitAll() {
-    if (submitting || endpoint.status !== "연결됨") return;
-    setSubmitting(true);
-    setNotice("정면 → 후면 → 왼쪽 → 오른쪽 순서로 job_id를 등록합니다. GPU worker는 한 작업씩 실행합니다.");
+  async function deleteRemoteJob() {
+    if (!job.jobId || !["완료", "실패"].includes(job.status)) return;
+    if (job.outputUrl && !window.confirm("result.zip을 로컬에 저장했나요? 삭제하면 RunPod 결과를 다시 받을 수 없습니다.")) return;
     try {
-      for (const direction of DIRECTIONS) await submitJob(direction.id);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "4방향 등록 실패";
-      setNotice(`4방향 등록 중단 · ${message}`);
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function deleteRemoteJob(direction: Direction) {
-    const job = jobs[direction];
-    if (!job.jobId || !["영상 완료", "실패"].includes(job.status)) return;
-    if (job.outputUrl && !window.confirm(`${DIRECTIONS.find((item) => item.id === direction)?.label} MP4를 로컬에 저장했나요? 삭제하면 RunPod 결과를 다시 받을 수 없습니다.`)) return;
-    try {
-      const response = await fetch(`/api/scail2/jobs/${job.jobId}`, { method: "DELETE" });
+      const response = await fetch(`/api/motion-pipeline/jobs/${job.jobId}`, { method: "DELETE" });
       if (!response.ok) {
         const body = await response.json() as { error?: string; detail?: string };
         throw new Error(body.error || body.detail || `HTTP ${response.status}`);
       }
-      setJobs((current) => ({ ...current, [direction]: { status: "입력 준비" } }));
-      setNotice(`${DIRECTIONS.find((item) => item.id === direction)?.label} RunPod 입력·결과 임시 파일을 삭제했습니다.`);
-      console.info("[SCAIL_CONSOLE][REMOTE_JOB_DELETED]", { direction, jobId: job.jobId });
+      setJob({ status: "입력 준비" });
+      setNotice("RunPod의 4방향 입력과 결과 임시 파일을 삭제했습니다.");
+      console.info("[MOTION_PIPELINE][REMOTE_JOB_DELETED]", { jobId: job.jobId });
     } catch (error) {
       const message = error instanceof Error ? error.message : "RunPod 작업 삭제 실패";
-      setNotice(`${direction} RunPod 작업 삭제 실패 · ${message}`);
-      console.error("[SCAIL_CONSOLE][REMOTE_JOB_DELETE_FAILED]", { direction, jobId: job.jobId, message });
+      setNotice(`RunPod 작업 삭제 실패 · ${message}`);
+      console.error("[MOTION_PIPELINE][REMOTE_JOB_DELETE_FAILED]", { jobId: job.jobId, message });
     }
   }
 
   function downloadManifest() {
     const payload = {
       project_id: projectId,
-      views: Object.fromEntries(DIRECTIONS.map((direction) => [direction.id, {
-        local_reference_image: directionSplit?.directions[direction.id].localClientPath ?? `inputs/${projectId}/${direction.id}/ref.jpg`,
-        local_reference_mask: `inputs/${projectId}/${direction.id}/ref_mask.jpg`,
-        local_driving_video: `inputs/master-walk-17f/${direction.id}/rendered_v2.mp4`,
-        local_driving_mask: `inputs/master-walk-17f/${direction.id}/rendered_mask_v2.mp4`,
-        prompt: prompts[direction.id],
-      }])),
-      generation: { width: 896, height: 512, steps: 40, shift: 3, cfg: 5, solver: "unipc", seed },
-      local_extract: { indices: EXTRACT_INDICES },
+      inputs: Object.fromEntries(DIRECTIONS.map((direction) => [direction.id,
+        directionSplit?.directions[direction.id].localClientPath ?? `inputs/${projectId}/${direction.id}.png`,
+      ])),
+      request: { action: "walk", prompt: motionPrompt, seed },
+      expected_output: { archive: "result.zip", directions: 4, frames_per_direction: 8, total_png: 32 },
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${projectId || "scail2"}-manifest.json`;
+    anchor.download = `${projectId || "motion-pipeline"}-manifest.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
 
-  const selectedJob = jobs[activeDirection];
-  const activeUploads = directionUploadFiles[activeDirection];
-  const canSubmit = Boolean(
-    prompts[activeDirection].trim()
-    && (activeUploads.referenceImage || directionSplit?.directions[activeDirection])
-    && activeUploads.referenceMask
-    && activeUploads.drivingVideo
-    && activeUploads.drivingMask,
-  );
-  const canSubmitAll = DIRECTIONS.every((direction) => {
-    const uploads = directionUploadFiles[direction.id];
-    return Boolean(
-      prompts[direction.id].trim()
-      && (uploads.referenceImage || directionSplit?.directions[direction.id])
-      && uploads.referenceMask
-      && uploads.drivingVideo
-      && uploads.drivingMask,
-    );
-  });
+  const canSubmit = Boolean(motionPrompt.trim() && DIRECTIONS.every((direction) => directionUploadFiles[direction.id] || directionSplit?.directions[direction.id]));
   const selectedItemInventory = assetInventory.filter((result) => result.assetName === assetCatalogItem);
   const storedCharacterSheets = directionSheetInventory.filter((item) => item.category === "character" && item.imageUrl.startsWith("/generated/character-sheets/"));
   const selectedInventoryDirectionSheet = directionSheetInventory.find((item) => item.generationId === directionSheetInventoryId) ?? null;
   const directionSheetSourceUrl = directionSheetSourceMode === "inventory"
     ? selectedInventoryDirectionSheet?.imageUrl ?? directionSheetPreviewUrl
     : directionSheetPreviewUrl || selectedInventoryDirectionSheet?.imageUrl;
-  const selectedDirectionCrop = directionSplit?.directions[activeDirection];
 
   return (
     <main className="app-shell scail-console">
       <header className="topbar scail-console-topbar">
-        <div className="brand"><span>S2</span><div><small>LOCAL SCAIL PRODUCTION CLIENT</small><h1>4-View Walk Factory</h1></div></div>
-        <div className="topology-title">browser / local Next proxy / one GPU worker</div>
-        <div className="endpoint-cluster"><div className="runpod-state" data-status={endpoint.status}><i /><strong>SCAIL-2 {endpoint.status}</strong></div><button type="button" className="secondary-button" onClick={checkHealth} data-testid="check-scail-runpod">Pod 연결 확인</button></div>
+        <div className="brand"><span>M4</span><div><small>LOCAL 4-DIRECTION MOTION CLIENT</small><h1>Asset Motion Workbench</h1></div></div>
+        <div className="topology-title">browser / local Next proxy / resident GPU workers</div>
+        <div className="endpoint-cluster"><div className="runpod-state" data-status={endpoint.status}><i /><strong>MOTION POD {endpoint.status}</strong></div><button type="button" className="secondary-button" onClick={checkHealth} data-testid="check-motion-pipeline">Pod 연결 확인</button></div>
       </header>
 
       <nav className="phase-rail" aria-label="production stages">
-        <div className="phase is-ready"><span>01</span><div><strong>Canonical 4방향</strong><small>준비된 입력 이미지·마스크</small></div></div>
-        <div className="phase is-ready"><span>02</span><div><strong>Master Walk 17F</strong><small>한 motion · 네 고정 camera</small></div></div>
-        <div className="phase is-active"><span>03</span><div><strong>SCAIL-2 4 Jobs</strong><small>방향당 한 cycle 영상</small></div></div>
-        <div className="phase"><span>04</span><div><strong>Local 8-Phase Pick</strong><small>4×8 = 32 PNG</small></div></div>
+        <div className="phase is-ready"><span>01</span><div><strong>4방향 RGB</strong><small>front · back · left · right</small></div></div>
+        <div className="phase is-active"><span>02</span><div><strong>Kimodo Motion</strong><small>자연스러운 동작 1개</small></div></div>
+        <div className="phase"><span>03</span><div><strong>Motion Adapter</strong><small>체형 · 4방향 · 기준선</small></div></div>
+        <div className="phase"><span>04</span><div><strong>One-to-All + Pack</strong><small>4×8 = 32 PNG</small></div></div>
       </nav>
 
       <section className="architecture-map" data-testid="architecture-map">
-        <article><small>LOCAL CLIENT</small><strong>4 refs + 4 drivers</strong><span>same-origin Next proxy</span></article><b>→</b>
-        <article className="is-primary"><small>ON-DEMAND POD</small><strong>SCAIL-2 loaded once</strong><span>FastAPI :8000 · serial GPU queue</span></article><b>→</b>
-        <article><small>RESULT ENDPOINT</small><strong>client downloads MP4</strong><span>then 0·2·4·6·8·10·12·14</span></article>
+        <article><small>LOCAL CLIENT</small><strong>4 direction images</strong><span>한 multipart 요청 · same-origin proxy</span></article><b>→</b>
+        <article className="is-primary"><small>RUNPOD 48GB</small><strong>Kimodo + One-to-All resident</strong><span>FastAPI :8000 · GPU concurrency 1</span></article><b>→</b>
+        <article><small>RESULT ENDPOINT</small><strong>client downloads result.zip</strong><span>4 folders · 8 frames · 32 PNG</span></article>
       </section>
 
       <section className="character-generator-workbench" data-testid="character-generator">
@@ -880,7 +821,7 @@ export default function Home() {
 
       <section className="direction-split-workbench" data-testid="direction-sheet-splitter">
         <header>
-          <div><small>CANONICAL SHEET PREPARATION</small><h2>2×2 4방향 시트 분할</h2><p>기존 분할 규칙을 복원했습니다. 한 시트를 네 방향 RGB reference로 자르고 아래 방향별 입력칸에 연결합니다.</p></div>
+          <div><small>CANONICAL SHEET PREPARATION</small><h2>2×2 4방향 시트 분할</h2><p>기존 분할 규칙을 유지합니다. 한 시트를 네 방향 RGB로 자르고 아래 단일 동작 요청의 네 입력칸에 연결합니다.</p></div>
           <strong>TL FRONT · TR BACK · BL RIGHT · BR LEFT</strong>
         </header>
         <div className="direction-split-body">
@@ -916,64 +857,70 @@ export default function Home() {
             })}
           </div>
         </div>
-        <footer><i />{directionSplitNotice}<span>REFERENCE MASK · DRIVING RGB · DRIVING MASK는 변경하지 않습니다.</span></footer>
+        <footer><i />{directionSplitNotice}<span>분할 결과 또는 방향별 업로드 중 하나를 요청 입력으로 사용합니다.</span></footer>
       </section>
 
-      <section className="scail-console-grid">
+      <section className="scail-console-grid motion-request-workbench" data-testid="motion-request-workbench">
         <aside className="scail-project-panel">
-          <header><small>PROJECT MANIFEST</small><h2>입력 구조</h2></header>
-          <label><span>캐릭터 ID</span><input value={projectId} onChange={(event) => setProjectId(event.target.value)} data-testid="scail-project-id" /></label>
-          <button type="button" onClick={applyProjectPaths} data-testid="apply-scail-path-template">입력 파일 초기화</button>
-          <button type="button" onClick={downloadManifest} data-testid="download-scail-manifest">로컬 manifest 저장</button>
-          <div className="input-rule"><strong>Reference</strong><p>정면·후면·좌·우 standing neutral 이미지와 각 reference mask를 별도로 준비합니다.</p></div>
-          <div className="input-rule"><strong>Master Motion</strong><p>하나의 rig·하나의 17-frame closed walk를 네 고정 camera로 렌더합니다.</p></div>
-          <div className="input-rule"><strong>전처리 분리</strong><p>SCAIL-Pose mask 생성은 asset 준비 단계에서 한 번 수행합니다. generation endpoint가 매번 전처리하지 않습니다.</p></div>
+          <header><small>PROJECT REQUEST</small><h2>단일 작업 설정</h2></header>
+          <label><span>캐릭터 ID</span><input value={projectId} onChange={(event) => setProjectId(event.target.value)} data-testid="motion-project-id" /></label>
+          <button type="button" onClick={resetMotionRequest} data-testid="reset-motion-inputs">방향별 업로드 초기화</button>
+          <button type="button" onClick={downloadManifest} data-testid="download-motion-manifest">요청 manifest 저장</button>
+          <div className="input-rule"><strong>입력은 RGB 네 장</strong><p>정면·후면·왼쪽·오른쪽 이미지만 보냅니다. mask와 driving video는 클라이언트 입력이 아닙니다.</p></div>
+          <div className="input-rule"><strong>서버 내부 처리</strong><p>Kimodo 동작 생성 → Motion Adapter 4방향 변환 → One-to-All 순차 작화 → 32 PNG 패킹 순서입니다.</p></div>
+          <div className="input-rule"><strong>결과 수신</strong><p>서버가 만든 result.zip을 로컬 클라이언트가 직접 내려받습니다.</p></div>
           <div className="notice-box"><i />{notice}</div>
         </aside>
 
         <section className="scail-direction-panel">
-          <div className="scail-direction-tabs" role="tablist" aria-label="방향 선택">
-            {DIRECTIONS.map((direction) => <button type="button" role="tab" aria-selected={activeDirection === direction.id} className={activeDirection === direction.id ? "is-active" : ""} key={direction.id} onClick={() => setActiveDirection(direction.id)} data-testid={`scail-direction-${direction.id}`}><span>{direction.code}</span><strong>{direction.label}</strong><small>{direction.camera} · {jobs[direction.id].status}</small></button>)}
-          </div>
-
           <div className="direction-editor">
-            <header><div><small>{selectedDirection.code} / {selectedDirection.camera}</small><h2>{selectedDirection.label} 한 cycle 입력</h2></div><span>Animation Mode · replace_flag=false</span></header>
-            <div className="direction-input-grid">
-              {([
-                ["referenceImage", "REFERENCE RGB", "ref.jpg"],
-                ["referenceMask", "REFERENCE MASK", "ref_mask.jpg"],
-                ["drivingVideo", "DRIVING RGB 17F", "rendered_v2.mp4"],
-                ["drivingMask", "DRIVING MASK 17F", "rendered_mask_v2.mp4"],
-              ] as const).map(([key, title, filename]) => <label key={`${activeDirection}-${key}`}><span><b>{title}</b><small>{filename}</small></span><input type="file" accept={key === "referenceImage" || key === "referenceMask" ? "image/*" : "video/*"} onChange={(event) => updateDirectionUpload(key, event.target.files?.[0] ?? null)} data-testid={`scail-file-${activeDirection}-${key}`} /><small>{directionUploadFiles[activeDirection][key]?.name ?? (key === "referenceImage" && selectedDirectionCrop ? "분할된 RGB reference 사용" : "파일 선택 필요")}</small></label>)}
+            <header><div><small>POST /v1/jobs · MULTIPART</small><h2>4방향 이미지 한 번에 전송</h2></div><span>GPU QUEUE · 1</span></header>
+            <div className="motion-image-grid" data-testid="motion-direction-inputs">
+              {DIRECTIONS.map((direction) => {
+                const uploaded = directionUploadFiles[direction.id];
+                const split = directionSplit?.directions[direction.id];
+                const preview = directionUploadPreviewUrls[direction.id] ?? (split ? `${split.url}?split=${directionSplit?.splitId}` : "");
+                return <label key={direction.id} className={uploaded || split ? "is-ready" : ""}>
+                  <span><b>{direction.code} · {direction.label}</b><small>{direction.id} · {direction.camera}</small></span>
+                  <div>{preview ? <img src={preview} alt={`${direction.label} 동작 입력`} /> : <small>이미지 대기</small>}</div>
+                  <input type="file" accept="image/*" onChange={(event) => updateDirectionUpload(direction.id, event.target.files?.[0] ?? null)} data-testid={`motion-image-${direction.id}`} />
+                  <small>{uploaded?.name ?? (split ? "분할된 RGB 사용" : "PNG·JPG·WEBP 선택")}</small>
+                </label>;
+              })}
             </div>
-            {selectedDirectionCrop ? <div className="direction-reference-preview" data-testid={`active-direction-reference-${activeDirection}`}><img src={`${selectedDirectionCrop.url}?split=${directionSplit?.splitId}`} alt={`${selectedDirection.label} REFERENCE RGB 미리보기`} /><div><small>분할된 REFERENCE RGB</small><strong>{selectedDirectionCrop.localClientPath}</strong><span>요청 시 로컬 Next proxy가 RunPod로 업로드</span></div></div> : null}
-            <label className="prompt-editor"><span>생성될 영상 설명</span><textarea rows={5} value={prompts[activeDirection]} onChange={(event) => setPrompts((current) => ({ ...current, [activeDirection]: event.target.value }))} data-testid={`scail-prompt-${activeDirection}`} /></label>
-            <div className="scail-params"><span><small>SIZE</small><strong>896×512</strong></span><span><small>STEPS</small><strong>40</strong></span><span><small>SHIFT</small><strong>3.0</strong></span><span><small>CFG</small><strong>5.0</strong></span><span><small>SOLVER</small><strong>UniPC</strong></span><label><small>SEED</small><input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label></div>
-            <div className="job-actions"><div><strong>{selectedJob.status}</strong><small>{selectedJob.jobId ?? "job_id 대기"}</small></div><button type="button" onClick={submitSelected} disabled={endpoint.status !== "연결됨" || submitting || !canSubmit} data-testid="queue-selected-scail-job">{selectedDirection.label} cycle 등록</button><button type="button" onClick={submitAll} disabled={endpoint.status !== "연결됨" || submitting || !canSubmitAll} data-testid="queue-all-scail-jobs">4방향 순서대로 등록</button></div>
+            <label className="prompt-editor"><span>동작 설명 · 직접 수정 가능</span><textarea rows={5} value={motionPrompt} onChange={(event) => setMotionPrompt(event.target.value)} data-testid="motion-prompt" /></label>
+            <div className="scail-params motion-params"><span><small>ACTION</small><strong>walk</strong></span><span><small>INPUT</small><strong>4 RGB</strong></span><span><small>OUTPUT</small><strong>result.zip</strong></span><span><small>FRAMES</small><strong>4 × 8 PNG</strong></span><label><small>SEED</small><input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label></div>
+            <div className="job-actions motion-job-actions"><div><strong>{job.status}</strong><small>{job.jobId ?? "job_id 대기"}</small></div><button type="button" onClick={submitMotionJob} disabled={endpoint.status !== "연결됨" || submitting || !canSubmit} data-testid="queue-motion-job">{submitting ? "전송 중…" : "4방향 동작 생성 요청"}</button></div>
           </div>
         </section>
       </section>
 
-      <section className="job-board" data-testid="scail-job-board">
-        <header><div><small>POD JOB QUEUE</small><h2>4방향 원본 영상</h2></div><span>model {endpoint.modelState ?? "unknown"} · queue {endpoint.queueDepth ?? 0}</span></header>
-        <div className="job-card-grid">
-          {DIRECTIONS.map((direction) => {
-            const job = jobs[direction.id];
-            return <article key={direction.id} className={`job-card is-${job.status.replace(" ", "-")}`}><header><span>{direction.code}</span><div><strong>{direction.label} 17F cycle</strong><small>{job.status}</small></div></header><div className="job-flow"><span>ref</span><b>+</b><span>driver</span><b>→</b><span>raw mp4</span></div><strong>{job.jobId ?? "작업 미등록"}</strong>{job.outputUrl ? <><video src={job.outputUrl} controls loop playsInline preload="metadata" aria-label={`${direction.label} 생성 결과`} /><a href={job.outputUrl} download={`${direction.id}_animation_raw.mp4`}>원본 MP4 로컬 저장</a></> : <small>결과 다운로드 대기</small>}{job.jobId && ["영상 완료", "실패"].includes(job.status) ? <button type="button" className="remote-job-delete" onClick={() => deleteRemoteJob(direction.id)} data-testid={`delete-scail-job-${direction.id}`}>RunPod 임시 파일 삭제</button> : null}{job.runtimeSeconds ? <p>runtime {job.runtimeSeconds.toFixed(1)}s</p> : null}{job.error ? <p className="job-error">{job.error}</p> : null}</article>;
-          })}
+      <section className="job-board motion-job-board" data-testid="motion-job-board">
+        <header><div><small>POD PIPELINE JOB</small><h2>단일 작업 상태와 결과</h2></div><span>Kimodo {endpoint.kimodoState ?? "unknown"} · One-to-All {endpoint.oneToAllState ?? "unknown"} · queue {endpoint.queueDepth ?? 0}</span></header>
+        <div className="motion-job-flow">
+          <article><span>01</span><strong>4 RGB upload</strong><small>front · back · left · right</small></article><b>→</b>
+          <article><span>02</span><strong>Kimodo</strong><small>motion.npz</small></article><b>→</b>
+          <article><span>03</span><strong>Motion Adapter</strong><small>4-direction pose</small></article><b>→</b>
+          <article><span>04</span><strong>One-to-All</strong><small>serial render</small></article><b>→</b>
+          <article className={job.status === "완료" ? "is-ready" : ""}><span>05</span><strong>result.zip</strong><small>32 PNG + sheet + metadata</small></article>
+        </div>
+        <div className="motion-job-result">
+          <div><strong>{job.jobId ?? "작업 미등록"}</strong><span>{job.status}</span>{job.runtimeSeconds ? <small>runtime {job.runtimeSeconds.toFixed(1)}s</small> : null}{job.error ? <small className="job-error">{job.error}</small> : null}</div>
+          {job.outputUrl ? <a href={job.outputUrl} download={`${projectId || "motion"}-result.zip`} data-testid="download-motion-result">result.zip 로컬 저장</a> : <small>완료 후 result.zip 다운로드가 활성화됩니다.</small>}
+          {job.jobId && ["완료", "실패"].includes(job.status) ? <button type="button" onClick={deleteRemoteJob} data-testid="delete-motion-job">RunPod 임시 파일 삭제</button> : null}
         </div>
       </section>
 
-      <section className="frame-board" data-testid="local-frame-extraction">
-        <header><div><small>LOCAL POST GENERATION</small><h2>동일 phase 32프레임</h2><p>Pod는 raw video까지만 생성합니다. 로컬 클라이언트가 영상을 내려받은 뒤 PNG를 추출합니다.</p></div><code>0 · 2 · 4 · 6 · 8 · 10 · 12 · 14</code></header>
-        <div className="phase-header"><span>VIEW</span>{PHASES.map((phase, index) => <span key={phase}><b>{index + 1}</b><small>{phase}</small><em>F{EXTRACT_INDICES[index]}</em></span>)}</div>
-        {DIRECTIONS.map((direction) => <div className="phase-row" key={direction.id}><strong>{direction.code}<small>{direction.label}</small></strong>{EXTRACT_INDICES.map((frame) => <span key={frame} className={jobs[direction.id].status === "영상 완료" ? "is-download-ready" : ""}><b>PNG</b><small>source F{frame}</small></span>)}</div>)}
-        <footer><strong>Frame 16은 출력 PNG에서 제외</strong><span>Frame 0과 같은 pose인지 loop closure 검증에만 사용</span><code>python runpod/scail2_client/client.py manifest.json --views front</code></footer>
+      <section className="frame-board" data-testid="motion-result-layout">
+        <header><div><small>RESULT.ZIP CONTENTS</small><h2>4방향 · 방향당 8프레임</h2><p>프레임 추출과 패킹까지 서버 작업에 포함하고, 로컬은 완성된 archive를 내려받습니다.</p></div><code>front / back / left / right</code></header>
+        <div className="phase-header"><span>VIEW</span>{PHASES.map((phase, index) => <span key={phase}><b>{index + 1}</b><small>{phase}</small><em>{index}.png</em></span>)}</div>
+        {DIRECTIONS.map((direction) => <div className="phase-row" key={direction.id}><strong>{direction.code}<small>{direction.label}</small></strong>{EXTRACT_INDICES.map((frame, index) => <span key={frame} className={job.status === "완료" ? "is-download-ready" : ""}><b>{index}.png</b><small>phase {index + 1}</small></span>)}</div>)}
+        <footer><strong>총 32 PNG</strong><span>sprite_sheet.png과 metadata.json도 같은 result.zip에 포함</span><code>GET /v1/jobs/JOB_ID/output</code></footer>
       </section>
 
       <section className="catalog-workbench asset-catalog-workbench" data-testid="asset-catalog">
         <header className="catalog-workbench-heading">
-          <div><small>PRESERVED ASSET CATALOG</small><h2>농장 RPG 전체 에셋 목록</h2><p>SCAIL-2 동작 작업과 별개로 기존 타일·오브젝트·캐릭터·생명체·아이템·VFX·UI·가이드 목록을 계속 유지합니다.</p></div>
+          <div><small>PRESERVED ASSET CATALOG</small><h2>농장 RPG 전체 에셋 목록</h2><p>동작 생성 작업과 별개로 기존 타일·오브젝트·캐릭터·생명체·아이템·VFX·UI·가이드 목록을 계속 유지합니다.</p></div>
           <nav className="catalog-doc-links" aria-label="상세 카탈로그 문서">
             <a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/TILE_CATALOG.md" target="_blank" rel="noreferrer">타일 상세 표</a>
             <a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/OBJECT_CATALOG.md" target="_blank" rel="noreferrer">오브젝트 상세 표</a>
@@ -1026,9 +973,9 @@ export default function Home() {
       </section>
 
       <section className="deployment-note">
-        <div><small>RUNPOD</small><h2>On-Demand Pod</h2><p>A100 80GB 시작 · Network Volume 약 180~200GB · HTTP 8000</p></div>
-        <code>POST multipart → job_id → GET status → GET output</code>
-        <div><strong>로컬 환경변수</strong><small>SCAIL2_BASE_URL · SCAIL2_API_TOKEN</small><a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/failures/RUNPOD_SCAIL2_GUIDE.md" target="_blank" rel="noreferrer">설치·실행 가이드</a></div>
+        <div><small>RUNPOD</small><h2>48GB On-Demand Pod</h2><p>Kimodo + One-to-All 1.3B GPU 상주 · HTTP 8000 · 추론 직렬 처리</p></div>
+        <code>4 RGB multipart → job_id → status → result.zip</code>
+        <div><strong>로컬 환경변수</strong><small>MOTION_PIPELINE_BASE_URL · MOTION_PIPELINE_API_TOKEN</small><a href="https://github.com/yyeongjin/2d-assets-generator/blob/main/docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md" target="_blank" rel="noreferrer">설치·실행 가이드</a></div>
       </section>
     </main>
   );

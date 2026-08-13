@@ -12,9 +12,9 @@
 
 ![캐릭터 조건과 4방향 기준 시트](tools_test/public/screenshots/current-workbench.png)
 
-### 저장된 4방향 시트 분할과 기각된 동작 전이 실험
+### 저장된 4방향 시트 분할과 단일 동작 요청
 
-인벤토리에서 캐릭터 또는 생명체의 `2×2` 시트를 선택하고 `좌상=정면`, `우상=후면`, `좌하=오른쪽`, `우하=왼쪽` 규칙으로 네 방향 이미지를 만듭니다. 화면에 남아 있는 Reference mask와 Driving RGB·mask 입력은 SCAIL-2 검토 흔적이며 현재 제작 경로가 아닙니다.
+인벤토리에서 캐릭터 또는 생명체의 `2×2` 시트를 선택하고 `좌상=정면`, `우상=후면`, `좌하=오른쪽`, `우하=왼쪽` 규칙으로 네 방향 이미지를 만듭니다. 동작 요청은 정면·후면·왼쪽·오른쪽 RGB 네 장만 한 번에 보내며 mask와 Driving video를 입력받지 않습니다.
 
 ![4방향 시트 분할과 기각된 SCAIL-2 입력 실험](tools_test/public/screenshots/current-character-generator.png)
 
@@ -52,6 +52,8 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 전체 기각 사유와 공식 코드 근거는 [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)에 정리했습니다.
 
+다음 예정 구조는 Kimodo가 자연스러운 3D 동작 하나를 만들고, Motion Adapter가 캐릭터 체형과 네 방향 pose로 변환하며, One-to-All이 준비된 네 방향 원본 이미지에 pose를 적용하는 방식입니다. 로컬 화면은 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고 서버가 반환한 `result.zip`을 직접 내려받습니다. 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 기록했습니다.
+
 ## 현재 유효한 흐름
 
 ```text
@@ -65,14 +67,16 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
                          ▼
 로컬 Next API proxy
   ├─ 이미지 모델 endpoint와 token은 서버 환경변수에서만 읽음
-  └─ 기준 에셋 생성 요청과 원본 결과 저장을 중계
+  ├─ 기준 에셋 생성 요청과 원본 결과 저장을 중계
+  └─ 4방향 RGB 한 작업 전송과 result.zip 다운로드 중계
                          │
                          ▼
 RunPod On-Demand Pod
-  └─ 기준 이미지·4방향 시트·아이템 착용 이미지 생성
+  ├─ 기준 이미지·4방향 시트·아이템 착용 이미지 생성 endpoint
+  └─ Kimodo → Motion Adapter → One-to-All 동작 pipeline endpoint
 ```
 
-SCAIL-2 입력 화면, API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 실험 기록으로만 남깁니다. 동작 생성 방식은 외부 Driving video 없이 phase를 만들고 캐릭터 정체성·크기·발 기준선을 유지하는 실제 결과를 확인한 뒤 다시 결정합니다.
+SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`의 실험 기록으로 남깁니다. 새 동작 pipeline도 아직 성공 결과가 아니라 구현·검증할 예정 구조입니다.
 
 ## 로컬 실행
 
@@ -91,6 +95,10 @@ RUNPOD_BASE_URL=
 RUNPOD_API_KEY=
 RUNPOD_MODEL_ID=
 
+# 4방향 동작 pipeline endpoint
+MOTION_PIPELINE_BASE_URL=
+MOTION_PIPELINE_API_TOKEN=
+
 ```
 
 실제 endpoint와 token은 코드, README와 manifest에 기록하지 않습니다.
@@ -102,6 +110,7 @@ RUNPOD_MODEL_ID=
 - [타일 카탈로그](docs/TILE_CATALOG.md)
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
+- [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
 - [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)
 - [기각된 RunPod SCAIL-2 실행 실험 기록](docs/failures/RUNPOD_SCAIL2_GUIDE.md)
 
