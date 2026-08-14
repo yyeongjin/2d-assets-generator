@@ -1,6 +1,6 @@
-# RunPod FastAPI 서버 구현 가이드
+# 보존 기록 — RunPod FastAPI 서버 초기 구현
 
-> **상태: 개선 중인 최신 구현.** FastAPI queue, Kimodo·OTA worker 호출과 결과 ZIP 생성까지는 동작했다. 현재 결과 품질 문제는 이 경로를 기각한 근거가 아니라 pose visibility/confidence 연결부를 수정해야 한다는 근거다. 제작 결과로 사용하기 전 [추후 개선 사항](KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)을 반영하고 다시 검증한다.
+> **상태: 활성 문서에서 제외.** 실제 소스는 저장소 루트의 `sprite_pipeline_fastapi_full.zip`에 들어 있으며, 현재 설치·실행 절차는 `docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md`를 사용한다. 아래 내용은 초기 구현 과정을 보존한 기록일 뿐 그대로 따라 할 가이드가 아니다.
 
 `/workspace/sprite-pipeline/server`에 있다고 보고 아래를 실행한다.
 

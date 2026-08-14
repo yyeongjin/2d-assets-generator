@@ -217,6 +217,5 @@ workers/ota_worker.py
 ## 관련 문서
 
 - [3세션 RunPod 설치·실행 가이드](RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
-- [FastAPI 서버 구현](RUNPOD_FASTAPI_SERVER_IMPLEMENTATION.md)
 - [2026-08-15 종단 테스트 기록](test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)
 - [One-to-All 공식 저장소](https://github.com/ssj9596/One-to-All-Animation)

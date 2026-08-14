@@ -54,7 +54,7 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 현재 검증 중인 구조는 Kimodo가 자연스러운 3D 동작 하나를 만들고, Motion Adapter가 캐릭터 체형과 네 방향 pose로 변환하며, One-to-All이 준비된 네 방향 원본 이미지에 pose를 적용하는 방식입니다. 로컬 화면은 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보냅니다. 첫 종단 테스트에서 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했습니다. 다만 현재 연결부가 pose visibility/confidence를 잃어 후면에 얼굴이 생기고, 네 방향의 외형도 달라졌으므로 생성 결과는 사용할 수 없습니다. 이 경로를 기각한 것은 아니며 adapter와 OTA control을 고친 뒤 재검증할 예정입니다.
 
-실제 실행 결과와 로그 화면은 [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 남겼습니다. 원인과 수정 순서는 [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md), 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md), 실제 API 파일 작성은 [RunPod FastAPI 서버 구현 가이드](docs/RUNPOD_FASTAPI_SERVER_IMPLEMENTATION.md)에 기록했습니다.
+실제 실행 결과와 로그 화면은 [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 남겼습니다. 원인과 수정 순서는 [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md), 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 기록했습니다.
 
 ## 현재 유지하는 흐름
 
@@ -114,7 +114,6 @@ MOTION_PIPELINE_API_TOKEN=
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
 - [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
-- [RunPod FastAPI 서버 구현 가이드](docs/RUNPOD_FASTAPI_SERVER_IMPLEMENTATION.md)
 - [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)
 - [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)
 - [실패·기각 기록 목록](docs/failures/README.md)
