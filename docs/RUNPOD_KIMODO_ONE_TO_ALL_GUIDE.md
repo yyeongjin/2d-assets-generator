@@ -1,19 +1,11 @@
-맞아. 다운로드 말고 **채팅에 바로 수정본**으로 보여줄게.
+# 최종 RunPod 설치/실행 가이드
 
-그리고 이번 수정본에서는 가장 큰 누락이었던 **`FastAPI 실제 구현 → 실제 실행 → 8000 LISTEN 확인 → RunPod 외부 포트 확인 → 그 다음 외부 Client 요청`** 순서를 제대로 넣었습니다. 기존 문서는 FastAPI :8000 구조를 써놓고  실제 클라이언트 요청을 먼저 설명한 뒤  Uvicorn 실행을 거의 맨 뒤에 둔 게 문제였습니다. 
-
-# 최종 RunPod 배포 가이드 — 수정본
-
-## 1. 최종 구조
+## 0. 최종 구조
 
 ```text
-[외부 Client]
-front.png
-back.png
-left.png
-right.png
-prompt
-seed
+외부 Client
+front.png / back.png / left.png / right.png
+prompt / seed
         │
         │ HTTPS
         ▼
@@ -21,89 +13,326 @@ RunPod HTTP Proxy
 https://<POD_ID>-8000.proxy.runpod.net
         │
         ▼
-RunPod Pod
-0.0.0.0:8000
-FastAPI
+FastAPI :8000                 ← 세션 3
         │
         ▼
 Job Queue
         │
-        ▼
-Kimodo Worker
-        │
-        │ 3D motion 1회 생성
-        ▼
-Motion Adapter
-        │
-        ├─ gait cycle 검출
-        ├─ 17 phase
-        ├─ in-place
-        ├─ body retarget
-        └─ front/back/left/right projection
-        │
-        ▼
-One-to-All Worker
-        │
-        ├─ front
-        ├─ back
-        ├─ left
-        └─ right
-        ▼
-4 × 17 frames
-        │
-        ▼
-8 frame × 4 direction
-        │
-        ▼
-32 PNG
-sprite_sheet.png
-metadata.json
-result.zip
+        ├────→ Kimodo :9101   ← 세션 1
+        │          │
+        │          ▼
+        │       motion.npz
+        │          │
+        │          ▼
+        │     Motion Adapter
+        │          │
+        │          ▼
+        └────→ One-to-All :9102 ← 세션 2
+                   │
+                   ├ front 17F
+                   ├ back  17F
+                   ├ left  17F
+                   └ right 17F
+                         │
+                         ▼
+                   4방향 × 8 PNG
+                   +
+                   sprite_sheet.png
+                   +
+                   result.zip
 ```
 
-RunPod가 **서버**입니다.
-
-외부 PC/백엔드가 **클라이언트**입니다.
+RunPod는 **서버**고 외부 PC/게임 서버/백엔드가 클라이언트입니다.
 
 ---
 
-# 2. RunPod 환경
+# 1. RunPod 사양
 
-현재 기준:
-
-```text
-GPU      NVIDIA L40S 48GB
-CUDA     12.8 호환 driver
-RAM      64GB+
-Disk     200GB
-HTTP     8000
-HF_TOKEN RunPod 환경변수
-```
-
-프로젝트:
+현재 검증 기준:
 
 ```text
-/workspace/sprite-pipeline/
-
-├── kimodo/
-│   └── .venv/
-├── one-to-all/
-│   └── .venv/
-├── server/
-│   ├── .venv/
-│   └── app/
-├── workers/
-├── adapter/
-├── jobs/
-├── logs/
-└── run/
+GPU       NVIDIA L40S 48GB
+Driver    CUDA 12.8 호환
+RAM       64GB+
+Disk      200GB 권장
+HTTP Port 8000
+HF_TOKEN  Pod 환경변수
 ```
+
+RunPod에서 HTTP `8000`을 expose하면 외부에서 `https://<POD_ID>-8000.proxy.runpod.net` 형식으로 접근할 수 있습니다. 서비스 자체는 `0.0.0.0:8000`에 bind해야 합니다. [RunPod 공식 문서][1]
 
 ---
 
-# 3. Kimodo 환경
+# 2. 시스템 기본 설치
 
 ```bash
+cd /workspace
+
+apt-get update
+
+apt-get install -y \
+  git \
+  git-lfs \
+  curl \
+  unzip \
+  ffmpeg \
+  cmake \
+  build-essential \
+  ninja-build \
+  libgl1 \
+  libglib2.0-0
+
+git lfs install
+```
+
+`uv`:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+export PATH="$HOME/.local/bin:$PATH"
+export UV_LINK_MODE=copy
+
+uv --version
+```
+
+Python:
+
+```bash
+uv python install 3.11 3.12
+```
+
+**새 SSH 세션을 열 때 `uv`가 안 보이면 항상:**
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+또는 그냥:
+
+```bash
+/root/.local/bin/uv --version
+```
+
+을 사용하면 됩니다.
+
+---
+
+# 3. 프로젝트 생성 + 모델 repo clone
+
+```bash
+mkdir -p /workspace/sprite-pipeline
+cd /workspace/sprite-pipeline
+```
+
+Kimodo:
+
+```bash
+git clone https://github.com/nv-tlabs/kimodo.git
+```
+
+One-to-All:
+
+```bash
+git clone https://github.com/ssj9596/One-to-All-Animation.git
+
+mv One-to-All-Animation one-to-all
+```
+
+기타:
+
+```bash
+mkdir -p \
+  server \
+  workers \
+  adapter \
+  client \
+  jobs \
+  logs \
+  run
+```
+
+revision 저장:
+
+```bash
+cd /workspace/sprite-pipeline/kimodo
+
+git rev-parse HEAD \
+  | tee /workspace/sprite-pipeline/KIMODO_REVISION.txt
+```
+
+```bash
+cd /workspace/sprite-pipeline/one-to-all
+
+git rev-parse HEAD \
+  | tee /workspace/sprite-pipeline/ONE_TO_ALL_REVISION.txt
+```
+
+---
+
+# 4. FastAPI 전체 소스 ZIP 받기
+
+사용할 파일:
+
+[sprite_pipeline_fastapi_full.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full.zip)
+
+ZIP 자체는 **수정하지 않습니다. 원본 그대로 보관**합니다.
+
+공개 repo 기준으로 RunPod에서:
+
+```bash
+cd /workspace
+
+curl -L \
+  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full.zip" \
+  -o sprite_pipeline_fastapi_full.zip
+```
+
+확인:
+
+```bash
+ls -lh /workspace/sprite_pipeline_fastapi_full.zip
+```
+
+ZIP 테스트:
+
+```bash
+unzip -t \
+  /workspace/sprite_pipeline_fastapi_full.zip
+```
+
+---
+
+# 5. ZIP은 `/tmp`에 풀고 필요한 코드만 이동
+
+**ZIP을 `server/` 안에서 바로 풀지 않습니다.**
+
+```bash
+rm -rf /tmp/sprite_api_bundle
+
+mkdir -p /tmp/sprite_api_bundle
+
+unzip -q \
+  /workspace/sprite_pipeline_fastapi_full.zip \
+  -d /tmp/sprite_api_bundle
+```
+
+내가 만든 ZIP은:
+
+```text
+/tmp/sprite_api_bundle/
+└── sprite_pipeline_fastapi_full/
+    ├── server/
+    ├── workers/
+    ├── adapter/
+    ├── scripts/
+    └── client/
+```
+
+구조입니다.
+
+변수:
+
+```bash
+BUNDLE="/tmp/sprite_api_bundle/sprite_pipeline_fastapi_full"
+ROOT="/workspace/sprite-pipeline"
+```
+
+FastAPI 코드:
+
+```bash
+mkdir -p "$ROOT/server/app"
+
+cp -a \
+  "$BUNDLE/server/app/." \
+  "$ROOT/server/app/"
+```
+
+Workers:
+
+```bash
+mkdir -p "$ROOT/workers"
+
+cp -a \
+  "$BUNDLE/workers/." \
+  "$ROOT/workers/"
+```
+
+Adapter:
+
+```bash
+mkdir -p "$ROOT/adapter"
+
+cp -a \
+  "$BUNDLE/adapter/." \
+  "$ROOT/adapter/"
+```
+
+Client:
+
+```bash
+mkdir -p "$ROOT/client"
+
+cp -a \
+  "$BUNDLE/client/." \
+  "$ROOT/client/"
+```
+
+**이번 운영은 3개 세션 foreground 방식이므로 ZIP 안의 `scripts/start_all.sh`은 사용하지 않습니다.**
+
+또한 ZIP 안의:
+
+```text
+server/pyproject.toml
+```
+
+도 **복사하지 않습니다.**
+
+서버 venv는 아래에서 직접 생성합니다. 이걸로 이전 `src/server/__init__.py` build 문제도 제거합니다.
+
+원본 ZIP은 계속:
+
+```text
+/workspace/sprite_pipeline_fastapi_full.zip
+```
+
+에 남겨둡니다.
+
+최종 확인:
+
+```bash
+find \
+  /workspace/sprite-pipeline/server/app \
+  /workspace/sprite-pipeline/workers \
+  /workspace/sprite-pipeline/adapter \
+  -maxdepth 2 \
+  -type f \
+  | sort
+```
+
+대략:
+
+```text
+server/app/__init__.py
+server/app/jobs.py
+server/app/main.py
+server/app/pipeline.py
+
+workers/__init__.py
+workers/kimodo_worker.py
+workers/ota_worker.py
+
+adapter/__init__.py
+adapter/service.py
+```
+
+---
+
+# 6. Kimodo venv 설치
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+
 cd /workspace/sprite-pipeline/kimodo
 
 rm -rf .venv
@@ -111,7 +340,7 @@ rm -rf .venv
 uv venv --python 3.11 .venv
 ```
 
-설치:
+한 번에 버전 pin:
 
 ```bash
 uv pip install \
@@ -131,42 +360,109 @@ uv pip install \
   -e ".[soma]"
 ```
 
-확인:
+**나중에 일부 dependency만 별도로 `--reinstall`하지 않습니다.**
+
+검사:
 
 ```bash
-uv pip check --python .venv/bin/python
+uv pip check \
+  --python .venv/bin/python
+```
 
+```bash
 .venv/bin/python -c '
 import torch
-print(torch.__version__)
-print(torch.version.cuda)
-print(torch.cuda.is_available())
-print(torch.cuda.get_device_name(0))
+import transformers
+import peft
+import accelerate
+import numpy
+
+print("torch       :", torch.__version__)
+print("cuda        :", torch.version.cuda)
+print("cuda avail  :", torch.cuda.is_available())
+print("gpu         :", torch.cuda.get_device_name(0))
+print("transformers:", transformers.__version__)
+print("peft        :", peft.__version__)
+print("accelerate  :", accelerate.__version__)
+print("numpy       :", numpy.__version__)
 '
 ```
 
 기준:
 
 ```text
-2.11.0+cu128
-12.8
-True
-NVIDIA L40S
+torch        : 2.11.0+cu128
+cuda         : 12.8
+cuda avail   : True
+gpu          : NVIDIA L40S
+transformers : 5.1.0
+peft         : 0.18.1
+accelerate   : 1.13.0
+numpy        : 1.26.4
 ```
 
-48GB이므로:
+---
+
+# 7. Kimodo HF 권한 확인
+
+Pod에 `HF_TOKEN`이 있어야 합니다.
+
+```bash
+echo "${HF_TOKEN:+HF_TOKEN is set}"
+```
+
+계정:
+
+```bash
+.venv/bin/python -c '
+import os
+from huggingface_hub import whoami
+
+x = whoami(
+    token=os.environ["HF_TOKEN"]
+)
+
+print(x["name"])
+'
+```
+
+Kimodo local LLM2Vec가 사용하는 Llama 모델 접근도 되어 있어야 합니다.
+
+```bash
+.venv/bin/python -c '
+import os
+from huggingface_hub import hf_hub_download
+
+p = hf_hub_download(
+    repo_id="meta-llama/Meta-Llama-3-8B-Instruct",
+    filename="config.json",
+    token=os.environ["HF_TOKEN"],
+)
+
+print("Llama access OK:", p)
+'
+```
+
+---
+
+# 8. Kimodo smoke test
+
+48GB라 CPU offload는 하지 않습니다.
+
+즉:
 
 ```bash
 export TEXT_ENCODER_DEVICE=cpu
 ```
 
-**사용하지 않음.**
+사용 안 함.
 
-Kimodo smoke:
+별도 text encoder server도 사용하지 않으므로 `local`로 고정:
 
 ```bash
-mkdir -p /workspace/sprite-pipeline/jobs/smoke
+cd /workspace/sprite-pipeline/kimodo
 
+TEXT_ENCODER_MODE=local \
 .venv/bin/kimodo_gen \
   "A person walks naturally forward with a relaxed, balanced and steady gait." \
   --model Kimodo-SOMA-RP-v1.1 \
@@ -177,26 +473,71 @@ mkdir -p /workspace/sprite-pipeline/jobs/smoke
   --output /workspace/sprite-pipeline/jobs/smoke/kimodo_walk
 ```
 
-성공 기준:
+성공:
 
 ```text
 Saving the npz output to
 /workspace/sprite-pipeline/jobs/smoke/kimodo_walk.npz
 ```
 
-이건 실제 로그에서도 이미 성공한 상태입니다. 
+실제 기존 테스트에서도 Kimodo는 NPZ 생성까지 성공했습니다.
 
 ---
 
-# 4. One-to-All 환경
+# 9. One-to-All venv 설치
+
+여기가 중요합니다.
+
+공식 `requirements.txt`는:
+
+```text
+onnxruntime-gpu
+```
+
+를 버전 고정 없이 요구합니다.
+
+그대로 설치하면 지금처럼 `onnxruntime-gpu 1.28.0`이 잡혀 CUDA 13을 요구할 수 있습니다.
+
+ONNX Runtime 공식 호환표에서 `1.27.x~1.29.x` PyPI GPU wheel은 CUDA 13, `1.21.x~1.26.x`는 CUDA 12.8 + cuDNN 9 계열입니다. 따라서 지금 CUDA 12.x 환경에서는 **1.26.x로 고정**합니다. [ONNX Runtime 공식 호환표][2]
+
+먼저:
 
 ```bash
-cd /workspace/sprite-pipeline/one-to-all
+export PATH="$HOME/.local/bin:$PATH"
 
+cd /workspace/sprite-pipeline/one-to-all
+```
+
+requirements 수정:
+
+```bash
+sed -i \
+  's/^onnxruntime-gpu$/onnxruntime-gpu==1.26.0/' \
+  requirements.txt
+```
+
+확인:
+
+```bash
+grep onnxruntime \
+  requirements.txt
+```
+
+결과:
+
+```text
+onnxruntime-gpu==1.26.0
+```
+
+venv:
+
+```bash
 rm -rf .venv
 
 uv venv --python 3.12 .venv
 ```
+
+설치:
 
 ```bash
 uv pip install \
@@ -205,27 +546,33 @@ uv pip install \
   "torch==2.5.1" \
   "torchvision==0.20.1" \
   "torchaudio==2.5.1" \
+  "huggingface_hub<1" \
   -r requirements.txt
 ```
 
-확인:
+검사:
 
 ```bash
-uv pip check --python .venv/bin/python
+uv pip check \
+  --python .venv/bin/python
+```
 
+```bash
 .venv/bin/python -c '
 import torch
+import onnxruntime as ort
 import diffusers
 import transformers
 import accelerate
 
-print(torch.__version__)
-print(torch.version.cuda)
-print(torch.cuda.is_available())
-print(torch.cuda.get_device_name(0))
-print(diffusers.__version__)
-print(transformers.__version__)
-print(accelerate.__version__)
+print("torch       :", torch.__version__)
+print("cuda        :", torch.version.cuda)
+print("cudnn       :", torch.backends.cudnn.version())
+print("ort         :", ort.__version__)
+print("providers   :", ort.get_available_providers())
+print("diffusers   :", diffusers.__version__)
+print("transformers:", transformers.__version__)
+print("accelerate  :", accelerate.__version__)
 '
 ```
 
@@ -234,8 +581,9 @@ print(accelerate.__version__)
 ```text
 torch        2.5.1+cu124
 cuda         12.4
-cuda avail   True
-GPU          NVIDIA L40S
+cudnn        90100
+ort          1.26.0
+CUDAExecutionProvider 존재
 diffusers    0.33.0
 transformers 4.40.1
 accelerate   0.29.3
@@ -243,7 +591,7 @@ accelerate   0.29.3
 
 ---
 
-# 5. FlashAttention
+# 10. FlashAttention
 
 ```bash
 cd /workspace/sprite-pipeline/one-to-all
@@ -252,6 +600,7 @@ MAX_JOBS=8 \
 uv pip install \
   --python .venv/bin/python \
   --no-build-isolation \
+  --no-deps \
   flash-attn
 ```
 
@@ -266,11 +615,13 @@ print("FlashAttention OK")
 
 ---
 
-# 6. One-to-All 모델 다운로드
+# 11. One-to-All 모델 다운로드
 
 ```bash
 cd /workspace/sprite-pipeline/one-to-all
 ```
+
+Wan base:
 
 ```bash
 .venv/bin/hf download \
@@ -278,19 +629,33 @@ cd /workspace/sprite-pipeline/one-to-all
   --local-dir pretrained_models/Wan2.1-T2V-1.3B-Diffusers
 ```
 
+One-to-All:
+
 ```bash
 .venv/bin/hf download \
   MochunniaN1/One-to-All-1.3b_2 \
   --local-dir checkpoints/One-to-All-1.3b_2
 ```
 
+Pose2D:
+
 ```bash
 .venv/bin/hf download \
   Wan-AI/Wan2.2-Animate-14B \
-  --include "process_checkpoint/det/*" \
   --include "process_checkpoint/pose2d/*" \
   --local-dir pretrained_models
 ```
+
+Detector는 **정확한 파일을 별도로 명시**:
+
+```bash
+.venv/bin/hf download \
+  Wan-AI/Wan2.2-Animate-14B \
+  process_checkpoint/det/yolov10m.onnx \
+  --local-dir pretrained_models
+```
+
+DWPose:
 
 ```bash
 .venv/bin/hf download \
@@ -301,17 +666,90 @@ cd /workspace/sprite-pipeline/one-to-all
 
 ---
 
-# 7. One-to-All GPU load 확인
+# 12. Pose 모델 파일 검사
 
-`inference_1.3b.py`는 파일명에 `.`이 있으므로:
+Detector:
 
-```python
-from inference_1.3b import build_pipe
+```bash
+ls -lh \
+  pretrained_models/process_checkpoint/det/yolov10m.onnx
 ```
 
-금지.
+Pose model은 파일 하나가 아니라 **external-data ONNX directory** 형태입니다.
 
-실행:
+확인:
+
+```bash
+ls -lh \
+  pretrained_models/process_checkpoint/pose2d/vitpose_h_wholebody.onnx/end2end.onnx
+```
+
+One-to-All의 loader는 checkpoint가 directory면 내부 `end2end.onnx`를 자동 선택합니다.
+
+---
+
+# 13. ONNX GPU만 먼저 테스트
+
+Detector:
+
+```bash
+cd /workspace/sprite-pipeline/one-to-all
+
+.venv/bin/python -c '
+import torch
+import onnxruntime as ort
+
+p="pretrained_models/process_checkpoint/det/yolov10m.onnx"
+
+print("torch:", torch.__version__)
+print("ort:", ort.__version__)
+
+s = ort.InferenceSession(
+    p,
+    providers=[
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider",
+    ],
+)
+
+print("DETECTOR OK")
+print(s.get_providers())
+'
+```
+
+Pose:
+
+```bash
+.venv/bin/python -c '
+import torch
+import onnxruntime as ort
+
+p="pretrained_models/process_checkpoint/pose2d/vitpose_h_wholebody.onnx/end2end.onnx"
+
+s = ort.InferenceSession(
+    p,
+    providers=[
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider",
+    ],
+)
+
+print("POSE OK")
+print(s.get_providers())
+'
+```
+
+둘 다:
+
+```text
+CUDAExecutionProvider
+```
+
+가 실제 provider에 있어야 합니다.
+
+---
+
+# 14. One-to-All 본 모델 load smoke
 
 ```bash
 cd /workspace/sprite-pipeline/one-to-all/video-generation
@@ -337,50 +775,40 @@ print("ONE-TO-ALL OK")
 print("GPU:", torch.cuda.get_device_name(0))
 print(
     "allocated GiB:",
-    round(torch.cuda.memory_allocated()/1024**3, 2)
+    round(
+        torch.cuda.memory_allocated()
+        / 1024**3,
+        2,
+    )
 )
-print(
-    "reserved GiB:",
-    round(torch.cuda.memory_reserved()/1024**3, 2)
-)
-
-input("press enter to exit")
 '
 ```
 
-성공:
-
-```text
-ONE-TO-ALL OK
-GPU: NVIDIA L40S
-allocated GiB: ...
-reserved GiB: ...
-```
+`from inference_1.3b import ...`는 Python 문법상 사용하지 않습니다.
 
 ---
 
-# 8. 여기서부터가 서버 구현
+# 15. FastAPI venv
 
-**이 부분이 기존 가이드에서 빠졌던 핵심.**
+**`uv init` 안 합니다.**
 
-먼저:
+그러면 `src/server/__init__.py` 같은 package build 문제 자체가 없습니다.
 
 ```bash
+export PATH="$HOME/.local/bin:$PATH"
+
 cd /workspace/sprite-pipeline/server
+
+rm -rf .venv
+
+uv venv --python 3.12 .venv
 ```
 
-이미 `uv init` 되어 있으므로 다시:
+설치:
 
 ```bash
-uv init
-```
-
-할 필요 없음.
-
-현재 패키지도 이미 설치됨:
-
-```bash
-uv add \
+uv pip install \
+  --python .venv/bin/python \
   fastapi \
   "uvicorn[standard]" \
   python-multipart \
@@ -390,245 +818,257 @@ uv add \
   httpx
 ```
 
+확인:
+
+```bash
+.venv/bin/python -c '
+import fastapi
+import uvicorn
+import httpx
+import PIL
+import numpy
+
+print("SERVER VENV OK")
+'
+```
+
+코드 syntax:
+
+```bash
+cd /workspace/sprite-pipeline
+
+server/.venv/bin/python \
+  -m compileall \
+  server/app \
+  adapter
+
+kimodo/.venv/bin/python \
+  -m py_compile \
+  workers/kimodo_worker.py
+
+one-to-all/.venv/bin/python \
+  -m py_compile \
+  workers/ota_worker.py
+```
+
 ---
 
-# 9. FastAPI 디렉터리
+# 16. 여기서부터 3개 세션 운영
+
+**`scripts/start_all.sh` 안 씁니다.**
+
+**`PYTHONPATH=/workspace/sprite-pipeline`도 절대 안 넣습니다.**
+
+Kimodo repo 폴더 자체가 `kimodo` Python package를 shadowing하기 때문입니다.
+
+---
+
+# 세션 1 — Kimodo worker
+
+```bash
+cd /workspace/sprite-pipeline/kimodo
+```
+
+실행:
+
+```bash
+TEXT_ENCODER_MODE=local \
+PYTHONUNBUFFERED=1 \
+.venv/bin/python \
+../workers/kimodo_worker.py
+```
+
+세션 그대로 유지.
+
+정상 마지막:
+
+```text
+[kimodo-worker] ready: ...
+[kimodo-worker] GPU: NVIDIA L40S
+[kimodo-worker] listening http://127.0.0.1:9101
+```
+
+다른 세션에서 확인:
+
+```bash
+curl \
+  http://127.0.0.1:9101/health
+```
+
+실제로 확인된 현재 기준:
+
+```json
+{
+  "status": "ready",
+  "model": "kimodo-soma-rp-v1.1",
+  "gpu": "NVIDIA L40S",
+  "allocated_gib": 15.23
+}
+```
+
+---
+
+# 세션 2 — One-to-All worker
+
+Kimodo `9101` ready 확인 후:
+
+```bash
+cd /workspace/sprite-pipeline/one-to-all
+```
+
+실행:
+
+```bash
+PYTHONUNBUFFERED=1 \
+.venv/bin/python \
+../workers/ota_worker.py
+```
+
+**여기도 `PYTHONPATH` 없음.**
+
+정상 마지막:
+
+```text
+[ota-worker] building One-to-All pipe
+...
+[ota-worker] ready
+[ota-worker] GPU: NVIDIA L40S
+[ota-worker] listening http://127.0.0.1:9102
+```
+
+확인:
+
+```bash
+curl \
+  http://127.0.0.1:9102/health
+```
+
+이 상태에서:
+
+```bash
+nvidia-smi
+```
+
+로 **Kimodo + OTA 두 모델 동시 resident VRAM** 확인.
+
+OOM이 나면 설치를 더 만지지 말고 그때 residency 전략만 조정합니다.
+
+---
+
+# 세션 3 — FastAPI public server
+
+Kimodo `9101`, OTA `9102` 둘 다 ready인 상태에서:
 
 ```bash
 cd /workspace/sprite-pipeline/server
-
-mkdir -p app
-
-touch app/__init__.py
-touch app/main.py
-touch app/jobs.py
-touch app/pipeline.py
 ```
 
-구조:
+API 인증 토큰:
+
+```bash
+export API_TOKEN='<새_인증_토큰>'
+```
+
+실행:
+
+```bash
+PYTHONUNBUFFERED=1 \
+KIMODO_WORKER_URL="http://127.0.0.1:9101" \
+OTA_WORKER_URL="http://127.0.0.1:9102" \
+.venv/bin/python \
+-m uvicorn \
+app.main:app \
+--host 0.0.0.0 \
+--port 8000 \
+--workers 1
+```
+
+정상:
 
 ```text
-server/
+Uvicorn running on http://0.0.0.0:8000
+```
 
-├── pyproject.toml
-├── .venv/
-└── app/
-    ├── __init__.py
-    ├── main.py
-    ├── jobs.py
-    └── pipeline.py
+확인:
+
+```bash
+curl \
+  http://127.0.0.1:8000/health
+```
+
+최종적으로:
+
+```json
+{
+  "status": "ready",
+  "api": "ready",
+  "kimodo_worker": {
+    "status": "ready"
+  },
+  "ota_worker": {
+    "status": "ready"
+  }
+}
+```
+
+포트:
+
+```bash
+ss -lntp \
+  | grep -E '(:8000|:9101|:9102)'
+```
+
+정상:
+
+```text
+127.0.0.1:9101   Kimodo
+127.0.0.1:9102   One-to-All
+0.0.0.0:8000     FastAPI
 ```
 
 ---
 
-# 10. 서버 endpoint는 이것들이 실제로 구현되어야 함
+# 17. RunPod 외부 HTTP 8000
+
+Pod 설정의:
 
 ```text
-GET  /health
-
-POST /v1/jobs
-
-GET  /v1/jobs/{job_id}
-
-GET  /v1/jobs/{job_id}/result
+Expose HTTP Ports
 ```
 
-단순 `/health` 서버만 만드는 게 아닙니다.
-
-최종 API 역할:
+에:
 
 ```text
-POST /v1/jobs
-↓
-파일 저장
-↓
-job_id 생성
-↓
-queue 등록
-↓
-202 반환
-
-background worker
-↓
-Kimodo
-↓
-Adapter
-↓
-OTA
-↓
-result.zip
-
-GET /v1/jobs/{id}
-↓
-status 반환
-
-GET /v1/jobs/{id}/result
-↓
-ZIP 반환
-```
-
----
-
-# 11. FastAPI를 반드시 실제로 실행
-
-**여기가 기존 가이드에서 빠졌던 단계.**
-
-서버 코드 구현이 된 다음:
-
-```bash
-cd /workspace/sprite-pipeline/server
-
-uv run uvicorn app.main:app \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --workers 1
-```
-
-이 명령을 실행해야:
-
-```text
-0.0.0.0:8000
-```
-
-서버가 생깁니다.
-
----
-
-# 12. 반드시 LISTEN 확인
-
-새 RunPod 터미널:
-
-```bash
-ss -lntp | grep ':8000'
-```
-
-반드시:
-
-```text
-LISTEN ... 0.0.0.0:8000 ...
-```
-
-이 나와야 합니다.
-
-지금 네가 전에 보여준:
-
-```text
-9091
-8888
-7270
-8081
-8001
-7861
-3001
-19123
-```
-
-상태처럼 `8000`이 없으면 **서버 안 떠 있는 것**입니다.
-
-그 상태에서는 외부 요청 절대 안 됨.
-
----
-
-# 13. RunPod 내부 API 확인
-
-이제야:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-를 확인합니다.
-
-그리고 `/v1/jobs` route 자체가 등록됐는지도:
-
-```bash
-curl http://127.0.0.1:8000/openapi.json
-```
-
-에서 확인할 수 있습니다.
-
-간단히:
-
-```bash
-curl -s http://127.0.0.1:8000/openapi.json | grep '/v1/jobs'
-```
-
-여기서:
-
-```text
-/v1/jobs
-/v1/jobs/{job_id}
-/v1/jobs/{job_id}/result
-```
-
-가 있어야 합니다.
-
-**없으면 외부로 포트를 열어도 생성 API가 없는 것.**
-
----
-
-# 14. RunPod 8000 포트 expose
-
-그 다음에 RunPod Pod 설정에서:
-
-```text
-HTTP Port
 8000
 ```
 
-을 expose.
+추가.
 
-최종 공개 주소:
+외부 주소:
 
 ```text
 https://<POD_ID>-8000.proxy.runpod.net
 ```
 
----
+RunPod 공식 Pod HTTP proxy가 expose된 HTTP 포트를 이 URL 형태로 제공합니다. [RunPod 공식 문서][1]
 
-# 15. 외부 클라이언트 테스트는 그 다음
-
-이 명령은 **RunPod 안에서 치는 명령이 아님.**
-
-네 PC / 앱 서버 / 게임 backend 등 외부 클라이언트에서 실행.
-
-먼저:
+외부 PC에서:
 
 ```bash
 curl \
   "https://${POD_ID}-8000.proxy.runpod.net/health"
 ```
 
-성공해야:
-
-```text
-외부 Client
-↓
-RunPod Proxy
-↓
-FastAPI :8000
-```
-
-연결 완료.
-
 ---
 
-# 16. 실제 Client → RunPod 생성 요청
+# 18. 외부 Client → 생성 요청
 
-클라이언트가 보내는 데이터:
+이건 **RunPod 내부가 아니라 외부 client에서** 실행.
 
-```text
-front.png
-back.png
-left.png
-right.png
-prompt
-seed
+```bash
+export POD_ID="실제_POD_ID"
+export API_TOKEN="<서버와_같은_인증_토큰>"
 ```
-
-`action=walk` 없음.
-
-요청:
 
 ```bash
 curl -X POST \
@@ -638,7 +1078,7 @@ curl -X POST \
   -F "back=@back.png" \
   -F "left=@left.png" \
   -F "right=@right.png" \
-  -F "prompt=A person walks naturally forward with a relaxed, balanced and steady gait." \
+  -F "prompt=A person walks naturally forward with a relaxed balanced and steady gait." \
   -F "seed=42"
 ```
 
@@ -646,20 +1086,20 @@ curl -X POST \
 
 ```json
 {
-  "job_id": "01K2ABCDEF123456",
-  "status": "queued"
+  "job_id": "abc123...",
+  "status": "queued",
+  "status_url": "/v1/jobs/abc123...",
+  "result_url": "/v1/jobs/abc123.../result"
 }
 ```
 
-이 응답은 **생성이 끝났다는 뜻이 아님.**
-
-Queue에 들어갔다는 뜻.
-
 ---
 
-# 17. 상태 조회
+# 19. 상태 조회
 
-외부 Client:
+```bash
+JOB_ID="abc123..."
+```
 
 ```bash
 curl \
@@ -667,37 +1107,31 @@ curl \
   -H "Authorization: Bearer ${API_TOKEN}"
 ```
 
-처리 중:
-
-```json
-{
-  "job_id": "01K2ABCDEF123456",
-  "status": "processing",
-  "stage": "render_left",
-  "progress": 72
-}
-```
-
 stage:
 
 ```text
 queued
+↓
 kimodo
+↓
 motion_adapter
+↓
 render_front
+↓
 render_back
+↓
 render_left
+↓
 render_right
+↓
 postprocess
+↓
 succeeded
-failed
 ```
 
 ---
 
-# 18. 결과 다운로드
-
-성공 후 외부 Client:
+# 20. 결과 다운로드
 
 ```bash
 curl -L \
@@ -711,216 +1145,98 @@ curl -L \
 ```text
 result.zip
 
-├── front/
-│   ├── 0.png
-│   ├── 1.png
-│   ├── ...
-│   └── 7.png
-├── back/
-│   └── 0.png ... 7.png
-├── left/
-│   └── 0.png ... 7.png
-├── right/
-│   └── 0.png ... 7.png
-├── sprite_sheet.png
-└── metadata.json
+front/
+  0.png ... 7.png
+
+back/
+  0.png ... 7.png
+
+left/
+  0.png ... 7.png
+
+right/
+  0.png ... 7.png
+
+sprite_sheet.png
+metadata.json
 ```
 
 ---
 
-# 19. Production에서는 FastAPI background 실행
+# 21. 서버 내부 작업 결과
 
-Foreground 테스트가 끝나고 실제 운영할 때:
+```text
+/workspace/sprite-pipeline/jobs/<JOB_ID>/
 
-```bash
-cd /workspace/sprite-pipeline/server
+input/
+  front.png
+  back.png
+  left.png
+  right.png
 
-mkdir -p /workspace/sprite-pipeline/logs
-mkdir -p /workspace/sprite-pipeline/run
+motion/
+  motion.npz
+
+pose/
+  front/
+  back/
+  left/
+  right/
+
+rendered/
+  front/
+  back/
+  left/
+  right/
+
+result/
+  front/0.png ... 7.png
+  back/0.png ... 7.png
+  left/0.png ... 7.png
+  right/0.png ... 7.png
+  sprite_sheet.png
+  metadata.json
+  result.zip
+
+request.json
+status.json
 ```
+
+---
+
+# 22. 최종 기억할 것
+
+```text
+설치할 때:
+새 세션 → export PATH="$HOME/.local/bin:$PATH"
+
+실행할 때:
+uv 필요 없음.
+각 .venv/bin/python 직접 실행.
+
+절대 금지:
+PYTHONPATH=/workspace/sprite-pipeline
+
+Kimodo:
+kimodo/.venv
+CUDA 12.8
+
+One-to-All:
+one-to-all/.venv
+torch cu124
+onnxruntime-gpu 1.26.0
+
+Server:
+server/.venv
+GPU 패키지 없음
 
 실행:
-
-```bash
-nohup env PYTHONUNBUFFERED=1 \
-  uv run uvicorn app.main:app \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --workers 1 \
-  > /workspace/sprite-pipeline/logs/api.log 2>&1 &
-
-echo $! > /workspace/sprite-pipeline/run/api.pid
+세션1 Kimodo :9101
+세션2 OTA    :9102
+세션3 API    :8000
 ```
 
-확인:
+이게 지금까지 실제로 나온 오류들을 모두 반영한 **3세션 기준 최종 설치/운영 가이드**입니다.
 
-```bash
-cat /workspace/sprite-pipeline/run/api.pid
-```
-
-```bash
-ss -lntp | grep ':8000'
-```
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-로그:
-
-```bash
-tail -f /workspace/sprite-pipeline/logs/api.log
-```
-
-종료:
-
-```bash
-kill "$(cat /workspace/sprite-pipeline/run/api.pid)"
-```
-
----
-
-# 20. 모델 worker도 background 상주
-
-최종 프로세스:
-
-```text
-RunPod
-
-PID 1-ish
-├─ Kimodo worker
-│    └─ Kimodo + LLM2Vec GPU resident
-│
-├─ OTA worker
-│    └─ One-to-All GPU resident
-│
-└─ FastAPI :8000
-     └─ Client HTTP API
-```
-
-원칙:
-
-```text
-Kimodo resident
-OTA resident
-
-하지만 inference 동시 실행은 안 함.
-
-GPU concurrency = 1
-```
-
-처리:
-
-```text
-Job A
-
-Kimodo
-↓
-Adapter
-↓
-OTA front
-↓
-OTA back
-↓
-OTA left
-↓
-OTA right
-↓
-ZIP
-```
-
-그다음 Job B.
-
----
-
-# 21. 서버 job 디렉터리
-
-```text
-jobs/<job_id>/
-
-├── input/
-│   ├── front.png
-│   ├── back.png
-│   ├── left.png
-│   └── right.png
-│
-├── motion/
-│   └── motion.npz
-│
-├── pose/
-│   ├── front/
-│   ├── back/
-│   ├── left/
-│   └── right/
-│
-├── rendered/
-│   ├── front/
-│   ├── back/
-│   ├── left/
-│   └── right/
-│
-├── result/
-│   ├── front/
-│   ├── back/
-│   ├── left/
-│   ├── right/
-│   ├── sprite_sheet.png
-│   ├── metadata.json
-│   └── result.zip
-│
-└── status.json
-```
-
----
-
-# 22. 최종 실행 순서
-
-이 순서가 최종입니다.
-
-```text
-① Kimodo 설치
-↓
-② Kimodo 실제 NPZ 생성 확인
-↓
-③ One-to-All 설치
-↓
-④ One-to-All GPU load 확인
-↓
-⑤ Motion Adapter 구현
-↓
-⑥ Kimodo resident worker 구현
-↓
-⑦ OTA resident worker 구현
-↓
-⑧ FastAPI 실제 /v1/jobs 구현
-↓
-⑨ uvicorn app.main:app --host 0.0.0.0 --port 8000 실행
-↓
-⑩ ss -lntp | grep :8000
-↓
-⑪ RunPod 내부 API 검사
-↓
-⑫ RunPod에서 HTTP 8000 expose
-↓
-⑬ 외부 Client에서 /health 검사
-↓
-⑭ 외부 Client에서 POST /v1/jobs
-↓
-⑮ polling
-↓
-⑯ result.zip 다운로드
-```
-
-**특히 `⑨ FastAPI 실행`이 없으면 8000은 존재하지 않습니다.**
-
-그리고 `⑧ /v1/jobs 구현`이 없으면 FastAPI를 실행해도 `/health` 같은 정의된 route 외에는 아무것도 못 합니다.
-
-즉 둘 다 필수입니다:
-
-```text
-API 코드 구현
-+
-API 프로세스 실행
-```
-
-이게 수정된 기준입니다.
+[1]: https://docs.runpod.io/pods/configuration/expose-ports "Expose ports - Runpod Documentation"
+[2]: https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html "NVIDIA - CUDA | onnxruntime"
