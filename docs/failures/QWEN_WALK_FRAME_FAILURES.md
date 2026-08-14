@@ -34,9 +34,33 @@
 | 착지 발의 밑창을 평평하게 지정 | 중립 자세로 복원하거나 부츠가 사각형으로 왜곡됨 |
 | 두 번째 포즈 이미지와 실루엣 입력 실험 | 요청 범위를 벗어났고 포즈 제어에도 실패하여 코드와 환경설정에서 전부 제거 |
 
+## 실패 결과 이미지
+
+아래 이미지는 생성 ID만 남긴 요약본이 아니라 당시 실제 입력과 출력 원본을 실패 기록 폴더에 복사한 것이다.
+
+| 정면 기준 입력 | 1번 자세에 가장 가까웠던 출력 |
+|---|---|
+| ![정면 기준 입력](assets/qwen-walk/reference-front.png) | ![1번 착지 직전 자세에 가장 가까웠던 출력](assets/qwen-walk/frame-01-closest-contact.png) |
+
+첫 출력은 앞발이 들린 모습까지는 만들었지만, 이 한 장을 이후 2~8번의 연속된 phase로 안정적으로 이어 가지 못했다.
+
+| 2번 요청이 중립 자세로 복원됨 | 요청한 발과 반대쪽 발이 전진함 |
+|---|---|
+| ![2번 요청이 중립 자세로 복원된 출력](assets/qwen-walk/frame-02-neutral-reset.png) | ![반대쪽 발이 전진한 출력](assets/qwen-walk/frame-02-wrong-foot.png) |
+
+| 착지 발이 검은 사각형으로 왜곡됨 | 2번에 가장 가까웠지만 전체 주기는 미검증 |
+|---|---|
+| ![착지 발이 검은 사각형으로 왜곡된 출력](assets/qwen-walk/frame-02-square-boot.png) | ![2번에 가장 가까웠던 출력](assets/qwen-walk/frame-02-closest-result.png) |
+
+### 폐기한 Reference B 레이아웃 실험
+
+![Reference A와 포즈 레이아웃 Reference B를 함께 보낸 당시 디버깅 화면](assets/qwen-walk/reference-b-layout-experiment.jpg)
+
+이 화면은 Reference A에 캐릭터, Reference B에 포즈·윤곽 레이아웃을 함께 전송하던 실험이다. 출력 크기와 캐릭터 배치가 입력 레이아웃과 일치하지 않았고, 이후 프롬프트만 사용하는 실험으로 전환하면서 제거했다.
+
 ## 마지막 로컬 원본
 
-아래 파일은 `tools_test/public/generated/` 아래의 로컬 기록이며 `.gitignore` 대상입니다. 생성 ID와 실패 과정만 문서에 남깁니다.
+전체 원본은 `tools_test/public/generated/` 아래의 로컬 기록이며 `.gitignore` 대상이다. 위에서 확인 가능한 대표 입력·출력은 `docs/failures/assets/qwen-walk/`에 별도로 복사했고, 나머지 생성 ID와 판정은 아래 표에 남긴다.
 
 | 생성 ID | 판정 |
 |---|---|

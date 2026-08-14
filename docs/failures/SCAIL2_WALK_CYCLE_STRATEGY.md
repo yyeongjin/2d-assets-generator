@@ -31,6 +31,12 @@ Driving motion을 Reference 캐릭터 외형으로 전이한 새 영상
 
 따라서 RunPod endpoint와 로컬 입력 화면을 연결할 수 있는지와 별개로, SCAIL-2는 프로젝트에서 빠져 있던 **동작 생성 단계**를 해결하지 않는다.
 
+## 당시 입력 화면 기록
+
+![SCAIL-2 실험 당시 Reference와 Driving RGB·mask 입력을 표시한 로컬 디버깅 화면](assets/scail2/four-input-debug-ui.png)
+
+당시 로컬 디버거는 저장된 4방향 이미지를 선택하고, 방향별 `Reference RGB`, `Reference Mask`, `Driving RGB`, `Driving Mask`를 전송하도록 구성했다. 화면을 구현하고 API 연결까지 진행했지만, 이 네 입력 구조 자체가 정지 이미지에서 동작을 설계하는 프로젝트 목표와 맞지 않는다는 결론으로 기각했다. 이 이미지는 성공 결과가 아니라 기각 당시의 입력 구조를 보존한 기록이다.
+
 ## 공식 논문과 코드에서 확인한 사실
 
 ### 1. `pose-free`는 Driving video가 필요 없다는 뜻이 아니다

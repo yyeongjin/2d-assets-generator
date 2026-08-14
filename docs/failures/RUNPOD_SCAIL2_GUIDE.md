@@ -19,6 +19,12 @@ Python client → RunPod 직접 요청 → 결과 저장 · 프레임 추출 · 
 
 S3와 RunPod 웹 UI 수동 파일 업로드는 사용하지 않는다. Python 클라이언트는 endpoint에 직접 요청하고, `:3000` 브라우저는 같은 origin의 Next API route를 거친다. 두 경로 모두 결과 MP4를 로컬로 내려받는다.
 
+## 당시 로컬 디버거 화면
+
+![SCAIL-2 서버 요청용 네 입력과 4방향 인벤토리를 표시한 로컬 디버거](assets/scail2/four-input-debug-ui.png)
+
+이 화면에는 저장된 4방향 캐릭터 선택, 방향 분할 결과, 그리고 공식 pipeline에 맞춘 `Reference RGB`, `Reference Mask`, `Driving RGB`, `Driving Mask` 입력이 남아 있다. 서버 요청 구조를 구현한 기록일 뿐, 모델이 걷기 동작을 만들어 냈다는 성공 화면은 아니다.
+
 ## 먼저 확인할 사실: SCAIL-2는 vLLM 실행 모델이 아니다
 
 2026-08-12 기준 SCAIL-2는 vLLM-Omni 공식 지원 모델 목록에 없다. 공식 SCAIL-2 저장소의 `wan-scail2` 브랜치는 `generate.py`와 `wan.SCAIL2Pipeline`을 사용한다.
