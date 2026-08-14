@@ -568,7 +568,7 @@ uv venv .venv-scail-client \
   --seed
 
 source .venv-scail-client/bin/activate
-uv pip install -r runpod/scail2_client/requirements.txt
+uv pip install -r failures/runpod/scail2_client/requirements.txt
 ```
 
 프레임 추출까지 실행하려면 로컬에 `ffmpeg`가 설치되어 있어야 한다.
@@ -587,7 +587,7 @@ inputs/master-walk-17f/front/
 └── rendered_mask_v2.mp4
 ```
 
-`runpod/scail2_client/example-manifest.json`에는 서버 경로가 아니라 로컬 파일 경로만 기록한다.
+`failures/runpod/scail2_client/example-manifest.json`에는 서버 경로가 아니라 로컬 파일 경로만 기록한다.
 
 ```json
 {
@@ -612,8 +612,8 @@ source .venv-scail-client/bin/activate
 export SCAIL2_BASE_URL=https://POD_ID-8000.proxy.runpod.net
 export SCAIL2_API_TOKEN='same-token-used-on-runpod'
 
-python runpod/scail2_client/client.py \
-  runpod/scail2_client/example-manifest.json \
+python failures/runpod/scail2_client/client.py \
+  failures/runpod/scail2_client/example-manifest.json \
   --views front
 ```
 

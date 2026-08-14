@@ -136,6 +136,8 @@ SCAIL-2를 사용하려면 우리가 생성하려던 걷기·무기·도구 동�
 
 다음 구조로 동작 생성을 구성할 예정이다.
 
+첫 종단 실행에서는 32 PNG와 ZIP 생성까지 성공했지만, 현재 adapter가 OTA에 전달하는 pose visibility/confidence와 방향별 identity가 HARD GATE를 통과하지 못했다. 이 구조를 기각하지 않고 [추후 개선 사항](KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)에 따라 연결부부터 수정한다.
+
 ```text
 [1. 동작 만들기]
 Kimodo / ARDY

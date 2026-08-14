@@ -1,5 +1,7 @@
 # 최종 RunPod 설치/실행 가이드
 
+> **상태: 개선 전 재현·운영 기준.** 3세션 서버와 결과 ZIP 생성까지는 검증했다. 현재 pose visibility/confidence와 네 방향 identity 문제는 해결 중이며 이 경로 자체를 기각한 것은 아니다. 결과 품질 개선은 [추후 개선 사항](KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)을 따른다.
+
 ## 0. 최종 구조
 
 ```text

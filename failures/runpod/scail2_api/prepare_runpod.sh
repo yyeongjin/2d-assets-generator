@@ -19,6 +19,7 @@ cd /workspace/SCAIL-2
 git submodule update --init --recursive
 
 uv pip install -r requirements.txt
+uv pip install einops decord
 uv pip install "huggingface_hub[hf_xet]"
 uv pip install -r /workspace/scail2-api/requirements-api.txt
 

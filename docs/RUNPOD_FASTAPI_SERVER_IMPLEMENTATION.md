@@ -1,4 +1,8 @@
-맞아. **빈 파일 만들라는 게 아니라 내용을 채워야 합니다.** 지금 `/workspace/sprite-pipeline/server`에 있다고 보고, 아래를 그대로 실행하세요.
+# RunPod FastAPI 서버 구현 가이드
+
+> **상태: 개선 중인 최신 구현.** FastAPI queue, Kimodo·OTA worker 호출과 결과 ZIP 생성까지는 동작했다. 현재 결과 품질 문제는 이 경로를 기각한 근거가 아니라 pose visibility/confidence 연결부를 수정해야 한다는 근거다. 제작 결과로 사용하기 전 [추후 개선 사항](KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)을 반영하고 다시 검증한다.
+
+`/workspace/sprite-pipeline/server`에 있다고 보고 아래를 실행한다.
 
 이 코드는 실제로 다음 라우트를 띄웁니다.
 

@@ -4,6 +4,8 @@
 
 이번 테스트는 **서버 파이프라인과 결과 archive 생성 성공**을 확인한 것이다. 생성된 캐릭터의 방향, 외형과 자세 품질까지 승인했다는 의미는 아니다.
 
+후속 검토에서 현재 `custom 3D→2D pose adapter`가 OTA에 전달하는 visibility/confidence와 방향별 독립 생성의 identity drift를 우선 수정 대상으로 정했다. 이 경로를 기각한 것은 아니며 세부 순서는 [추후 개선 사항](../KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)에 기록한다.
+
 ## 테스트 범위
 
 1. 로컬 `:3000` 화면에서 저장된 `2×2` 캐릭터 시트를 선택

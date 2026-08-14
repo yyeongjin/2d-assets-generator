@@ -52,11 +52,11 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 전체 기각 사유와 공식 코드 근거는 [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)에 정리했습니다.
 
-현재 검증한 구조는 Kimodo가 자연스러운 3D 동작 하나를 만들고, Motion Adapter가 캐릭터 체형과 네 방향 pose로 변환하며, One-to-All이 준비된 네 방향 원본 이미지에 pose를 적용하는 방식입니다. 로컬 화면은 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보냅니다. 첫 종단 테스트에서 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했습니다. 생성 품질은 아직 승인하지 않았으며 방향·외형·phase 일관성 검수가 남아 있습니다.
+현재 검증 중인 구조는 Kimodo가 자연스러운 3D 동작 하나를 만들고, Motion Adapter가 캐릭터 체형과 네 방향 pose로 변환하며, One-to-All이 준비된 네 방향 원본 이미지에 pose를 적용하는 방식입니다. 로컬 화면은 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보냅니다. 첫 종단 테스트에서 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했습니다. 다만 현재 연결부가 pose visibility/confidence를 잃어 후면에 얼굴이 생기고, 네 방향의 외형도 달라졌으므로 생성 결과는 사용할 수 없습니다. 이 경로를 기각한 것은 아니며 adapter와 OTA control을 고친 뒤 재검증할 예정입니다.
 
-실제 실행 결과와 로그 화면은 [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 남겼습니다. 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md), 실제 API 파일 작성은 [RunPod FastAPI 서버 구현 가이드](docs/RUNPOD_FASTAPI_SERVER_IMPLEMENTATION.md)에 기록했습니다.
+실제 실행 결과와 로그 화면은 [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 남겼습니다. 원인과 수정 순서는 [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md), 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md), 실제 API 파일 작성은 [RunPod FastAPI 서버 구현 가이드](docs/RUNPOD_FASTAPI_SERVER_IMPLEMENTATION.md)에 기록했습니다.
 
-## 현재 유효한 흐름
+## 현재 유지하는 흐름
 
 ```text
 로컬 :3000 화면
@@ -76,9 +76,10 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 RunPod On-Demand Pod
   ├─ 기준 이미지·4방향 시트·아이템 착용 이미지 생성 endpoint
   └─ Kimodo → Motion Adapter → One-to-All 동작 pipeline endpoint
+       └─ pose visibility/confidence 수정 후 재검증 예정
 ```
 
-SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All 파이프라인은 서버 종단 실행과 32 PNG 패킹까지 성공했지만, 현재 결과는 제작 승인 에셋이 아니라 방향·외형 일관성과 로컬 완료·다운로드 처리를 검증하기 위한 기록입니다.
+SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All 파이프라인은 서버 종단 실행과 32 PNG 패킹까지 성공했지만, 현재 결과는 제작 승인 에셋이 아닙니다. 최신 경로는 폐기하지 않고 pose control과 방향별 identity를 개선하는 실험 경로로 유지합니다.
 
 ## 로컬 실행
 
@@ -115,6 +116,8 @@ MOTION_PIPELINE_API_TOKEN=
 - [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
 - [RunPod FastAPI 서버 구현 가이드](docs/RUNPOD_FASTAPI_SERVER_IMPLEMENTATION.md)
 - [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)
+- [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)
+- [실패·기각 기록 목록](docs/failures/README.md)
 - [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)
 - [기각된 RunPod SCAIL-2 실행 실험 기록](docs/failures/RUNPOD_SCAIL2_GUIDE.md)
 
