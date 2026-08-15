@@ -172,75 +172,110 @@ git rev-parse HEAD \
 
 ---
 
-# 4. FastAPI 전체 소스 ZIP 받기
+# 4. V2 전체 소스 ZIP 받기
 
 사용할 파일:
 
-[sprite_pipeline_fastapi_full.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full.zip)
+[sprite_pipeline_fastapi_full_v2.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full_v2.zip)
 
-ZIP 자체는 **수정하지 않습니다. 원본 그대로 보관**합니다.
+V2 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한다.
 
-공개 repo 기준으로 RunPod에서:
+공개 저장소 기준으로 RunPod에서:
 
 ```bash
 cd /workspace
 
 curl -L \
-  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full.zip" \
-  -o sprite_pipeline_fastapi_full.zip
+  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full_v2.zip" \
+  -o sprite_pipeline_fastapi_full_v2.zip
 ```
 
 확인:
 
 ```bash
-ls -lh /workspace/sprite_pipeline_fastapi_full.zip
+ls -lh \
+  /workspace/sprite_pipeline_fastapi_full_v2.zip
 ```
 
-ZIP 테스트:
+ZIP 무결성 검사:
 
 ```bash
 unzip -t \
-  /workspace/sprite_pipeline_fastapi_full.zip
+  /workspace/sprite_pipeline_fastapi_full_v2.zip
 ```
+
+마지막에 다음 문구가 나와야 한다.
+
+```text
+No errors detected in compressed data
+```
+
+원본 ZIP의 최종 보관 위치는 `/workspace/sprite_pipeline_fastapi_full_v2.zip`이다. 배치 후에도 삭제하지 않는다.
 
 ---
 
-# 5. ZIP은 `/tmp`에 풀고 필요한 코드만 이동
+# 5. V2 ZIP은 `/tmp`에 풀고 코드만 교체
 
-**ZIP을 `server/` 안에서 바로 풀지 않습니다.**
+`/workspace/sprite-pipeline/server/` 안에서 바로 압축을 풀지 않는다. 명시한 임시 디렉터리만 새로 만든다.
 
 ```bash
-rm -rf /tmp/sprite_api_bundle
+rm -rf /tmp/sprite_api_bundle_v2
 
-mkdir -p /tmp/sprite_api_bundle
+mkdir -p /tmp/sprite_api_bundle_v2
 
 unzip -q \
-  /workspace/sprite_pipeline_fastapi_full.zip \
-  -d /tmp/sprite_api_bundle
+  /workspace/sprite_pipeline_fastapi_full_v2.zip \
+  -d /tmp/sprite_api_bundle_v2
 ```
 
-내가 만든 ZIP은:
+실제 구조 확인:
+
+```bash
+find \
+  /tmp/sprite_api_bundle_v2 \
+  -maxdepth 3 \
+  -type f \
+  | sort
+```
+
+V2 ZIP의 최상위 구조는 다음과 같다.
 
 ```text
-/tmp/sprite_api_bundle/
-└── sprite_pipeline_fastapi_full/
+/tmp/sprite_api_bundle_v2/
+└── sprite_pipeline_fastapi_full_v2/
     ├── server/
+    │   ├── requirements.txt
+    │   └── app/
+    │       ├── __init__.py
+    │       ├── jobs.py
+    │       ├── main.py
+    │       └── pipeline.py
     ├── workers/
+    │   ├── __init__.py
+    │   ├── kimodo_worker.py
+    │   └── ota_worker.py
     ├── adapter/
+    │   ├── __init__.py
+    │   └── service.py
+    ├── client/
+    │   ├── client.py
+    │   ├── curl_example.sh
+    │   └── requirements.txt
     ├── scripts/
-    └── client/
+    ├── README.md
+    ├── CHANGES_v2.md
+    ├── MANIFEST_SHA256.txt
+    └── .env.example
 ```
-
-구조입니다.
 
 변수:
 
 ```bash
-BUNDLE="/tmp/sprite_api_bundle/sprite_pipeline_fastapi_full"
 ROOT="/workspace/sprite-pipeline"
+BUNDLE="/tmp/sprite_api_bundle_v2/sprite_pipeline_fastapi_full_v2"
 ```
 
-FastAPI 코드:
+FastAPI 코드와 V2 서버 requirements 교체:
 
 ```bash
 mkdir -p "$ROOT/server/app"
@@ -248,9 +283,13 @@ mkdir -p "$ROOT/server/app"
 cp -a \
   "$BUNDLE/server/app/." \
   "$ROOT/server/app/"
+
+cp -a \
+  "$BUNDLE/server/requirements.txt" \
+  "$ROOT/server/requirements.txt"
 ```
 
-Workers:
+Workers 교체:
 
 ```bash
 mkdir -p "$ROOT/workers"
@@ -260,7 +299,9 @@ cp -a \
   "$ROOT/workers/"
 ```
 
-Adapter:
+이 단계에서 `workers/ota_worker.py`와 `workers/kimodo_worker.py`가 V2 코드로 교체된다.
+
+Motion Adapter 교체:
 
 ```bash
 mkdir -p "$ROOT/adapter"
@@ -270,7 +311,9 @@ cp -a \
   "$ROOT/adapter/"
 ```
 
-Client:
+`adapter/service.py`는 V2에서 Kimodo heading, 방향별 projection sign, pose visibility와 후면 face point 처리를 수정한 파일이다.
+
+Client 교체:
 
 ```bash
 mkdir -p "$ROOT/client"
@@ -280,53 +323,69 @@ cp -a \
   "$ROOT/client/"
 ```
 
-**이번 운영은 3개 세션 foreground 방식이므로 ZIP 안의 `scripts/start_all.sh`은 사용하지 않습니다.**
-
-또한 ZIP 안의:
+이번 운영은 세 세션 foreground 방식이므로 `scripts/start_all.sh`와 `scripts/stop_all.sh`은 복사하거나 사용하지 않는다. 필요한 범위는 다음뿐이다.
 
 ```text
-server/pyproject.toml
+server/app/
+server/requirements.txt
+workers/
+adapter/
+client/
 ```
 
-도 **복사하지 않습니다.**
-
-서버 venv는 아래에서 직접 생성합니다. 이걸로 이전 `src/server/__init__.py` build 문제도 제거합니다.
-
-원본 ZIP은 계속:
+V2 배치 중 아래 기존 환경과 결과는 삭제하거나 덮어쓰지 않는다.
 
 ```text
-/workspace/sprite_pipeline_fastapi_full.zip
+/workspace/sprite-pipeline/kimodo/.venv/
+/workspace/sprite-pipeline/kimodo/의 모델과 캐시
+
+/workspace/sprite-pipeline/one-to-all/.venv/
+/workspace/sprite-pipeline/one-to-all/pretrained_models/
+/workspace/sprite-pipeline/one-to-all/checkpoints/
+
+/workspace/sprite-pipeline/server/.venv/
+/workspace/sprite-pipeline/jobs/
 ```
 
-에 남겨둡니다.
-
-최종 확인:
+배치 확인:
 
 ```bash
-find \
-  /workspace/sprite-pipeline/server/app \
-  /workspace/sprite-pipeline/workers \
-  /workspace/sprite-pipeline/adapter \
+cd /workspace/sprite-pipeline
+
+echo '===== SERVER ====='
+find server/app \
+  -maxdepth 2 \
+  -type f \
+  | sort
+
+echo
+echo '===== WORKERS ====='
+find workers \
+  -maxdepth 2 \
+  -type f \
+  | sort
+
+echo
+echo '===== ADAPTER ====='
+find adapter \
   -maxdepth 2 \
   -type f \
   | sort
 ```
 
-대략:
+V2 핵심 코드 확인:
 
-```text
-server/app/__init__.py
-server/app/jobs.py
-server/app/main.py
-server/app/pipeline.py
+```bash
+grep -n \
+  "global_root_heading" \
+  adapter/service.py
 
-workers/__init__.py
-workers/kimodo_worker.py
-workers/ota_worker.py
-
-adapter/__init__.py
-adapter/service.py
+grep -n \
+  -E "reference_score|control_score" \
+  workers/ota_worker.py
 ```
+
+두 검사 모두 V2 관련 코드가 출력되어야 한다. Python syntax 검사는 아래 `15. FastAPI venv` 단계에서 각 기존 venv로 실행한다.
 
 ---
 
@@ -806,18 +865,12 @@ rm -rf .venv
 uv venv --python 3.12 .venv
 ```
 
-설치:
+복사한 V2 requirements로 설치:
 
 ```bash
 uv pip install \
   --python .venv/bin/python \
-  fastapi \
-  "uvicorn[standard]" \
-  python-multipart \
-  aiofiles \
-  pillow \
-  numpy \
-  httpx
+  -r requirements.txt
 ```
 
 확인:

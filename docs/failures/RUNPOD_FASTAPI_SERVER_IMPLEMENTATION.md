@@ -1,6 +1,6 @@
 # 보존 기록 — RunPod FastAPI 서버 초기 구현
 
-> **상태: 활성 문서에서 제외.** 실제 소스는 저장소 루트의 `sprite_pipeline_fastapi_full.zip`에 들어 있으며, 현재 설치·실행 절차는 `docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md`를 사용한다. 아래 내용은 초기 구현 과정을 보존한 기록일 뿐 그대로 따라 할 가이드가 아니다.
+> **상태: 활성 문서에서 제외.** 이 문서와 함께 사용했던 V1 소스는 [`failures/artifacts/sprite_pipeline_fastapi_full.zip`](../../failures/artifacts/sprite_pipeline_fastapi_full.zip)에 보존했다. 활성 소스는 저장소 루트의 `sprite_pipeline_fastapi_full_v2.zip`, 현재 설치·실행 절차는 `docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md`를 사용한다. 아래 내용은 초기 구현 과정을 보존한 기록일 뿐 그대로 따라 할 가이드가 아니다.
 
 `/workspace/sprite-pipeline/server`에 있다고 보고 아래를 실행한다.
 

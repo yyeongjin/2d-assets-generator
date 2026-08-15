@@ -15,6 +15,10 @@
 
 - [RunPod FastAPI 서버 초기 구현](RUNPOD_FASTAPI_SERVER_IMPLEMENTATION.md) — 실제 소스 ZIP과 3세션 실행 가이드로 대체되어 활성 문서에서 제외
 
+## 보존된 산출물
+
+- [`failures/artifacts/sprite_pipeline_fastapi_full.zip`](../../failures/artifacts/sprite_pipeline_fastapi_full.zip) — V2 적용 전 사용한 V1 서버 소스 ZIP
+
 ## 보존된 코드
 
 기각한 SCAIL-2 RunPod API와 로컬 client 코드는 [`failures/runpod/`](../../failures/runpod/)에 보존한다. `runpod/` 활성 경로에서는 제거했으며 다시 사용할 때는 기각 사유를 먼저 확인한다.
