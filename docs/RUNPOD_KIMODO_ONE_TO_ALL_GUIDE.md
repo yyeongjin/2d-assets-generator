@@ -1,6 +1,6 @@
 # 최종 RunPod 설치/실행 가이드
 
-> **상태: V5 단계별 재검증 기준.** 3세션 서버와 결과 ZIP 생성까지는 검증했지만 생성 에셋 품질은 아직 통과하지 못했다. V3 결과의 원본 3D motion에서 cross-step과 큰 측면 drift가 확인되어 V4는 배포하지 않고 건너뛴다. V5는 Kimodo 공식 `05_root_path/motion.npz`를 기본 고정 motion으로 사용해 Motion Adapter와 One-to-All을 분리 검증한다. 이 경로 자체를 기각한 것은 아니다.
+> **상태: V6 재검증 기준.** V5는 Kimodo 공식 `05_root_path/motion.npz`를 사용한 4방향 32 PNG 종단 생성에 성공했다. V6는 그 성공 경로를 유지하면서 V5의 heading 회전 부호 오류, 정면·후면의 3/4 방향 잔류, 공식 NPZ 스키마 차이를 수정한 후속 버전이다. V6 결정론적 검사는 패키지에서 통과했지만 실제 공식 fixture 검사와 One-to-All GPU 재렌더는 RunPod에서 아래 순서로 다시 확인해야 한다. V2/V3 실패와 V5 성공 기록은 삭제하지 않는다.
 
 ## 0. 최종 구조
 
@@ -52,8 +52,9 @@ RunPod는 **서버**고 외부 PC/게임 서버/백엔드가 클라이언트입�
 ## RunPod에서 할 작업
 
 - Kimodo와 One-to-All 저장소 clone 및 각 venv 설치
-- V5 서버 코드를 `/workspace/sprite-pipeline`에 배치
-- 공식 `05_root_path/motion.npz` 확인과 Adapter pose preview 생성
+- V6 overlay를 기존 `/workspace/sprite-pipeline`에 배치
+- 공식 `05_root_path/motion.npz`를 원본 수정 없이 작업용 스키마로 자동 정규화
+- One-to-All 로드 전에 V6 Adapter hard gate와 pose preview 확인
 - Motion worker `:9101`, One-to-All `:9102`, FastAPI `:8000` 실행
 - 작업 중간 파일과 최종 `result.zip` 생성
 
@@ -193,13 +194,13 @@ git rev-parse HEAD \
 
 ---
 
-# 4. V5 전체 소스 ZIP 받기
+# 4. V6 전체 소스 ZIP 받기
 
 사용할 파일:
 
-[sprite_pipeline_fastapi_full_v5.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full_v5.zip)
+[sprite_pipeline_fastapi_full_v6.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full_v6.zip)
 
-V5 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한다. V4는 배포하지 않고 건너뛰었다. V2와 V3 ZIP은 이전 구현 비교용으로 저장소에 유지한다.
+V6 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한다. V5는 성공 baseline, V2/V3은 이전 구현 비교용으로 저장소에 유지한다. V4는 배포하지 않고 건너뛰었다.
 
 공개 저장소 기준으로 RunPod에서:
 
@@ -207,89 +208,80 @@ V5 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한�
 cd /workspace
 
 curl -L \
-  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full_v5.zip" \
-  -o sprite_pipeline_fastapi_full_v5.zip
+  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full_v6.zip" \
+  -o sprite_pipeline_fastapi_full_v6.zip
 ```
 
 확인과 무결성 검사:
 
 ```bash
-ls -lh /workspace/sprite_pipeline_fastapi_full_v5.zip
-unzip -t /workspace/sprite_pipeline_fastapi_full_v5.zip
+ls -lh /workspace/sprite_pipeline_fastapi_full_v6.zip
+sha256sum /workspace/sprite_pipeline_fastapi_full_v6.zip
+unzip -t /workspace/sprite_pipeline_fastapi_full_v6.zip
 ```
 
-마지막에 `No errors detected in compressed data`가 나와야 한다. 원본 ZIP은 `/workspace/sprite_pipeline_fastapi_full_v5.zip`에 그대로 둔다.
+SHA-256은 다음 값과 정확히 같아야 한다.
+
+```text
+92975b29c63f0efe5d5702d45d820a3c7d5eed2c8150b01523a44b7b222ec804
+```
+
+마지막에 `No errors detected in compressed data`가 나와야 한다. 원본 ZIP은 `/workspace/sprite_pipeline_fastapi_full_v6.zip`에 그대로 둔다.
 
 ---
 
-# 5. V5 ZIP은 `/tmp`에 풀고 코드만 교체
+# 5. V6 overlay 설치
 
 `/workspace/sprite-pipeline/server/` 안에서 바로 압축을 풀지 않는다.
 
 ```bash
-rm -rf /tmp/sprite_v5
-mkdir -p /tmp/sprite_v5
+rm -rf /tmp/sprite_v6
+mkdir -p /tmp/sprite_v6
 
 unzip -q \
-  /workspace/sprite_pipeline_fastapi_full_v5.zip \
-  -d /tmp/sprite_v5
+  /workspace/sprite_pipeline_fastapi_full_v6.zip \
+  -d /tmp/sprite_v6
 ```
 
-실제 구조 확인:
+기존 venv, Kimodo repo, One-to-All checkpoint, 기존 `.env`, `jobs/`를 유지한 채 overlay만 적용한다.
 
 ```bash
-find /tmp/sprite_v5 -maxdepth 3 -type f | sort
+cd /tmp/sprite_v6/sprite_pipeline_fastapi_full_v6
+
+./scripts/install_v6_overlay.sh \
+  /workspace/sprite-pipeline
 ```
 
-V5 ZIP의 최상위 구조는 다음과 같다.
+새 Pod에서 처음 설치하는 경우 FastAPI venv 생성에 사용할 requirements도 복사한다. 기존 V5 Pod와 내용이 같더라도 다시 복사해도 된다.
+
+```bash
+cp -a \
+  /tmp/sprite_v6/sprite_pipeline_fastapi_full_v6/server/requirements.txt \
+  /workspace/sprite-pipeline/server/requirements.txt
+```
+
+설치 스크립트는 다음 코드만 갱신한다.
 
 ```text
-/tmp/sprite_v5/
-└── sprite_pipeline_fastapi_full_v5/
-    ├── server/app/
-    ├── server/requirements.txt
-    ├── workers/
-    ├── adapter/
-    ├── client/
-    ├── scripts/check_official_walk.sh
-    ├── README.md
-    ├── CHANGES_v2.md
-    ├── CHANGES_v3.md
-    ├── CHANGES_v4.md
-    ├── CHANGES_v5.md
-    ├── MANIFEST_SHA256.txt
-    └── .env.example
+workers/
+adapter/
+server/app/
+client/
+scripts/
+tests/
 ```
 
-전체 설치 또는 새 Pod 배치:
-
-```bash
-ROOT="/workspace/sprite-pipeline"
-BUNDLE="/tmp/sprite_v5/sprite_pipeline_fastapi_full_v5"
-
-mkdir -p \
-  "$ROOT/server/app" \
-  "$ROOT/workers" \
-  "$ROOT/adapter" \
-  "$ROOT/client"
-
-cp -a "$BUNDLE/server/app/." "$ROOT/server/app/"
-cp -a "$BUNDLE/server/requirements.txt" "$ROOT/server/requirements.txt"
-cp -a "$BUNDLE/workers/." "$ROOT/workers/"
-cp -a "$BUNDLE/adapter/." "$ROOT/adapter/"
-cp -a "$BUNDLE/client/." "$ROOT/client/"
-```
-
-세 세션은 foreground로 직접 실행하므로 `scripts/start_all.sh`와 `scripts/stop_all.sh`은 사용하지 않는다. 다음 기존 환경과 결과는 삭제하거나 덮어쓰지 않는다.
+다음 경로는 삭제하거나 덮어쓰지 않는다.
 
 ```text
 /workspace/sprite-pipeline/kimodo/.venv/
-/workspace/sprite-pipeline/kimodo/의 모델과 공식 example
+/workspace/sprite-pipeline/kimodo/와 공식 example
 /workspace/sprite-pipeline/one-to-all/.venv/
 /workspace/sprite-pipeline/one-to-all/pretrained_models/
 /workspace/sprite-pipeline/one-to-all/checkpoints/
 /workspace/sprite-pipeline/server/.venv/
 /workspace/sprite-pipeline/jobs/
+/workspace/sprite-pipeline/.env
 ```
 
 공식 Kimodo fixture가 clone된 저장소에 실제로 있는지 먼저 확인한다.
@@ -305,59 +297,47 @@ ls -lh \
 cat "$EX/meta.json"
 ```
 
-metadata의 prompt가 `A person is casually walking forward slowly`인지 확인한다.
+metadata의 prompt가 `A person is casually walking forward slowly`인지 확인한다. 공식 원본 NPZ에는 `root_positions`와 `global_root_heading`이 없을 수 있으며, V6는 job-local 파일을 만들 때 이를 자동으로 생성한다. 공식 파일 자체를 수정하지 않는다.
 
-V5 핵심 코드와 버전 확인:
+V6 핵심 코드와 버전 확인:
 
 ```bash
 cd /workspace/sprite-pipeline
 
 grep -n -E "WORKER_VERSION|official_example|05_root_path" workers/kimodo_worker.py
-grep -n -E "ADAPTER_VERSION|cycle_candidates|best_neutral_cycle" adapter/service.py
+grep -n -E "ADAPTER_VERSION|cardinal|heading" adapter/service.py
 grep -n -E "PIPELINE_VERSION|motion_source|official_example" server/app/pipeline.py
 ```
 
-세 파일의 버전은 모두 `5.0.0`이어야 한다.
+버전은 `6.0.0`이어야 한다.
 
-## 기존 V3 배포를 V5로 빠르게 교체
+## V6 코드 검사
 
-V3 서버가 이미 설치된 Pod라면 venv와 모델을 다시 설치하지 않는다. Session 1 motion worker와 Session 3 FastAPI를 종료한 뒤 V5에서 변경된 세 파일만 교체한다. One-to-All worker 코드는 같으므로 Session 2는 그대로 둘 수 있다.
-
-```bash
-cp \
-  /tmp/sprite_v5/sprite_pipeline_fastapi_full_v5/workers/kimodo_worker.py \
-  /workspace/sprite-pipeline/workers/kimodo_worker.py
-
-cp \
-  /tmp/sprite_v5/sprite_pipeline_fastapi_full_v5/adapter/service.py \
-  /workspace/sprite-pipeline/adapter/service.py
-
-cp \
-  /tmp/sprite_v5/sprite_pipeline_fastapi_full_v5/server/app/pipeline.py \
-  /workspace/sprite-pipeline/server/app/pipeline.py
-```
-
-교체 확인과 compile:
+One-to-All을 로드하기 전에 실행한다. 기존 V5 Pod처럼 `server/.venv`가 이미 있으면 바로 실행한다. 새 Pod라면 먼저 이 문서의 **15. FastAPI venv**까지 설치한 뒤 이 단계로 돌아온다.
 
 ```bash
 cd /workspace/sprite-pipeline
 
-kimodo/.venv/bin/python -m py_compile workers/kimodo_worker.py
-server/.venv/bin/python -m py_compile adapter/service.py server/app/pipeline.py
+server/.venv/bin/python \
+  -m unittest discover \
+  -s tests \
+  -p 'test_*.py' \
+  -v
 ```
 
-그다음 Session 1 motion worker와 Session 3 FastAPI를 이 문서의 실행 명령으로 다시 시작한다.
+모든 테스트가 `OK`로 끝나야 한다.
 
-## V5 핵심 변경
+## V6 핵심 변경
 
 - 기본 `KIMODO_MOTION_SOURCE=official_example`
-- 공식 `kimodo-soma-rp/05_root_path/motion.npz`를 작업별로 복사
+- 공식 NPZ를 원본 수정 없이 job-local V6 스키마로 정규화
 - fixture 모드에서는 Kimodo diffusion 모델과 LLM stack을 VRAM에 올리지 않음
-- 공식 10초 clip의 모든 완전한 same-foot heel-strike cycle 열거
-- foot crossover, step width, foot lift와 knee flexion으로 가장 중립적인 cycle 선택
-- root 이동 경로와 global heading 변화는 제거 가능한 진단값으로 기록
-- `pose/adapter_meta.json`에 모든 `cycle_candidates`와 선택 근거 기록
-- `metadata.json`에 `motion_source`, 공식 fixture 경로와 prompt 기록
+- heading을 `delta = -heading`으로 정규화하고 canonical hip 평균 오차를 검사
+- 자연스러운 canonical motion은 `left/right`에 사용
+- torso yaw `±2.5°`, head yaw `±5°` cardinal-lock motion은 `front/back`에 사용
+- front/back과 left/right의 정반대 뷰 투영 대칭 오차 검사
+- 3D 발 교차, 보폭, 발 들림과 무릎 굽힘 검사 실패 시 OTA 실행 차단
+- 정면·후면과 좌우에 서로 다른 geometry source와 guidance 값을 metadata에 기록
 
 클라이언트 `prompt`와 `seed`는 downstream 렌더링과 작업 이력에는 남지만, 기본 fixture 모드에서 gait를 새로 생성하는 데 사용하지 않는다. 새 Kimodo motion 생성 실험을 다시 할 때만 `KIMODO_MOTION_SOURCE=generated`로 명시적으로 전환한다.
 
@@ -484,7 +464,7 @@ print("Llama access OK:", p)
 
 # 8. 공식 Kimodo walk fixture 확인
 
-기본 V5 검증에서는 새 motion을 생성하지 않는다. 공식 example 세 파일과 NPZ 배열부터 확인한다.
+기본 V6 검증에서는 새 motion을 생성하지 않는다. 공식 example 세 파일과 NPZ 배열부터 확인한다.
 
 ```bash
 cd /workspace/sprite-pipeline
@@ -510,11 +490,13 @@ p = Path("kimodo/kimodo/assets/demo/examples/kimodo-soma-rp/05_root_path/motion.
 with np.load(p, allow_pickle=False) as data:
     print("keys:", data.files)
     print("posed_joints:", data["posed_joints"].shape)
-    print("root_positions:", data["root_positions"].shape)
+    print("global_rot_mats:", data["global_rot_mats"].shape)
+    print("foot_contacts:", data["foot_contacts"].shape)
+    print("root_positions present:", "root_positions" in data.files)
 PY
 ```
 
-`posed_joints`와 `root_positions`가 출력되면 fixture를 읽을 수 있다.
+공식 `05_root_path/motion.npz`의 정상 key는 `posed_joints`, `global_rot_mats`, `foot_contacts`다. `root_positions`가 없다는 이유로 실패시키면 안 된다. V6 `workers/fixture_io.py`가 작업용 NPZ를 만들 때 `posed_joints[:, 0, :]`의 Hips 좌표에서 `root_positions`를 만들고 heading도 보완한다.
 
 새 motion 생성 경로를 별도로 시험할 때만 다음을 실행한다. 48GB GPU에서는 CPU offload를 사용하지 않는다.
 
@@ -857,7 +839,7 @@ rm -rf .venv
 uv venv --python 3.12 .venv
 ```
 
-복사한 V5 requirements로 설치:
+복사한 V6 requirements로 설치:
 
 ```bash
 uv pip install \
@@ -898,55 +880,38 @@ one-to-all/.venv/bin/python \
   workers/ota_worker.py
 ```
 
-## 15-B. One-to-All 없이 공식 motion의 pose preview만 생성
+## 15-B. One-to-All 없이 공식 motion과 V6 Adapter 검사
 
-첫 검증에서는 OTA worker를 호출하지 않는다. 이미 준비한 네 방향 원본 이미지 경로만 지정하고 공식 fixture를 Adapter에 직접 넣는다.
+첫 검증에서는 OTA worker를 호출하지 않는다.
 
 ```bash
 cd /workspace/sprite-pipeline
 
-export REF_JOB_ID="<기존_4방향_입력_JOB_ID>"
-export FRONT_REF="/workspace/sprite-pipeline/jobs/${REF_JOB_ID}/input/front.png"
-export BACK_REF="/workspace/sprite-pipeline/jobs/${REF_JOB_ID}/input/back.png"
-export LEFT_REF="/workspace/sprite-pipeline/jobs/${REF_JOB_ID}/input/left.png"
-export RIGHT_REF="/workspace/sprite-pipeline/jobs/${REF_JOB_ID}/input/right.png"
-
-server/.venv/bin/python - <<'PY'
-import importlib.util
-import os
-from pathlib import Path
-
-root = Path("/workspace/sprite-pipeline")
-module_path = root / "adapter/service.py"
-spec = importlib.util.spec_from_file_location("sprite_motion_adapter", module_path)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-
-refs = {
-    "front": Path(os.environ["FRONT_REF"]),
-    "back": Path(os.environ["BACK_REF"]),
-    "left": Path(os.environ["LEFT_REF"]),
-    "right": Path(os.environ["RIGHT_REF"]),
-}
-motion = root / "kimodo/kimodo/assets/demo/examples/kimodo-soma-rp/05_root_path/motion.npz"
-output = root / "jobs/official_walk_adapter_test/pose"
-
-result = module.build_pose_controls(motion, refs, output)
-print("POSE DIRS:", result)
-print("PREVIEW:", output / "pose_preview.png")
-print("META:", output / "adapter_meta.json")
-PY
+PYTHON_BIN=/workspace/sprite-pipeline/server/.venv/bin/python \
+./scripts/check_official_walk.sh
 ```
 
 검수 대상:
 
 ```text
-/workspace/sprite-pipeline/jobs/official_walk_adapter_test/pose/pose_preview.png
-/workspace/sprite-pipeline/jobs/official_walk_adapter_test/pose/adapter_meta.json
-/workspace/sprite-pipeline/jobs/official_walk_adapter_test/pose/adapter_validation.json
+/tmp/sprite-v6-official-check/pose_preview.png
+/tmp/sprite-v6-official-check/adapter_meta.json
+/tmp/sprite-v6-official-check/adapter_validation.json
+/tmp/sprite-v6-official-check/v6_validation_summary.json
 ```
 
-`adapter_meta.json`에서 `adapter_version: 5.0.0`, `cycle_source`와 `cycle_candidates`를 확인한다. 네 방향 pose의 phase, 발 순서와 신체 방향이 정상일 때만 아래 3세션 종단 생성으로 넘어간다. 이 단계가 실패하면 OTA를 실행하지 않고 Adapter 문제로 기록한다.
+다음 hard gate가 모두 통과해야 한다.
+
+```text
+canonical hip 평균 오차      <= 1.0°
+front/back torso yaw p95    <= 2.5°
+front/back head yaw p95     <= 5.0°
+front/back 투영 대칭 오차    <= 1e-5
+left/right 투영 대칭 오차    <= 1e-5
+3D 발 교차·보폭 검사         통과
+```
+
+네 방향 pose의 phase, 발 순서와 신체 방향이 정상일 때만 아래 3세션 종단 생성으로 넘어간다. 이 단계가 실패하면 OTA를 실행하지 않고 Adapter 문제로 기록한다.
 
 ---
 
@@ -969,7 +934,9 @@ cd /workspace/sprite-pipeline/kimodo
 실행:
 
 ```bash
-KIMODO_MOTION_SOURCE=official_example \
+export KIMODO_MOTION_SOURCE=official_example
+export KIMODO_OFFICIAL_WALK_MOTION=/workspace/sprite-pipeline/kimodo/kimodo/assets/demo/examples/kimodo-soma-rp/05_root_path/motion.npz
+
 PYTHONUNBUFFERED=1 \
 .venv/bin/python \
 ../workers/kimodo_worker.py
@@ -980,7 +947,7 @@ PYTHONUNBUFFERED=1 \
 정상 마지막:
 
 ```text
-[kimodo-worker] V5 source=official_example fixture=...
+[kimodo-worker] V6 source=official_example fixture=...
 [kimodo-worker] Kimodo diffusion model is NOT loaded in fixture mode
 [kimodo-worker] listening http://127.0.0.1:9101
 ```
@@ -992,13 +959,13 @@ curl \
   http://127.0.0.1:9101/health
 ```
 
-V5 기본 기준:
+V6 기본 기준:
 
 ```json
 {
   "status": "ready",
   "model": "official-demo:kimodo-soma-rp/05_root_path",
-  "worker_version": "5.0.0",
+  "worker_version": "6.0.0",
   "motion_source": "official_example",
   "fixture": "/workspace/sprite-pipeline/kimodo/kimodo/assets/demo/examples/kimodo-soma-rp/05_root_path/motion.npz",
   "allocated_gib": 0.0
@@ -1018,6 +985,8 @@ cd /workspace/sprite-pipeline/one-to-all
 실행:
 
 ```bash
+export OTA_CHECKPOINT_DIR=/workspace/sprite-pipeline/one-to-all/checkpoints/One-to-All-1.3b_2
+
 PYTHONUNBUFFERED=1 \
 .venv/bin/python \
 ../workers/ota_worker.py
@@ -1065,8 +1034,19 @@ cd /workspace/sprite-pipeline/server
 API 인증 토큰:
 
 ```bash
-export API_TOKEN='<새_인증_토큰>'
+export API_TOKEN='<새_ASCII_인증_토큰>'
+export SPRITE_CANONICAL_HEADING_TOLERANCE_DEG=1.0
+export SPRITE_FRONT_BACK_TORSO_YAW_LIMIT_DEG=2.5
+export SPRITE_FRONT_BACK_HEAD_YAW_LIMIT_DEG=5.0
+export SPRITE_BODY18_SHOULDER_BLEND=0.35
+
+export OTA_FRONT_BACK_IMAGE_GUIDANCE_SCALE=2.5
+export OTA_FRONT_BACK_POSE_GUIDANCE_SCALE=1.5
+export OTA_SIDE_IMAGE_GUIDANCE_SCALE=2.5
+export OTA_SIDE_POSE_GUIDANCE_SCALE=1.5
 ```
+
+`API_TOKEN`에는 영문, 숫자와 일반 ASCII 기호만 사용한다. 이전 셸에 잘못된 값이 남아 있다면 `unset API_TOKEN` 후 다시 설정하고 FastAPI를 재시작한다.
 
 실행:
 
@@ -1258,6 +1238,23 @@ right/
 
 sprite_sheet.png
 metadata.json
+debug/
+  motion_qc.json
+  adapter_meta.json
+  adapter_validation.json
+  pose_preview.png
+```
+
+V6 결과에서 `front/back`의 `keypoints.json`은 다음 geometry source를 가져야 한다.
+
+```json
+"geometry_source": "front_back_cardinal_lock"
+```
+
+`left/right`는 다음 값이어야 한다.
+
+```json
+"geometry_source": "natural_canonical_cycle"
 ```
 
 ---
@@ -1307,7 +1304,66 @@ status.json
 
 ---
 
-# 22. 최종 기억할 것
+# 22. Production 걷기 fixture 생성
+
+공식 `05_root_path`는 회귀 기준으로 계속 유지한다. 최종 production fixture는 Kimodo generated 모드에서 직선 root 경로와 고정 heading을 사용해 후보를 만들고, V6 hard gate를 통과한 결과만 동결한다.
+
+먼저 세션 1의 기존 Motion worker만 종료하고 generated 모드로 다시 실행한다.
+
+```bash
+cd /workspace/sprite-pipeline/kimodo
+
+export KIMODO_MOTION_SOURCE=generated
+export KIMODO_MODEL=Kimodo-SOMA-RP-v1.1
+export KIMODO_DENSE_ROOT_CONSTRAINT=true
+export KIMODO_GENERATED_DURATION=4.0
+export KIMODO_MAX_MOTION_ATTEMPTS=8
+
+PYTHONUNBUFFERED=1 \
+.venv/bin/python \
+../workers/kimodo_worker.py
+```
+
+후보 생성과 검증:
+
+```bash
+cd /workspace/sprite-pipeline
+
+PYTHON_BIN=/workspace/sprite-pipeline/server/.venv/bin/python \
+KIMODO_WORKER_URL=http://127.0.0.1:9101 \
+./scripts/generate_v6_candidate.sh 42
+```
+
+통과하면 다음 파일이 함께 만들어진다.
+
+```text
+neutral_walk_seed_42.npz
+neutral_walk_seed_42.meta.json
+neutral_walk_seed_42_v6_validation/
+```
+
+다른 seed도 같은 방식으로 검사하고, V6 gait·cardinal gate를 모두 통과한 후보만 fixture로 고정한다.
+
+```bash
+./scripts/generate_v6_candidate.sh 104771
+./scripts/generate_v6_candidate.sh 209500
+./scripts/generate_v6_candidate.sh 314229
+```
+
+고정 예시:
+
+```bash
+export KIMODO_MOTION_SOURCE=fixture
+export KIMODO_FIXTURE_LABEL=generated-neutral-walk-seed-42
+export KIMODO_FIXTURE_MOTION=/workspace/sprite-pipeline/fixtures/v6/neutral_walk_seed_42.npz
+export KIMODO_FIXTURE_META=/workspace/sprite-pipeline/fixtures/v6/neutral_walk_seed_42.meta.json
+```
+
+공식 원본 fixture는 수정하지 않는다. 생성 후보의 prompt, seed, model, repository revision, constraints와 SHA-256은 `.meta.json`에 보존한다.
+
+---
+
+# 23. 최종 기억할 것
 
 ```text
 설치할 때:
@@ -1324,7 +1380,14 @@ Motion worker:
 kimodo/.venv
 기본 KIMODO_MOTION_SOURCE=official_example
 공식 05_root_path/motion.npz 사용
+공식 NPZ는 job-local V6 스키마로 자동 정규화
 기본 모드에서는 Kimodo diffusion 모델을 VRAM에 올리지 않음
+
+V6 Adapter:
+heading delta = -heading
+front/back = cardinal-lock geometry
+left/right = natural canonical geometry
+hard gate 통과 후에만 OTA 실행
 
 One-to-All:
 one-to-all/.venv
@@ -1341,7 +1404,7 @@ GPU 패키지 없음
 세션3 API           :8000
 ```
 
-이게 V3 실패 motion 분석과 V5 공식 fixture 분리 검증을 반영한 **3세션 기준 설치/운영 가이드**입니다.
+이게 V3 실패 motion 분석, V5 공식 fixture 종단 성공과 V6 정면·후면 방향 보정을 반영한 **3세션 기준 설치/운영 가이드**입니다.
 
 [1]: https://docs.runpod.io/pods/configuration/expose-ports "Expose ports - Runpod Documentation"
 [2]: https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html "NVIDIA - CUDA | onnxruntime"

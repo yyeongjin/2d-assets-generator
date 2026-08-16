@@ -1,17 +1,17 @@
 # Kimodo → Motion Adapter → One-to-All 추후 개선 사항
 
-> **상태: V5 공식 motion 기준 단계별 재검증 예정.** 이 경로는 기각하지 않았다. Kimodo motion, FastAPI queue, 네 방향 렌더링과 결과 ZIP 생성까지는 동작했다. V3의 실제 `latest_motion.npz` 분석으로 생성 모션 자체의 cross-step, 측면 drift와 heading 변화가 확인됐다. V4는 배포하지 않고 건너뛰며, V5는 Kimodo 공식 `05_root_path/motion.npz`를 고정 fixture로 사용해 `motion → adapter → OTA`를 분리 검증한다. 아래 이전 실패 분석은 수정 근거로 보존한다.
+> **상태: V6 RunPod 재검증 대기.** 이 경로는 기각하지 않았다. V5는 Kimodo 공식 `05_root_path/motion.npz`를 기준으로 FastAPI queue, Motion Adapter, 네 방향 One-to-All 렌더링, 32 PNG와 결과 ZIP 다운로드까지 실제로 성공했다. V6는 V5 성공 경로를 유지하면서 확인된 heading 회전 부호 오류, 정면·후면 3/4 잔류와 공식 NPZ 스키마 차이를 수정했다. 아래 V3 실패 분석과 V5 성공 근거는 모두 보존한다.
 
 ## 현재 판정
 
-2026-08-15 종단 테스트 결과는 다음 HARD GATE를 통과하지 못했다.
+2026-08-15 V2/V3 종단 테스트 결과는 다음 HARD GATE를 통과하지 못했다.
 
 - 정면 행이 정투영 정면 대신 3/4 방향으로 변함
 - 후면 행에 얼굴 또는 수염처럼 보이는 전면 특징이 생김
 - 좌우 방향에서 얼굴, 옷, 모자와 신체 비율이 달라짐
 - 네 방향의 같은 phase가 동일한 동작 순간으로 보이지 않음
 
-입력한 네 방향 이미지 자체의 문제로 단정하지 않는다. 다만 V3 작업의 Kimodo 생성 motion은 neutral straight walk 기준을 통과하지 못한 것이 수치로 확인됐다. V5에서는 새 motion 생성부터 다시 반복하지 않고 공식 fixture를 사용해 아래 각 단계를 따로 판정한다.
+입력한 네 방향 이미지 자체의 문제로 단정하지 않는다. V3 작업의 Kimodo 생성 motion은 neutral straight walk 기준을 통과하지 못한 것이 수치로 확인됐다. V5에서는 공식 fixture를 사용해 원인을 분리했고, gait·방향 validation과 실제 4방향 렌더링을 통과했다.
 
 ```text
 Kimodo 3D motion
@@ -33,7 +33,43 @@ OTA용 visibility/confidence
 - cycle 내 측면 root drift 약 67cm
 - heading 변화 약 30.5°
 
-따라서 V5의 첫 판정 대상은 One-to-All 이미지가 아니라 `공식 motion.npz → Motion Adapter → pose_preview.png`다. 이 결과가 정상일 때만 같은 pose를 One-to-All에 전달한다.
+V5에서 다음 종단 baseline이 확보됐다.
+
+```text
+공식 Kimodo 300F motion
+→ 중립 heel-strike cycle 자동 선택
+→ 17 phase·4방향 pose
+→ One-to-All 렌더
+→ 방향별 8장, 총 32 PNG
+→ sprite sheet와 result.zip
+```
+
+V6의 첫 판정 대상은 여전히 One-to-All 이미지가 아니라 `공식 motion.npz → V6 Motion Adapter → pose_preview.png`다. V6 hard gate가 통과한 뒤에만 동일 입력으로 GPU 재렌더한다.
+
+## V6에서 적용한 개선
+
+- canonical heading 회전량을 `delta = -heading`으로 수정
+- canonical hip 평균 오차 `1°` 이하 회귀검사 추가
+- `left/right`는 자연스러운 canonical motion 유지
+- `front/back`만 torso yaw `±2.5°`, head yaw `±5°`로 제한
+- 골반과 어깨 방향을 함께 사용해 보이는 신체 방향 계산
+- front/back과 left/right 정반대 투영 대칭 오차 `1e-5` 이하 hard gate 추가
+- 공식 fixture에 `root_positions` 또는 heading이 없어도 job-local NPZ에 자동 생성
+- 원본 공식 fixture는 수정하지 않음
+- 직선 root 경로와 `[1, 0]` heading으로 production 후보를 만들고 V6 검사를 통과한 후보만 동결하는 절차 추가
+
+V6 패키지에서 단위·통합 테스트, Python compile, 셸 문법, overlay 설치와 ZIP 무결성 검사는 통과했다. 실제 공식 fixture 검사와 One-to-All GPU 렌더는 RunPod에서 재실행한 뒤 별도 테스트 기록으로 남긴다.
+
+## V6 재검증 순서
+
+1. V6 ZIP SHA-256과 압축 무결성 확인
+2. overlay 설치 후 8개 테스트 실행
+3. `check_official_walk.sh`로 OTA 없는 geometry 검사
+4. 정면·후면 cardinal pose preview 직접 확인
+5. 동일 V5 캐릭터 입력으로 4방향 GPU 재렌더
+6. V5 GIF와 V6 GIF를 방향별로 비교
+7. 성공한 뒤에만 여러 캐릭터·체형 재현성 검사
+8. 마지막으로 generated production fixture 후보를 seed별로 생성·검증
 
 ## 확인된 구현 문제
 

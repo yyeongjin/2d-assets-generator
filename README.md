@@ -54,7 +54,7 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 현재 검증 중인 구조는 준비된 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고, 하나의 3D 보행 cycle을 Motion Adapter가 네 방향 pose로 변환한 뒤 One-to-All이 각 방향 원본에 적용하는 방식입니다. 첫 종단 테스트에서는 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했지만 제작 품질은 통과하지 못했습니다. V3 결과의 `latest_motion.npz`를 분석한 결과, 선택된 phase의 41%에서 발이 몸 중심선을 넘고 최대 13.4cm crossover, 약 67cm 측면 drift와 30.5° heading 변화가 확인되어 원본 생성 모션 자체가 neutral straight walk가 아니었던 것으로 판정했습니다. 이 실패 기록은 그대로 보존합니다.
 
-현재 활성 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v5.zip](sprite_pipeline_fastapi_full_v5.zip)입니다. V4는 배포하지 않고 건너뛰었습니다. V5는 Kimodo 공식 저장소의 `kimodo-soma-rp/05_root_path/motion.npz`를 기본 고정 모션으로 사용하여 새 모션 생성 문제를 분리합니다. Adapter는 10초 공식 모션의 모든 완전한 heel-strike cycle을 비교해 가장 중립적인 cycle을 선택합니다. 2026-08-16 실제 RunPod 재검증에서 gait quality와 4방향 validation을 통과하고, 방향별 8장·총 32 PNG와 결과 ZIP을 로컬로 내려받았습니다. V2와 V3 ZIP은 이전 구현 비교용으로 그대로 보존하고, V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존합니다.
+현재 활성 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v6.zip](sprite_pipeline_fastapi_full_v6.zip)입니다. SHA-256은 `92975b29c63f0efe5d5702d45d820a3c7d5eed2c8150b01523a44b7b222ec804`입니다. V5는 Kimodo 공식 저장소의 `kimodo-soma-rp/05_root_path/motion.npz`를 사용해 실제 RunPod에서 gait quality와 4방향 validation을 통과하고, 방향별 8장·총 32 PNG와 결과 ZIP 다운로드까지 성공한 baseline입니다. V6는 이 경로를 유지하면서 heading 회전 부호, 정면·후면 cardinal geometry와 공식 NPZ 자동 정규화를 보완했습니다. V6 결정론적 검사는 통과했으며 실제 공식 fixture 검사와 One-to-All GPU 재렌더는 다음 RunPod 검증 대상으로 남아 있습니다. V2와 V3 ZIP은 이전 구현 비교용으로, V5 ZIP은 성공 baseline으로 그대로 보존하고 V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존합니다. V4는 배포하지 않았습니다.
 
 ### V5 공식 motion 4방향 걷기 결과
 
@@ -62,7 +62,7 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 ![V5 공식 motion 4방향 걷기 GIF](docs/test-records/kimodo-one-to-all-v5-2026-08-16/walk-cycle-4-directions.gif)
 
-V5 실행값, 스프라이트 시트, pose preview와 QC 수치는 [2026-08-16 V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)에 남겼습니다. 최초 종단 연결과 실패 품질은 [2026-08-15 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 그대로 보존합니다. 원인과 수정 순서는 [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md), 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 기록했습니다.
+V5 실행값, 스프라이트 시트, pose preview와 QC 수치는 [2026-08-16 V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)에 남겼습니다. 최초 종단 연결과 실패 품질은 [2026-08-15 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 그대로 보존합니다. V6 변경과 재검증 순서는 [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md), 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 기록했습니다.
 
 ## 현재 유지하는 흐름
 
@@ -84,10 +84,10 @@ V5 실행값, 스프라이트 시트, pose preview와 QC 수치는 [2026-08-16 V
 RunPod On-Demand Pod
   ├─ 기준 이미지·4방향 시트·아이템 착용 이미지 생성 endpoint
   └─ 공식 Kimodo walk fixture → Motion Adapter → One-to-All 동작 pipeline endpoint
-       └─ V5 공식 motion의 cycle 선택·pose preview부터 단계별 검증
+       └─ V6 공식 motion 정규화·cardinal hard gate·pose preview부터 단계별 검증
 ```
 
-SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. 현재 한 캐릭터 결과만으로 전체 제작 승인 에셋으로 판정하지 않으며, 다른 체형과 생명체에서 재현성을 계속 검증합니다.
+SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화한 현재 검증 버전입니다. 현재 한 캐릭터 결과만으로 전체 제작 승인 에셋으로 판정하지 않으며, V6 GPU 재렌더와 다른 체형·생명체 재현성을 계속 검증합니다.
 
 ## 로컬 실행
 
@@ -122,6 +122,7 @@ MOTION_PIPELINE_API_TOKEN=
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
 - [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
+- [현재 V6 서버 소스 ZIP](sprite_pipeline_fastapi_full_v6.zip)
 - [Kimodo + Motion Adapter + One-to-All V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)
 - [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)
 - [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)
