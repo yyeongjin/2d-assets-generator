@@ -1,0 +1,17 @@
+{
+  "worker_version": "5.0.0",
+  "status": "accepted",
+  "motion_source": "official_example",
+  "fixture": "/workspace/sprite-pipeline/kimodo/kimodo/assets/demo/examples/kimodo-soma-rp/05_root_path/motion.npz",
+  "official_example": "kimodo-soma-rp/05_root_path",
+  "official_prompt": "A person is casually walking forward slowly",
+  "official_seed": 42,
+  "official_duration": 10.0,
+  "client_prompt": "A person is casually walking forward slowly",
+  "client_seed": 42,
+  "client_prompt_affects_motion": false,
+  "client_seed_affects_motion": false,
+  "frames": 300,
+  "joints": 30,
+  "note": "V5 uses NVIDIA Kimodo's repository-shipped pre-generated casual-walk motion as a deterministic V1 gait fixture. The client prompt/seed still affect downstream rendering, but do not regenerate the gait in this mode."
+}
