@@ -1,6 +1,6 @@
 # Kimodo → Motion Adapter → One-to-All 추후 개선 사항
 
-> **상태: 개선 후 재검증 예정.** 이 경로는 기각하지 않았다. Kimodo motion 생성, FastAPI queue, 네 방향 렌더링과 결과 ZIP 생성까지는 동작했다. 현재 결과를 사용할 수 없는 원인은 모델 전체보다 `custom 3D→2D pose adapter → One-to-All` 연결부에 있을 가능성이 높다.
+> **상태: V3 반영 후 재검증 예정.** 이 경로는 기각하지 않았다. Kimodo motion 생성, FastAPI queue, 네 방향 렌더링과 결과 ZIP 생성까지는 동작했다. V3는 실패 작업의 debug를 기준으로 cycle 검출, 프레임별 yaw lock과 OTA body control score를 수정했다. 아래 V2 실패 분석은 수정 근거로 보존하며 실제 생성 품질 통과 여부는 같은 입력으로 다시 확인한다.
 
 ## 현재 판정
 

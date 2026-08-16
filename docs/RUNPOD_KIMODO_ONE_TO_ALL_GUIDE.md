@@ -1,6 +1,6 @@
 # 최종 RunPod 설치/실행 가이드
 
-> **상태: 개선 전 재현·운영 기준.** 3세션 서버와 결과 ZIP 생성까지는 검증했다. 현재 pose visibility/confidence와 네 방향 identity 문제는 해결 중이며 이 경로 자체를 기각한 것은 아니다. 결과 품질 개선은 [추후 개선 사항](KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)을 따른다.
+> **상태: V3 재검증 기준.** 3세션 서버와 결과 ZIP 생성까지는 V2에서 검증했다. V3는 실제 실패 작업의 pose debug를 기준으로 cycle 검출, 프레임별 yaw lock과 OTA body control score를 수정한 버전이며 아직 생성 품질을 다시 검증해야 한다. 이 경로 자체를 기각한 것은 아니다.
 
 ## 0. 최종 구조
 
@@ -172,13 +172,13 @@ git rev-parse HEAD \
 
 ---
 
-# 4. V2 전체 소스 ZIP 받기
+# 4. V3 전체 소스 ZIP 받기
 
 사용할 파일:
 
-[sprite_pipeline_fastapi_full_v2.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full_v2.zip)
+[sprite_pipeline_fastapi_full_v3.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full_v3.zip)
 
-V2 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한다.
+V3 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한다. V2 ZIP은 롤백 비교용으로 저장소에 유지한다.
 
 공개 저장소 기준으로 RunPod에서:
 
@@ -186,22 +186,22 @@ V2 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한�
 cd /workspace
 
 curl -L \
-  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full_v2.zip" \
-  -o sprite_pipeline_fastapi_full_v2.zip
+  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full_v3.zip" \
+  -o sprite_pipeline_fastapi_full_v3.zip
 ```
 
 확인:
 
 ```bash
 ls -lh \
-  /workspace/sprite_pipeline_fastapi_full_v2.zip
+  /workspace/sprite_pipeline_fastapi_full_v3.zip
 ```
 
 ZIP 무결성 검사:
 
 ```bash
 unzip -t \
-  /workspace/sprite_pipeline_fastapi_full_v2.zip
+  /workspace/sprite_pipeline_fastapi_full_v3.zip
 ```
 
 마지막에 다음 문구가 나와야 한다.
@@ -210,39 +210,39 @@ unzip -t \
 No errors detected in compressed data
 ```
 
-원본 ZIP의 최종 보관 위치는 `/workspace/sprite_pipeline_fastapi_full_v2.zip`이다. 배치 후에도 삭제하지 않는다.
+원본 ZIP의 최종 보관 위치는 `/workspace/sprite_pipeline_fastapi_full_v3.zip`이다. 배치 후에도 삭제하지 않는다.
 
 ---
 
-# 5. V2 ZIP은 `/tmp`에 풀고 코드만 교체
+# 5. V3 ZIP은 `/tmp`에 풀고 코드만 교체
 
 `/workspace/sprite-pipeline/server/` 안에서 바로 압축을 풀지 않는다. 명시한 임시 디렉터리만 새로 만든다.
 
 ```bash
-rm -rf /tmp/sprite_api_bundle_v2
+rm -rf /tmp/sprite_v3
 
-mkdir -p /tmp/sprite_api_bundle_v2
+mkdir -p /tmp/sprite_v3
 
 unzip -q \
-  /workspace/sprite_pipeline_fastapi_full_v2.zip \
-  -d /tmp/sprite_api_bundle_v2
+  /workspace/sprite_pipeline_fastapi_full_v3.zip \
+  -d /tmp/sprite_v3
 ```
 
 실제 구조 확인:
 
 ```bash
 find \
-  /tmp/sprite_api_bundle_v2 \
+  /tmp/sprite_v3 \
   -maxdepth 3 \
   -type f \
   | sort
 ```
 
-V2 ZIP의 최상위 구조는 다음과 같다.
+V3 ZIP의 최상위 구조는 다음과 같다.
 
 ```text
-/tmp/sprite_api_bundle_v2/
-└── sprite_pipeline_fastapi_full_v2/
+/tmp/sprite_v3/
+└── sprite_pipeline_fastapi_full_v3/
     ├── server/
     │   ├── requirements.txt
     │   └── app/
@@ -264,6 +264,7 @@ V2 ZIP의 최상위 구조는 다음과 같다.
     ├── scripts/
     ├── README.md
     ├── CHANGES_v2.md
+    ├── CHANGES_v3.md
     ├── MANIFEST_SHA256.txt
     └── .env.example
 ```
@@ -272,10 +273,10 @@ V2 ZIP의 최상위 구조는 다음과 같다.
 
 ```bash
 ROOT="/workspace/sprite-pipeline"
-BUNDLE="/tmp/sprite_api_bundle_v2/sprite_pipeline_fastapi_full_v2"
+BUNDLE="/tmp/sprite_v3/sprite_pipeline_fastapi_full_v3"
 ```
 
-FastAPI 코드와 V2 서버 requirements 교체:
+FastAPI 코드와 V3 서버 requirements 교체:
 
 ```bash
 mkdir -p "$ROOT/server/app"
@@ -299,7 +300,7 @@ cp -a \
   "$ROOT/workers/"
 ```
 
-이 단계에서 `workers/ota_worker.py`와 `workers/kimodo_worker.py`가 V2 코드로 교체된다.
+이 단계에서 `workers/ota_worker.py`와 `workers/kimodo_worker.py`가 V3 bundle 코드로 교체된다.
 
 Motion Adapter 교체:
 
@@ -311,7 +312,7 @@ cp -a \
   "$ROOT/adapter/"
 ```
 
-`adapter/service.py`는 V2에서 Kimodo heading, 방향별 projection sign, pose visibility와 후면 face point 처리를 수정한 파일이다.
+`adapter/service.py`는 V3에서 cycle 검출, 17프레임별 yaw lock, side/overlap limb score와 heading metadata를 수정한 파일이다.
 
 Client 교체:
 
@@ -333,7 +334,7 @@ adapter/
 client/
 ```
 
-V2 배치 중 아래 기존 환경과 결과는 삭제하거나 덮어쓰지 않는다.
+V3 배치 중 아래 기존 환경과 결과는 삭제하거나 덮어쓰지 않는다.
 
 ```text
 /workspace/sprite-pipeline/kimodo/.venv/
@@ -373,19 +374,63 @@ find adapter \
   | sort
 ```
 
-V2 핵심 코드 확인:
+V3 핵심 코드 확인:
 
 ```bash
 grep -n \
-  "global_root_heading" \
+  -E "left_heel_rising_edges|global_root_heading_per_frame|cycle_source|canonical_heading_(mean|std)_degrees" \
   adapter/service.py
 
 grep -n \
-  -E "reference_score|control_score" \
+  -E "head_joints|major_body|0\.78" \
   workers/ota_worker.py
 ```
 
-두 검사 모두 V2 관련 코드가 출력되어야 한다. Python syntax 검사는 아래 `15. FastAPI venv` 단계에서 각 기존 venv로 실행한다.
+두 검사 모두 V3 관련 코드가 출력되어야 한다. Python syntax 검사는 아래 `15. FastAPI venv` 단계에서 각 기존 venv로 실행한다.
+
+## 기존 V2 배포를 V3로 빠르게 교체
+
+V2 서버가 이미 설치되어 정상 구동됐던 Pod라면 전체 환경을 다시 설치하지 않는다. Session 2 One-to-All worker와 Session 3 FastAPI를 먼저 종료하고, V3에서 실제 변경된 두 파일만 교체한다.
+
+```bash
+cp \
+  /tmp/sprite_v3/sprite_pipeline_fastapi_full_v3/adapter/service.py \
+  /workspace/sprite-pipeline/adapter/service.py
+
+cp \
+  /tmp/sprite_v3/sprite_pipeline_fastapi_full_v3/workers/ota_worker.py \
+  /workspace/sprite-pipeline/workers/ota_worker.py
+```
+
+교체 확인과 compile:
+
+```bash
+cd /workspace/sprite-pipeline
+
+server/.venv/bin/python \
+  -m py_compile \
+  adapter/service.py
+
+one-to-all/.venv/bin/python \
+  -m py_compile \
+  workers/ota_worker.py
+```
+
+그다음 Session 2 One-to-All worker와 Session 3 FastAPI를 이 문서의 실행 명령으로 다시 시작한다. Kimodo worker 코드는 바뀌지 않았으므로 Session 1은 그대로 유지해도 된다.
+
+## V3 핵심 변경
+
+- frame 0을 가짜 heel-strike로 선택하지 않음
+- fallback cycle을 foot Y 하나가 아니라 pelvis 대비 3D foot trajectory로 판정
+- cycle 평균 heading 대신 17프레임 각각의 `global_root_heading`으로 yaw 고정
+- side far limb score `0.40 → 0.90`
+- overlap limb score `0.45 → 0.80`
+- driving body score와 reference body score의 곱셈 제거
+- OTA BODY 1–13 control score를 최소 `0.78`로 유지
+- reference confidence는 머리 방향과 얼굴 visibility에만 사용
+- metadata에 `cycle_source`, heading mean/std 기록
+
+synthetic yaw-oscillation 검사는 프레임마다 몸이 ±20° 회전하는 입력에서도 front shoulder orientation이 phase 전체에서 거의 동일하게 유지되는 것을 확인했다. 이 검사는 adapter 수학과 코드 경로 검증이며, 실제 One-to-All 생성 품질 통과를 의미하지 않는다.
 
 ---
 
@@ -865,7 +910,7 @@ rm -rf .venv
 uv venv --python 3.12 .venv
 ```
 
-복사한 V2 requirements로 설치:
+복사한 V3 requirements로 설치:
 
 ```bash
 uv pip install \

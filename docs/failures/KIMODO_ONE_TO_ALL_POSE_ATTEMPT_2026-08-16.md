@@ -92,5 +92,4 @@ adapter가 생성한 전체 4방향 17프레임 pose 미리보기다.
 
 ## 다음 상태
 
-이번 실패로 Kimodo, Motion Adapter, One-to-All, FastAPI queue와 4방향 입력 구조를 폐기하지 않는다. 현재 실행 가이드와 최신 V2 서버 ZIP도 활성 상태로 유지한다. 다음 시도에서 control pose와 validation 범위를 보강한 뒤 같은 입력으로 결과를 비교한다.
-
+이번 실패로 Kimodo, Motion Adapter, One-to-All, FastAPI queue와 4방향 입력 구조를 폐기하지 않는다. 이 결과를 만든 V2는 롤백 비교용으로 보존하고, 후속 V3에서 cycle 검출, 프레임별 yaw lock과 OTA control score를 수정했다. 다음 시도에서는 같은 입력을 V3에 보내 결과를 비교한다.
