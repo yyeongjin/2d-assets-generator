@@ -1,6 +1,6 @@
 # Kimodo → Motion Adapter → One-to-All 추후 개선 사항
 
-> **상태: V3 반영 후 재검증 예정.** 이 경로는 기각하지 않았다. Kimodo motion 생성, FastAPI queue, 네 방향 렌더링과 결과 ZIP 생성까지는 동작했다. V3는 실패 작업의 debug를 기준으로 cycle 검출, 프레임별 yaw lock과 OTA body control score를 수정했다. 아래 V2 실패 분석은 수정 근거로 보존하며 실제 생성 품질 통과 여부는 같은 입력으로 다시 확인한다.
+> **상태: V5 공식 motion 기준 단계별 재검증 예정.** 이 경로는 기각하지 않았다. Kimodo motion, FastAPI queue, 네 방향 렌더링과 결과 ZIP 생성까지는 동작했다. V3의 실제 `latest_motion.npz` 분석으로 생성 모션 자체의 cross-step, 측면 drift와 heading 변화가 확인됐다. V4는 배포하지 않고 건너뛰며, V5는 Kimodo 공식 `05_root_path/motion.npz`를 고정 fixture로 사용해 `motion → adapter → OTA`를 분리 검증한다. 아래 이전 실패 분석은 수정 근거로 보존한다.
 
 ## 현재 판정
 
@@ -11,7 +11,7 @@
 - 좌우 방향에서 얼굴, 옷, 모자와 신체 비율이 달라짐
 - 네 방향의 같은 phase가 동일한 동작 순간으로 보이지 않음
 
-입력한 네 방향 이미지 자체나 Kimodo의 motion 생성이 실패한 것으로 단정하지 않는다. 우선 아래 연결부를 수정하고 같은 입력으로 다시 비교한다.
+입력한 네 방향 이미지 자체의 문제로 단정하지 않는다. 다만 V3 작업의 Kimodo 생성 motion은 neutral straight walk 기준을 통과하지 못한 것이 수치로 확인됐다. V5에서는 새 motion 생성부터 다시 반복하지 않고 공식 fixture를 사용해 아래 각 단계를 따로 판정한다.
 
 ```text
 Kimodo 3D motion
@@ -22,6 +22,18 @@ OTA용 visibility/confidence
         ↓
 방향별 One-to-All generation
 ```
+
+### V3 원본 motion에서 확인된 값
+
+- 선택 phase의 41%에서 한쪽 이상 발이 몸 중심선을 넘음
+- 최대 crossover 약 13.4cm
+- 좌우 foot lane 최소 간격 -20.4cm
+- 발목 최대 들림 약 36.3cm
+- 무릎 최대 굽힘 약 107.3°
+- cycle 내 측면 root drift 약 67cm
+- heading 변화 약 30.5°
+
+따라서 V5의 첫 판정 대상은 One-to-All 이미지가 아니라 `공식 motion.npz → Motion Adapter → pose_preview.png`다. 이 결과가 정상일 때만 같은 pose를 One-to-All에 전달한다.
 
 ## 확인된 구현 문제
 

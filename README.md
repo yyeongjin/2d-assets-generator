@@ -52,9 +52,9 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 전체 기각 사유와 공식 코드 근거는 [SCAIL-2 4방향 걷기 생성 경로 기각 기록](docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)에 정리했습니다.
 
-현재 검증 중인 구조는 Kimodo가 자연스러운 3D 동작 하나를 만들고, Motion Adapter가 캐릭터 체형과 네 방향 pose로 변환하며, One-to-All이 준비된 네 방향 원본 이미지에 pose를 적용하는 방식입니다. 로컬 화면은 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보냅니다. 첫 종단 테스트에서 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했습니다. V2 생성 결과는 frame 0과 cycle 검출, 방향 고정과 body control score 문제로 제작 기준을 통과하지 못했습니다. V3에서 해당 연결부를 수정했으며 같은 입력으로 재검증할 예정입니다.
+현재 검증 중인 구조는 준비된 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고, 하나의 3D 보행 cycle을 Motion Adapter가 네 방향 pose로 변환한 뒤 One-to-All이 각 방향 원본에 적용하는 방식입니다. 첫 종단 테스트에서 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했지만 제작 품질은 통과하지 못했습니다. V3 결과의 `latest_motion.npz`를 분석한 결과, 선택된 phase의 41%에서 발이 몸 중심선을 넘고 최대 13.4cm crossover, 약 67cm 측면 drift와 30.5° heading 변화가 확인되어 원본 생성 모션 자체가 neutral straight walk가 아니었던 것으로 판정했습니다.
 
-현재 활성 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v3.zip](sprite_pipeline_fastapi_full_v3.zip)이다. V3는 frame 0 가짜 heel-strike와 half-cycle 오검출을 줄이고, 17프레임별 yaw lock과 OTA body control score를 보강한 재검증 버전이다. V2 ZIP은 롤백 비교용으로 저장소 루트에 유지하고, V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존한다.
+현재 활성 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v5.zip](sprite_pipeline_fastapi_full_v5.zip)입니다. V4는 배포하지 않고 건너뛰었습니다. V5는 Kimodo 공식 저장소의 `kimodo-soma-rp/05_root_path/motion.npz`를 기본 고정 모션으로 사용하여 새 모션 생성 문제를 분리합니다. Adapter는 10초 공식 모션의 모든 완전한 heel-strike cycle을 비교해 가장 중립적인 cycle을 선택하고, 그 pose preview를 먼저 검수한 뒤에만 One-to-All 결과를 판단합니다. V2와 V3 ZIP은 이전 구현 비교용으로 그대로 보존하고, V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존합니다.
 
 실제 실행 결과와 로그 화면은 [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 남겼습니다. 원인과 수정 순서는 [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md), 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 기록했습니다.
 
@@ -77,8 +77,8 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
                          ▼
 RunPod On-Demand Pod
   ├─ 기준 이미지·4방향 시트·아이템 착용 이미지 생성 endpoint
-  └─ Kimodo → Motion Adapter → One-to-All 동작 pipeline endpoint
-       └─ V3 cycle·yaw·body control 수정 후 재검증 예정
+  └─ 공식 Kimodo walk fixture → Motion Adapter → One-to-All 동작 pipeline endpoint
+       └─ V5 공식 motion의 cycle 선택·pose preview부터 단계별 검증
 ```
 
 SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All 파이프라인은 서버 종단 실행과 32 PNG 패킹까지 성공했지만, 현재 결과는 제작 승인 에셋이 아닙니다. 최신 경로는 폐기하지 않고 pose control과 방향별 identity를 개선하는 실험 경로로 유지합니다.

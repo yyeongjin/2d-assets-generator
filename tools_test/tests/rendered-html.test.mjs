@@ -131,18 +131,18 @@ test("endpoint와 token은 새 환경변수에서만 읽는다", () => {
 test("새 가이드는 RunPod와 로컬의 경계·48GB 상주 전략·API 계약을 기록한다", () => {
   assert.match(guide, /RunPod에서 할 작업/);
   assert.match(guide, /로컬 `:3000`에서 할 작업/);
-  assert.match(guide, /GPU VRAM\s+48GB/);
-  assert.match(guide, /RAM\s+64GB 이상/);
-  assert.match(guide, /Disk\s+120GB 이상/);
+  assert.match(guide, /NVIDIA L40S 48GB/);
+  assert.match(guide, /RAM\s+64GB\+/);
+  assert.match(guide, /Disk\s+200GB 권장/);
   assert.match(guide, /github\.com\/nv-tlabs\/kimodo/);
   assert.match(guide, /github\.com\/ssj9596\/One-to-All-Animation/);
   assert.match(guide, /Kimodo-SOMA-RP-v1\.1/);
   assert.match(guide, /One-to-All-1\.3b_2/);
-  assert.match(guide, /TEXT_ENCODER_DEVICE=cpu/);
-  assert.match(guide, /두 모델은 다시 로드하지 않도록 상주/);
-  assert.match(guide, /POST \/v1\/jobs/);
+  assert.match(guide, /KIMODO_MOTION_SOURCE=official_example/);
+  assert.match(guide, /Kimodo diffusion 모델을 VRAM에 올리지 않음/);
+  assert.match(guide, /\/v1\/jobs/);
   for (const field of ["front=@front.png", "back=@back.png", "left=@left.png", "right=@right.png"]) assert.match(guide, new RegExp(field.replace(".", "\\.")));
-  assert.match(guide, /GET \/v1\/jobs\/JOB_ID\/output/);
+  assert.match(guide, /\/v1\/jobs\/\$\{JOB_ID\}\/result/);
   assert.match(guide, /result\.zip/);
   assert.doesNotMatch(guide, /github\.com\/yyeongjin\/2d-assets-generator\.git/);
   assert.doesNotMatch(guide, /\bscp\b/);

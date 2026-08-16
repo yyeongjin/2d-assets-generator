@@ -93,3 +93,9 @@ adapter가 생성한 전체 4방향 17프레임 pose 미리보기다.
 ## 다음 상태
 
 이번 실패로 Kimodo, Motion Adapter, One-to-All, FastAPI queue와 4방향 입력 구조를 폐기하지 않는다. 이 결과를 만든 V2는 롤백 비교용으로 보존하고, 후속 V3에서 cycle 검출, 프레임별 yaw lock과 OTA control score를 수정했다. 다음 시도에서는 같은 입력을 V3에 보내 결과를 비교한다.
+
+## 후속 원인 확인 — V3 `latest_motion.npz`
+
+V3 재시도 결과의 원본 3D motion을 직접 계산한 결과, 선택 phase의 41%에서 발이 몸 중심선을 넘었고 최대 crossover 약 13.4cm, foot lane 최소 간격 -20.4cm, 발목 들림 약 36.3cm, 무릎 굽힘 약 107.3°, 측면 root drift 약 67cm와 heading 변화 약 30.5°가 확인됐다. 이 작업에서 보인 X자 다리는 projection만의 문제가 아니라 Kimodo가 생성한 원본 motion에도 포함되어 있었다.
+
+V4는 저장소 활성 배포본으로 올리지 않고 건너뛴다. 다음 V5 검증은 Kimodo 공식 저장소의 `kimodo-soma-rp/05_root_path/motion.npz`를 고정 fixture로 사용한다. 먼저 `공식 motion → Motion Adapter → pose_preview`만 확인하고, 정상일 때만 One-to-All을 실행한다. 이 기록은 폐기 사유가 아니라 원인 분리를 위한 실패 이력으로 유지한다.
