@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "errors": [],
+  "diagnostics": {
+    "front_right_minus_left_shoulder_x": -0.16708588600158691,
+    "back_right_minus_left_shoulder_x": 0.16708588600158691,
+    "left_nose_minus_neck_x": 0.07141870260238647,
+    "right_nose_minus_neck_x": -0.07141873240470886
+  }
+}

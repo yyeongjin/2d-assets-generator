@@ -11,6 +11,10 @@
 - [RunPod Wan2.2 걷기 영상 실험](RUNPOD_WAN_VIDEO.md)
 - [Qwen 정면 걷기 프레임 실패](QWEN_WALK_FRAME_FAILURES.md)
 
+## 현재 경로의 단일 시도 실패
+
+- [2026-08-16 Kimodo → Motion Adapter → One-to-All 포즈 시도 실패](KIMODO_ONE_TO_ALL_POSE_ATTEMPT_2026-08-16.md) — 서버와 archive 생성은 성공했지만 걷기 에셋 품질 기준 실패. 현재 경로는 폐기하지 않고 계속 개선한다.
+
 ## 보존용 구현 문서
 
 - [RunPod FastAPI 서버 초기 구현](RUNPOD_FASTAPI_SERVER_IMPLEMENTATION.md) — 실제 소스 ZIP과 3세션 실행 가이드로 대체되어 활성 문서에서 제외

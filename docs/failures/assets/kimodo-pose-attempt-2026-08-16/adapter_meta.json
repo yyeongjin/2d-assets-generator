@@ -1,0 +1,26 @@
+{
+  "adapter_version": "2.0.0",
+  "motion_npz": "/workspace/sprite-pipeline/jobs/30709a43a0f8417faafa95650d4f0e49/motion/motion.npz",
+  "cycle_start": 0,
+  "cycle_end": 48,
+  "target_frames": 17,
+  "directions": [
+    "front",
+    "back",
+    "left",
+    "right"
+  ],
+  "heading_source": "global_root_heading",
+  "canonical_heading_radians": 0.12186977169296304,
+  "validation": {
+    "ok": true,
+    "errors": [],
+    "diagnostics": {
+      "front_right_minus_left_shoulder_x": -0.16708588600158691,
+      "back_right_minus_left_shoulder_x": 0.16708588600158691,
+      "left_nose_minus_neck_x": 0.07141870260238647,
+      "right_nose_minus_neck_x": -0.07141873240470886
+    }
+  },
+  "preview": "/workspace/sprite-pipeline/jobs/30709a43a0f8417faafa95650d4f0e49/pose/pose_preview.png"
+}
