@@ -82,32 +82,6 @@ V7은 16개의 고유 걷기 phase 뒤에 첫 control을 정확히 복사한 17�
 
 전체 job ID, 체크섬, loop QC 수치와 색상 비교는 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 정리했습니다. 이 결과는 V7의 실제 종단 실행 가능성과 이번 표본의 색상 일관성을 확인한 기록이며, 모든 캐릭터·생명체의 제작 품질이 확정됐다는 뜻은 아닙니다.
 
-### V5 공식 motion 4방향 걷기 결과
-
-배치는 `좌상=front`, `우상=back`, `좌하=left`, `우하=right`이며, 서버가 만든 방향별 8프레임을 그대로 5fps 반복 GIF로 묶었습니다.
-
-![V5 공식 motion 4방향 걷기 GIF](docs/test-records/kimodo-one-to-all-v5-2026-08-16/walk-cycle-4-directions.gif)
-
-V5 실행값, 스프라이트 시트, pose preview와 QC 수치는 [2026-08-16 V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)에 남겼습니다. 최초 종단 연결과 실패 품질은 [2026-08-15 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 그대로 보존합니다. V6 변경과 재검증 순서는 [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md), 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 기록했습니다.
-
-### V6 다른 캐릭터 3종 검증 현황
-
-V6를 은색 단발 대장장이, 짧고 다부진 여행자, 키가 크고 마른 붉은 코트 여행자에 각각 적용했습니다. 세 작업 모두 4방향 32 PNG와 결과 ZIP 생성, gait·cardinal validation을 통과했습니다. 다만 얼굴과 안경의 프레임별 변화, 짧은 체형이 길고 날씬하게 변하는 문제, 작은 의상 디테일 변화가 확인됐습니다. 따라서 V6는 동작·방향 제어의 가능성은 확인했지만 외형 일관성까지 통과한 최종 결과는 아닙니다.
-
-| 테스트 캐릭터 | 결과 | 기록 |
-|---|---|---|
-| 은색 단발 대장장이 | 의상은 대체로 유지, 얼굴·안경 변화 | [ZIP](docs/test-records/v6-other-characters/blacksmith/result.zip) |
-| 짧고 다부진 여행자 | 색상은 유지, 체형이 길고 날씬하게 변함 | [ZIP](docs/test-records/v6-other-characters/short-traveler/result.zip) |
-| 키가 크고 마른 붉은 코트 여행자 | 세 작업 중 외형 유지가 가장 양호함 | [ZIP](docs/test-records/v6-other-characters/tall-traveler/result.zip) |
-
-![V6 은색 단발 대장장이 걷기](docs/test-records/v6-other-characters/blacksmith/walk-cycle.gif)
-
-![V6 짧고 다부진 여행자 걷기](docs/test-records/v6-other-characters/short-traveler/walk-cycle.gif)
-
-![V6 키가 크고 마른 붉은 코트 여행자 걷기](docs/test-records/v6-other-characters/tall-traveler/walk-cycle.gif)
-
-작업 ID, 체크섬, 공통 검증 수치와 V7 외형 회귀검사 항목은 [V6 다른 캐릭터 3종 검증 기록](docs/test-records/V6_OTHER_CHARACTERS_2026-08-18.md)에 정리했습니다.
-
 ## 현재 유지하는 흐름
 
 ```text
