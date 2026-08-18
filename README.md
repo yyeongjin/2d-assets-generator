@@ -54,7 +54,7 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 현재 검증 중인 구조는 준비된 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고, 하나의 3D 보행 cycle을 Motion Adapter가 네 방향 pose로 변환한 뒤 One-to-All이 각 방향 원본에 적용하는 방식입니다. 첫 종단 테스트에서는 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했지만 제작 품질은 통과하지 못했습니다. V3 결과의 `latest_motion.npz`를 분석한 결과, 선택된 phase의 41%에서 발이 몸 중심선을 넘고 최대 13.4cm crossover, 약 67cm 측면 drift와 30.5° heading 변화가 확인되어 원본 생성 모션 자체가 neutral straight walk가 아니었던 것으로 판정했습니다. 이 실패 기록은 그대로 보존합니다.
 
-현재 활성 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v6.zip](sprite_pipeline_fastapi_full_v6.zip)입니다. SHA-256은 `92975b29c63f0efe5d5702d45d820a3c7d5eed2c8150b01523a44b7b222ec804`입니다. V5는 Kimodo 공식 저장소의 `kimodo-soma-rp/05_root_path/motion.npz`를 사용해 실제 RunPod에서 gait quality와 4방향 validation을 통과하고, 방향별 8장·총 32 PNG와 결과 ZIP 다운로드까지 성공한 baseline입니다. V6는 이 경로를 유지하면서 heading 회전 부호, 정면·후면 cardinal geometry와 공식 NPZ 자동 정규화를 보완했습니다. V6 결정론적 검사는 통과했으며 실제 공식 fixture 검사와 One-to-All GPU 재렌더는 다음 RunPod 검증 대상으로 남아 있습니다. V2와 V3 ZIP은 이전 구현 비교용으로, V5 ZIP은 성공 baseline으로 그대로 보존하고 V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존합니다. V4는 배포하지 않았습니다.
+현재 활성 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v6.zip](sprite_pipeline_fastapi_full_v6.zip)입니다. SHA-256은 `92975b29c63f0efe5d5702d45d820a3c7d5eed2c8150b01523a44b7b222ec804`입니다. V5는 Kimodo 공식 저장소의 `kimodo-soma-rp/05_root_path/motion.npz`를 사용해 실제 RunPod에서 gait quality와 4방향 validation을 통과하고, 방향별 8장·총 32 PNG와 결과 ZIP 다운로드까지 성공한 baseline입니다. V6는 이 경로를 유지하면서 heading 회전 부호, 정면·후면 cardinal geometry와 공식 NPZ 자동 정규화를 보완했습니다. V6는 실제 RunPod에서 공식 fixture 검사와 서로 다른 캐릭터 3종의 One-to-All GPU 렌더까지 완료했습니다. 동작·방향 검사는 통과했지만 외형 보존 문제는 남아 있습니다. V2와 V3 ZIP은 이전 구현 비교용으로, V5 ZIP은 성공 baseline으로 그대로 보존하고 V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존합니다. V4는 배포하지 않았습니다.
 
 ### V5 공식 motion 4방향 걷기 결과
 
@@ -63,6 +63,24 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 ![V5 공식 motion 4방향 걷기 GIF](docs/test-records/kimodo-one-to-all-v5-2026-08-16/walk-cycle-4-directions.gif)
 
 V5 실행값, 스프라이트 시트, pose preview와 QC 수치는 [2026-08-16 V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)에 남겼습니다. 최초 종단 연결과 실패 품질은 [2026-08-15 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)에 그대로 보존합니다. V6 변경과 재검증 순서는 [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md), 설치와 API 계약은 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 기록했습니다.
+
+### V6 다른 캐릭터 3종 검증 현황
+
+V6를 은색 단발 대장장이, 짧고 다부진 여행자, 키가 크고 마른 붉은 코트 여행자에 각각 적용했습니다. 세 작업 모두 4방향 32 PNG와 결과 ZIP 생성, gait·cardinal validation을 통과했습니다. 다만 얼굴과 안경의 프레임별 변화, 짧은 체형이 길고 날씬하게 변하는 문제, 작은 의상 디테일 변화가 확인됐습니다. 따라서 V6는 동작·방향 제어의 가능성은 확인했지만 외형 일관성까지 통과한 최종 결과는 아닙니다.
+
+| 테스트 캐릭터 | 결과 | 기록 |
+|---|---|---|
+| 은색 단발 대장장이 | 의상은 대체로 유지, 얼굴·안경 변화 | [ZIP](docs/test-records/v6-other-characters/blacksmith/result.zip) |
+| 짧고 다부진 여행자 | 색상은 유지, 체형이 길고 날씬하게 변함 | [ZIP](docs/test-records/v6-other-characters/short-traveler/result.zip) |
+| 키가 크고 마른 붉은 코트 여행자 | 세 작업 중 외형 유지가 가장 양호함 | [ZIP](docs/test-records/v6-other-characters/tall-traveler/result.zip) |
+
+![V6 은색 단발 대장장이 걷기](docs/test-records/v6-other-characters/blacksmith/walk-cycle.gif)
+
+![V6 짧고 다부진 여행자 걷기](docs/test-records/v6-other-characters/short-traveler/walk-cycle.gif)
+
+![V6 키가 크고 마른 붉은 코트 여행자 걷기](docs/test-records/v6-other-characters/tall-traveler/walk-cycle.gif)
+
+작업 ID, 체크섬, 공통 검증 수치와 V7 외형 회귀검사 항목은 [V6 다른 캐릭터 3종 검증 기록](docs/test-records/V6_OTHER_CHARACTERS_2026-08-18.md)에 정리했습니다.
 
 ## 현재 유지하는 흐름
 
@@ -87,7 +105,7 @@ RunPod On-Demand Pod
        └─ V6 공식 motion 정규화·cardinal hard gate·pose preview부터 단계별 검증
 ```
 
-SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화한 현재 검증 버전입니다. 현재 한 캐릭터 결과만으로 전체 제작 승인 에셋으로 판정하지 않으며, V6 GPU 재렌더와 다른 체형·생명체 재현성을 계속 검증합니다.
+SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화해 캐릭터 3종의 GPU 렌더까지 검증한 버전입니다. 현재 결과를 전체 제작 승인 에셋으로 판정하지 않으며, V7에서 원본 대비 얼굴·액세서리·체형·프레임 간 외형 일관성 검사를 추가할 예정입니다.
 
 ## 로컬 실행
 
@@ -124,6 +142,7 @@ MOTION_PIPELINE_API_TOKEN=
 - [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
 - [현재 V6 서버 소스 ZIP](sprite_pipeline_fastapi_full_v6.zip)
 - [Kimodo + Motion Adapter + One-to-All V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)
+- [V6 다른 캐릭터 3종 검증 기록](docs/test-records/V6_OTHER_CHARACTERS_2026-08-18.md)
 - [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)
 - [Kimodo → Motion Adapter → One-to-All 추후 개선 사항](docs/KIMODO_ONE_TO_ALL_FUTURE_IMPROVEMENTS.md)
 - [실패·기각 기록 목록](docs/failures/README.md)

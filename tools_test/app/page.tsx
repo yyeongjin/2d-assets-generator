@@ -655,19 +655,21 @@ export default function Home() {
       await new Promise((resolve) => window.setTimeout(resolve, 3000));
       try {
         const response = await fetch(`/api/motion-pipeline/jobs/${jobId}`, { cache: "no-store" });
-        const body = await response.json() as { status?: string; stage?: string; output_url?: string; runtime_seconds?: number; error?: string };
+        const body = await response.json() as { status?: string; stage?: string; output_url?: string; result_url?: string; runtime_seconds?: number; error?: string };
         if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-        const status: JobStatus = body.status === "completed"
+        const status: JobStatus = body.status === "completed" || body.status === "succeeded"
           ? "완료"
           : body.status === "failed"
             ? "실패"
-            : body.status === "running"
+            : body.status === "running" || body.status === "processing"
               ? "처리 중"
               : "대기열";
         setJob((current) => ({
           ...current,
           status,
-          outputUrl: body.output_url ? `/api/motion-pipeline/jobs/${jobId}/output` : undefined,
+          outputUrl: body.status === "completed" || body.status === "succeeded"
+            ? `/api/motion-pipeline/jobs/${jobId}/output`
+            : undefined,
           runtimeSeconds: body.runtime_seconds,
           error: body.error,
         }));

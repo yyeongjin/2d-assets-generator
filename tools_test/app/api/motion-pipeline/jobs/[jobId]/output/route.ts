@@ -8,7 +8,7 @@ export async function GET(_request: Request, context: { params: Promise<{ jobId:
   if (!/^[a-zA-Z0-9_-]{8,80}$/.test(jobId)) return new Response("잘못된 job_id입니다.", { status: 400 });
 
   try {
-    const response = await requestMotionPipeline(`/v1/jobs/${encodeURIComponent(jobId)}/output`);
+    const response = await requestMotionPipeline(`/v1/jobs/${encodeURIComponent(jobId)}/result`);
     if (!response.ok) {
       const message = (await response.text()).slice(0, 500) || `HTTP ${response.status}`;
       return new Response(message, { status: response.status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
