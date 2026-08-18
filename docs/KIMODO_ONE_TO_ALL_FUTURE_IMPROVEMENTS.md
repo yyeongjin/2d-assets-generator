@@ -1,6 +1,6 @@
 # Kimodo → Motion Adapter → One-to-All 추후 개선 사항
 
-> **상태: V6 RunPod 재검증 대기.** 이 경로는 기각하지 않았다. V5는 Kimodo 공식 `05_root_path/motion.npz`를 기준으로 FastAPI queue, Motion Adapter, 네 방향 One-to-All 렌더링, 32 PNG와 결과 ZIP 다운로드까지 실제로 성공했다. V6는 V5 성공 경로를 유지하면서 확인된 heading 회전 부호 오류, 정면·후면 3/4 잔류와 공식 NPZ 스키마 차이를 수정했다. 아래 V3 실패 분석과 V5 성공 근거는 모두 보존한다.
+> **상태: V3 실패 분석과 V5/V6 개선 과정을 보존한 과거 설계 기록.** 현재 설치·실행 기준은 V7로 갱신한 [`RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md`](RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)다. 이 경로는 기각하지 않았으며, V7은 실제 L40S에서 캐릭터 3종의 32 PNG와 결과 ZIP 종단 생성 및 loop QC를 통과했다. 아래 V3 실패 분석과 V5/V6 개선 근거는 삭제하지 않는다.
 
 ## 현재 판정
 

@@ -56,13 +56,13 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 현재 검증 중인 구조는 준비된 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고, 하나의 3D 보행 cycle을 Motion Adapter가 네 방향 pose로 변환한 뒤 One-to-All이 각 방향 원본에 적용하는 방식입니다. 첫 종단 테스트에서는 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했지만 제작 품질은 통과하지 못했습니다. V3 결과의 `latest_motion.npz`를 분석한 결과, 선택된 phase의 41%에서 발이 몸 중심선을 넘고 최대 13.4cm crossover, 약 67cm 측면 drift와 30.5° heading 변화가 확인되어 원본 생성 모션 자체가 neutral straight walk가 아니었던 것으로 판정했습니다. 이 실패 기록은 그대로 보존합니다.
 
-현재 적용 대상 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v7.zip](sprite_pipeline_fastapi_full_v7.zip)입니다. SHA-256은 `460534a6bbc483ad7ad91dfc0fcacea20e6afdfcb6480b5dd365fa7a95698f81`입니다. V7은 V6에서 검증한 공식 Kimodo fixture와 3서비스 구조를 유지하면서 control loop의 시작·끝 일치, One-to-All 위치 흔들림 보정, 8-frame 후보 자동 선택, `8→1` loop QC와 OTA 재시도를 추가한 오버레이입니다. 결정론적 테스트 14개와 패키지 검사에 이어 실제 L40S에서 캐릭터 3종의 One-to-All 종단 렌더, 방향별 8장·총 32 PNG 패킹과 result.zip 다운로드까지 확인했습니다. V6 ZIP과 다중 캐릭터 결과는 검증 baseline으로 유지합니다. V2와 V3 ZIP은 이전 구현 비교용으로, V5 ZIP은 성공 baseline으로 그대로 보존하고 V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존합니다. V4는 배포하지 않았습니다.
+현재 적용 대상 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v7.zip](sprite_pipeline_fastapi_full_v7.zip)입니다. SHA-256은 `460534a6bbc483ad7ad91dfc0fcacea20e6afdfcb6480b5dd365fa7a95698f81`입니다. V7은 V6에서 검증한 공식 Kimodo fixture와 3서비스 구조를 유지하면서 control loop의 시작·끝 일치, One-to-All 위치 흔들림 보정, 8-frame 후보 자동 선택, `8→1` loop QC와 OTA 재시도를 추가한 오버레이입니다. 결정론적 테스트 14개와 패키지 검사에 이어 실제 L40S에서 캐릭터 3종의 One-to-All 종단 렌더, 방향별 8장·총 32 PNG 패킹과 result.zip 다운로드까지 확인했습니다. V2·V3·V5·V6 ZIP은 [이전 버전 보관소](archives/pipeline-versions/)로 옮겼고, 관련 결과 문서는 `docs/test-records/`에 그대로 유지합니다. V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존하며 V4는 배포하지 않았습니다.
 
 ### V7 loop 안정화 오버레이
 
 V7은 16개의 고유 걷기 phase 뒤에 첫 control을 정확히 복사한 17번째 control을 붙입니다. 17개 렌더 결과에서는 `even_start`, `odd`, `even_end` 후보를 네 방향 공통으로 비교하며, 마지막 프레임에서 첫 프레임으로 이어지는 구간까지 검사합니다. Loop QC가 실패하면 Kimodo와 Motion Adapter는 유지하고 One-to-All만 다른 seed로 한 번 재시도합니다.
 
-패키지 설치, 세 서비스 실행과 GPU 판정 조건은 [Sprite Pipeline V7 적용과 검증](docs/SPRITE_PIPELINE_V7.md)에 정리했습니다. 실제 캐릭터 3종 결과와 색상·loop·재현성 검토는 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 보존합니다.
+패키지 설치, 세 서비스 실행과 GPU 판정 조건은 기존 단일 문서인 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 V7 기준으로 통합했습니다. 실제 캐릭터 3종 결과와 색상·loop·재현성 검토는 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 보존합니다.
 
 ### V7 실제 4방향 걷기 결과
 
@@ -141,9 +141,8 @@ MOTION_PIPELINE_API_TOKEN=
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
 - [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
 - [현재 V7 서버 소스 ZIP](sprite_pipeline_fastapi_full_v7.zip)
-- [Sprite Pipeline V7 적용과 검증](docs/SPRITE_PIPELINE_V7.md)
 - [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)
-- [V6 서버 소스 ZIP](sprite_pipeline_fastapi_full_v6.zip)
+- [이전 V2·V3·V5·V6 서버 ZIP 보관소](archives/pipeline-versions/README.md)
 - [Kimodo + Motion Adapter + One-to-All V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)
 - [V6 다른 캐릭터 3종 검증 기록](docs/test-records/V6_OTHER_CHARACTERS_2026-08-18.md)
 - [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)
