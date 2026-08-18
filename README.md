@@ -1,5 +1,7 @@
 # 2D Assets Generator
 
+![Kimodo, Motion Adapter, One-to-All 4방향 에셋 생성 파이프라인](docs/assets/v7-pipeline-architecture.png)
+
 농장 생활 RPG에 필요한 타일, 오브젝트, 캐릭터, 생명체, 아이템, VFX와 UI 에셋을 항목별로 생성하고 보관하기 위한 로컬 작업 도구입니다.
 
 현재 저장소는 완성된 생성 품질을 보여주는 결과물이 아닙니다. 수천 개의 에셋을 실제로 관리할 수 있는 입력 구조, 저장 방식, 방향 분할과 동작 생성 흐름을 확인하기 위한 작업 현황입니다.
