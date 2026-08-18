@@ -54,13 +54,31 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 현재 검증 중인 구조는 준비된 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고, 하나의 3D 보행 cycle을 Motion Adapter가 네 방향 pose로 변환한 뒤 One-to-All이 각 방향 원본에 적용하는 방식입니다. 첫 종단 테스트에서는 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했지만 제작 품질은 통과하지 못했습니다. V3 결과의 `latest_motion.npz`를 분석한 결과, 선택된 phase의 41%에서 발이 몸 중심선을 넘고 최대 13.4cm crossover, 약 67cm 측면 drift와 30.5° heading 변화가 확인되어 원본 생성 모션 자체가 neutral straight walk가 아니었던 것으로 판정했습니다. 이 실패 기록은 그대로 보존합니다.
 
-현재 적용 대상 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v7.zip](sprite_pipeline_fastapi_full_v7.zip)입니다. SHA-256은 `460534a6bbc483ad7ad91dfc0fcacea20e6afdfcb6480b5dd365fa7a95698f81`입니다. V7은 V6에서 검증한 공식 Kimodo fixture와 3서비스 구조를 유지하면서 control loop의 시작·끝 일치, One-to-All 위치 흔들림 보정, 8-frame 후보 자동 선택, `8→1` loop QC와 OTA 재시도를 추가한 오버레이입니다. 결정론적 테스트 14개와 패키지 검사는 통과했지만 실제 L40S One-to-All 종단 렌더는 아직 확인하지 않았습니다. V6 ZIP과 다중 캐릭터 결과는 검증 baseline으로 유지합니다. V2와 V3 ZIP은 이전 구현 비교용으로, V5 ZIP은 성공 baseline으로 그대로 보존하고 V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존합니다. V4는 배포하지 않았습니다.
+현재 적용 대상 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v7.zip](sprite_pipeline_fastapi_full_v7.zip)입니다. SHA-256은 `460534a6bbc483ad7ad91dfc0fcacea20e6afdfcb6480b5dd365fa7a95698f81`입니다. V7은 V6에서 검증한 공식 Kimodo fixture와 3서비스 구조를 유지하면서 control loop의 시작·끝 일치, One-to-All 위치 흔들림 보정, 8-frame 후보 자동 선택, `8→1` loop QC와 OTA 재시도를 추가한 오버레이입니다. 결정론적 테스트 14개와 패키지 검사에 이어 실제 L40S에서 캐릭터 3종의 One-to-All 종단 렌더, 방향별 8장·총 32 PNG 패킹과 result.zip 다운로드까지 확인했습니다. V6 ZIP과 다중 캐릭터 결과는 검증 baseline으로 유지합니다. V2와 V3 ZIP은 이전 구현 비교용으로, V5 ZIP은 성공 baseline으로 그대로 보존하고 V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존합니다. V4는 배포하지 않았습니다.
 
 ### V7 loop 안정화 오버레이
 
 V7은 16개의 고유 걷기 phase 뒤에 첫 control을 정확히 복사한 17번째 control을 붙입니다. 17개 렌더 결과에서는 `even_start`, `odd`, `even_end` 후보를 네 방향 공통으로 비교하며, 마지막 프레임에서 첫 프레임으로 이어지는 구간까지 검사합니다. Loop QC가 실패하면 Kimodo와 Motion Adapter는 유지하고 One-to-All만 다른 seed로 한 번 재시도합니다.
 
-패키지 설치, 세 서비스 실행, 검사 명령과 실제 GPU 판정 조건은 [Sprite Pipeline V7 적용과 검증](docs/SPRITE_PIPELINE_V7.md)에 정리했습니다. V7은 아직 제작 품질 통과 기록이 아니라 다음 RunPod 종단 검증 대상입니다.
+패키지 설치, 세 서비스 실행과 GPU 판정 조건은 [Sprite Pipeline V7 적용과 검증](docs/SPRITE_PIPELINE_V7.md)에 정리했습니다. 실제 캐릭터 3종 결과와 색상·loop·재현성 검토는 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 보존합니다.
+
+### V7 실제 4방향 걷기 결과
+
+배치는 `좌상=front`, `우상=back`, `좌하=left`, `우하=right`입니다. 세 작업 모두 같은 공식 Kimodo motion과 seed `4821`을 사용했으며 V7 loop QC를 통과했습니다. 대장장이는 같은 입력과 seed로 재실행했을 때 출력 PNG 32장이 모두 바이트 단위로 동일했습니다.
+
+| 테스트 캐릭터 | 결과 | 기록 |
+|---|---|---|
+| 밀짚모자 상점 주인 | 32 PNG·loop QC 통과, 세 작업 중 loop 경계가 가장 안정적 | [ZIP](docs/test-records/v7-other-characters/shopkeeper/result.zip) |
+| 짧고 다부진 초록색 여행자 | 색상 유지·loop QC 통과, 정면 seam은 임계값에 가까움 | [ZIP](docs/test-records/v7-other-characters/short-traveler/result.zip) |
+| 은색 단발 대장장이 | 색상 유지·loop QC 통과, 동일 seed 재현성 확인 | [ZIP](docs/test-records/v7-other-characters/blacksmith/result.zip) |
+
+![V7 밀짚모자 상점 주인 걷기](docs/test-records/v7-other-characters/shopkeeper/walk-cycle.gif)
+
+![V7 짧고 다부진 초록색 여행자 걷기](docs/test-records/v7-other-characters/short-traveler/walk-cycle.gif)
+
+![V7 은색 단발 대장장이 걷기](docs/test-records/v7-other-characters/blacksmith/walk-cycle.gif)
+
+전체 job ID, 체크섬, loop QC 수치와 색상 비교는 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 정리했습니다. 이 결과는 V7의 실제 종단 실행 가능성과 이번 표본의 색상 일관성을 확인한 기록이며, 모든 캐릭터·생명체의 제작 품질이 확정됐다는 뜻은 아닙니다.
 
 ### V5 공식 motion 4방향 걷기 결과
 
@@ -111,7 +129,7 @@ RunPod On-Demand Pod
        └─ V7 closed control loop·cardinal hard gate·render 안정화·loop QC
 ```
 
-SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화해 캐릭터 3종의 GPU 렌더까지 검증한 버전입니다. V7은 loop 안정화 오버레이가 추가된 현재 적용 대상이며, 실제 GPU 종단 결과와 원본 대비 얼굴·액세서리·체형·프레임 간 외형 일관성은 아직 검증해야 합니다.
+SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화해 캐릭터 3종의 GPU 렌더까지 검증한 버전입니다. V7은 loop 안정화 오버레이가 추가된 현재 적용 대상으로, 실제 L40S에서 캐릭터 3종의 종단 결과와 이번 표본의 색상 일관성·동일 seed 재현성을 확인했습니다. 더 다양한 얼굴·액세서리·체형·생명체에 대한 검증은 계속 필요합니다.
 
 ## 로컬 실행
 
@@ -148,6 +166,7 @@ MOTION_PIPELINE_API_TOKEN=
 - [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
 - [현재 V7 서버 소스 ZIP](sprite_pipeline_fastapi_full_v7.zip)
 - [Sprite Pipeline V7 적용과 검증](docs/SPRITE_PIPELINE_V7.md)
+- [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)
 - [V6 서버 소스 ZIP](sprite_pipeline_fastapi_full_v6.zip)
 - [Kimodo + Motion Adapter + One-to-All V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)
 - [V6 다른 캐릭터 3종 검증 기록](docs/test-records/V6_OTHER_CHARACTERS_2026-08-18.md)
