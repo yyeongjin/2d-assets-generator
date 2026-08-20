@@ -58,13 +58,13 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 현재 검증 중인 구조는 준비된 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고, 하나의 3D 보행 cycle을 Motion Adapter가 네 방향 pose로 변환한 뒤 One-to-All이 각 방향 원본에 적용하는 방식입니다. 첫 종단 테스트에서는 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했지만 제작 품질은 통과하지 못했습니다. V3 결과의 `latest_motion.npz`를 분석한 결과, 선택된 phase의 41%에서 발이 몸 중심선을 넘고 최대 13.4cm crossover, 약 67cm 측면 drift와 30.5° heading 변화가 확인되어 원본 생성 모션 자체가 neutral straight walk가 아니었던 것으로 판정했습니다. 이 실패 기록은 그대로 보존합니다.
 
-현재 적용 대상 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v7.zip](sprite_pipeline_fastapi_full_v7.zip)입니다. SHA-256은 `460534a6bbc483ad7ad91dfc0fcacea20e6afdfcb6480b5dd365fa7a95698f81`입니다. V7은 V6에서 검증한 공식 Kimodo fixture와 3서비스 구조를 유지하면서 control loop의 시작·끝 일치, One-to-All 위치 흔들림 보정, 8-frame 후보 자동 선택, `8→1` loop QC와 OTA 재시도를 추가한 오버레이입니다. 결정론적 테스트 14개와 패키지 검사에 이어 실제 L40S에서 캐릭터 3종의 One-to-All 종단 렌더, 방향별 8장·총 32 PNG 패킹과 result.zip 다운로드까지 확인했습니다. V2·V3·V5·V6 ZIP은 [이전 버전 보관소](archives/pipeline-versions/)로 옮겼고, 관련 결과 문서는 `docs/test-records/`에 그대로 유지합니다. V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존하며 V4는 배포하지 않았습니다.
+현재 적용 대상 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v8.zip](sprite_pipeline_fastapi_full_v8.zip)입니다. SHA-256은 `d56eabb1b71eb097f266686d636b5840f99739878726bc3020ebd14cfb01d917`입니다. V8은 V7의 공식 Kimodo fixture, closed control loop와 3서비스 구조를 유지하면서 One-to-All 렌더 이후의 공통 CIE Lab 팔레트 안정화와 최종 PNG의 위치·발 기준선·높이·색상 loop QC를 추가한 오버레이입니다. 패키지의 결정론적 테스트 17개와 V7 결과 오프라인 backtest는 통과했지만, V8 코드로 새 L40S diffusion 종단 렌더는 아직 확인하지 않았습니다. V2·V3·V5·V6·V7 ZIP은 [이전 버전 보관소](archives/pipeline-versions/)로 옮겼고, 관련 결과 문서는 `docs/test-records/`에 그대로 유지합니다. V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존하며 V4는 배포하지 않았습니다.
 
-### V7 loop 안정화 오버레이
+### V8 appearance·loop QC 오버레이
 
-V7은 16개의 고유 걷기 phase 뒤에 첫 control을 정확히 복사한 17번째 control을 붙입니다. 17개 렌더 결과에서는 `even_start`, `odd`, `even_end` 후보를 네 방향 공통으로 비교하며, 마지막 프레임에서 첫 프레임으로 이어지는 구간까지 검사합니다. Loop QC가 실패하면 Kimodo와 Motion Adapter는 유지하고 One-to-All만 다른 seed로 한 번 재시도합니다.
+V8은 V7의 16개 고유 걷기 phase와 첫 control을 복사한 17번째 control을 그대로 사용합니다. One-to-All 렌더 뒤 네 방향 원본에서 얻은 공통 팔레트로 프레임별 색상과 밝기 흔들림을 제한적으로 보정하고, `even_start`, `odd`, `even_end` 후보의 `8→1` 실루엣 위치·발 기준선·높이·색상 seam까지 검사합니다. Appearance 또는 loop QC가 실패하면 Kimodo와 Motion Adapter는 유지하고 One-to-All만 다른 seed로 재시도합니다.
 
-패키지 설치, 세 서비스 실행과 GPU 판정 조건은 기존 단일 문서인 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 V7 기준으로 통합했습니다. 실제 캐릭터 3종 결과와 색상·loop·재현성 검토는 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 보존합니다.
+패키지 설치, 세 서비스 실행과 GPU 판정 조건은 기존 단일 문서인 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 V8 기준으로 통합했습니다. 실제 캐릭터 3종의 V7 결과와 색상·loop·재현성 검토는 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 보존합니다.
 
 ### V7 실제 4방향 걷기 결과
 
@@ -104,10 +104,10 @@ V7은 16개의 고유 걷기 phase 뒤에 첫 control을 정확히 복사한 17�
 RunPod On-Demand Pod
   ├─ 기준 이미지·4방향 시트·아이템 착용 이미지 생성 endpoint
   └─ 공식 Kimodo walk fixture → Motion Adapter → One-to-All 동작 pipeline endpoint
-       └─ V7 closed control loop·cardinal hard gate·render 안정화·loop QC
+       └─ V8 closed control loop·cardinal hard gate·위치/팔레트 안정화·appearance/loop QC
 ```
 
-SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화해 캐릭터 3종의 GPU 렌더까지 검증한 버전입니다. V7은 loop 안정화 오버레이가 추가된 현재 적용 대상으로, 실제 L40S에서 캐릭터 3종의 종단 결과와 이번 표본의 색상 일관성·동일 seed 재현성을 확인했습니다. 더 다양한 얼굴·액세서리·체형·생명체에 대한 검증은 계속 필요합니다.
+SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화했고, V7은 실제 L40S에서 캐릭터 3종의 종단 결과와 이번 표본의 색상 일관성·동일 seed 재현성을 확인했습니다. V8은 V7 결과의 색상·위치 경계 사례를 추가로 보정하고 거부하는 현재 적용 대상이며, 새 GPU 종단 검증은 계속 필요합니다.
 
 ## 로컬 실행
 
@@ -141,9 +141,9 @@ MOTION_PIPELINE_API_TOKEN=
 - [타일 카탈로그](docs/TILE_CATALOG.md)
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
-- [현재 V7 서버 소스 ZIP](sprite_pipeline_fastapi_full_v7.zip)
+- [현재 V8 서버 소스 ZIP](sprite_pipeline_fastapi_full_v8.zip)
 - [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)
-- [이전 V2·V3·V5·V6 서버 ZIP 보관소](archives/pipeline-versions/README.md)
+- [이전 V2·V3·V5·V6·V7 서버 ZIP 보관소](archives/pipeline-versions/README.md)
 - [Kimodo + Motion Adapter + One-to-All V5 성공 기록](docs/test-records/KIMODO_ONE_TO_ALL_V5_2026-08-16.md)
 - [V6 다른 캐릭터 3종 검증 기록](docs/test-records/V6_OTHER_CHARACTERS_2026-08-18.md)
 - [Kimodo + Motion Adapter + One-to-All 종단 테스트 기록](docs/test-records/KIMODO_ONE_TO_ALL_2026-08-15.md)

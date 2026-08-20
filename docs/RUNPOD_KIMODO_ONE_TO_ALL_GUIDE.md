@@ -1,6 +1,6 @@
 # 최종 RunPod 설치/실행 가이드
 
-> **상태: V7 현재 실행 기준.** V7은 V6의 정면·후면 cardinal 보정과 공식 Kimodo fixture 경로를 유지하면서 17-frame closed control loop, One-to-All 위치 안정화, 8-frame 후보 선택, `8→1` loop QC와 결정론적 재시도를 추가한 현재 버전이다. RunPod L40S에서 캐릭터 3종의 방향별 8장·총 32 PNG와 `result.zip` 종단 생성을 확인했다. V2/V3 실패, V5 성공과 V6 다중 캐릭터 검증 기록은 삭제하지 않고 `docs/`와 `archives/`에 보존한다.
+> **상태: V8 현재 실행 기준.** V8은 V6의 정면·후면 cardinal 보정과 V7의 17-frame closed control loop, One-to-All 위치 안정화와 `8→1` loop QC를 유지하면서, 네 방향 공통 CIE Lab 팔레트 기반 색상 안정화와 최종 PNG 실루엣 위치·발 기준선·색상 hard gate를 추가한 오버레이다. V7은 RunPod L40S에서 캐릭터 3종의 방향별 8장·총 32 PNG와 `result.zip` 종단 생성을 확인했다. V8 패키지는 결정론적 테스트 17개와 V7 결과 오프라인 backtest를 통과했으며, 새 L40S diffusion 종단 렌더는 RunPod 적용 후 확인해야 한다. 이전 실패·성공 기록과 ZIP은 삭제하지 않고 `docs/`와 `archives/`에 보존한다.
 
 ## 0. 최종 구조
 
@@ -40,11 +40,19 @@ Job Queue
                    └ right 17F
                          │
                          ▼
+                  V8 팔레트 안정화
+                         │
+                         ▼
+                  위치·색상 loop QC
+                         │
+                         ▼
                    4방향 × 8 PNG
                    +
                    sprite_sheet.png
                    +
                    loop_qc.json
+                   +
+                   appearance_qc.json
                    +
                    result.zip
 ```
@@ -54,12 +62,12 @@ RunPod는 **서버**고 외부 PC/게임 서버/백엔드가 클라이언트입�
 ## RunPod에서 할 작업
 
 - Kimodo와 One-to-All 저장소 clone 및 각 venv 설치
-- V7 overlay를 기존 `/workspace/sprite-pipeline`에 배치
+- V8 overlay를 기존 `/workspace/sprite-pipeline`에 배치
 - 공식 `05_root_path/motion.npz`를 원본 수정 없이 작업용 스키마로 자동 정규화
-- One-to-All 로드 전에 V7 Adapter hard gate와 pose preview 확인
+- One-to-All 로드 전에 V8 Adapter hard gate와 pose preview 확인
 - 16개 고유 phase와 첫 phase 복사본으로 닫힌 17-frame control 생성
 - Motion worker `:9101`, One-to-All `:9102`, FastAPI `:8000` 실행
-- 렌더 위치 안정화, 8-frame 후보 선택과 loop QC 수행
+- 렌더 위치·팔레트 안정화, 8-frame 후보 선택과 appearance·loop QC 수행
 - 작업 중간 파일과 최종 `result.zip` 생성
 
 ## 로컬 `:3000`에서 할 작업
@@ -198,13 +206,13 @@ git rev-parse HEAD \
 
 ---
 
-# 4. V7 전체 소스 ZIP 받기
+# 4. V8 전체 소스 ZIP 받기
 
 사용할 파일:
 
-[sprite_pipeline_fastapi_full_v7.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full_v7.zip)
+[sprite_pipeline_fastapi_full_v8.zip](https://github.com/yyeongjin/2d-assets-generator/blob/main/sprite_pipeline_fastapi_full_v8.zip)
 
-V7 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한다. 이전 V2·V3·V5·V6 ZIP은 저장소의 [`archives/pipeline-versions/`](../archives/pipeline-versions/)에 보존하며 현재 설치에는 사용하지 않는다. V4는 배포하지 않았다.
+V8 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한다. 이전 V2·V3·V5·V6·V7 ZIP은 저장소의 [`archives/pipeline-versions/`](../archives/pipeline-versions/)에 보존하며 현재 설치에는 사용하지 않는다. V4는 배포하지 않았다.
 
 공개 저장소 기준으로 RunPod에서:
 
@@ -212,47 +220,47 @@ V7 ZIP 자체는 수정하지 않고 RunPod에도 원본을 그대로 보관한�
 cd /workspace
 
 curl -L \
-  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full_v7.zip" \
-  -o sprite_pipeline_fastapi_full_v7.zip
+  "https://github.com/yyeongjin/2d-assets-generator/raw/refs/heads/main/sprite_pipeline_fastapi_full_v8.zip" \
+  -o sprite_pipeline_fastapi_full_v8.zip
 ```
 
 확인과 무결성 검사:
 
 ```bash
-ls -lh /workspace/sprite_pipeline_fastapi_full_v7.zip
-sha256sum /workspace/sprite_pipeline_fastapi_full_v7.zip
-unzip -t /workspace/sprite_pipeline_fastapi_full_v7.zip
+ls -lh /workspace/sprite_pipeline_fastapi_full_v8.zip
+sha256sum /workspace/sprite_pipeline_fastapi_full_v8.zip
+unzip -t /workspace/sprite_pipeline_fastapi_full_v8.zip
 ```
 
 SHA-256은 다음 값과 정확히 같아야 한다.
 
 ```text
-460534a6bbc483ad7ad91dfc0fcacea20e6afdfcb6480b5dd365fa7a95698f81
+d56eabb1b71eb097f266686d636b5840f99739878726bc3020ebd14cfb01d917
 ```
 
-마지막에 `No errors detected in compressed data`가 나와야 한다. 원본 ZIP은 `/workspace/sprite_pipeline_fastapi_full_v7.zip`에 그대로 둔다.
+마지막에 `No errors detected in compressed data`가 나와야 한다. 원본 ZIP은 `/workspace/sprite_pipeline_fastapi_full_v8.zip`에 그대로 둔다.
 
 ---
 
-# 5. V7 overlay 설치
+# 5. V8 overlay 설치
 
 `/workspace/sprite-pipeline/server/` 안에서 바로 압축을 풀지 않는다.
 
 ```bash
-rm -rf /tmp/sprite_v7
-mkdir -p /tmp/sprite_v7
+rm -rf /tmp/sprite_v8
+mkdir -p /tmp/sprite_v8
 
 unzip -q \
-  /workspace/sprite_pipeline_fastapi_full_v7.zip \
-  -d /tmp/sprite_v7
+  /workspace/sprite_pipeline_fastapi_full_v8.zip \
+  -d /tmp/sprite_v8
 ```
 
 기존 venv, Kimodo repo, One-to-All checkpoint, 기존 `.env`, `jobs/`를 유지한 채 overlay만 적용한다.
 
 ```bash
-cd /tmp/sprite_v7/sprite_pipeline_fastapi_full_v7
+cd /tmp/sprite_v8/sprite_pipeline_fastapi_full_v8
 
-./scripts/install_v7_overlay.sh \
+./scripts/install_v8_overlay.sh \
   /workspace/sprite-pipeline
 ```
 
@@ -260,7 +268,7 @@ cd /tmp/sprite_v7/sprite_pipeline_fastapi_full_v7
 
 ```bash
 cp -a \
-  /tmp/sprite_v7/sprite_pipeline_fastapi_full_v7/server/requirements.txt \
+  /tmp/sprite_v8/sprite_pipeline_fastapi_full_v8/server/requirements.txt \
   /workspace/sprite-pipeline/server/requirements.txt
 ```
 
@@ -270,12 +278,17 @@ cp -a \
 workers/
 adapter/
 server/app/
+server/requirements.txt
 client/
 scripts/
 tests/
 VERSION
-CHANGES_v7.md
-.env.v7.example
+CHANGES_v8.md
+README_V8.md
+MIGRATE_V7_TO_V8.md
+.env.v8.example
+V8_BUILD_REPORT.txt
+V8_BACKTEST_SUMMARY.json
 ```
 
 다음 경로는 삭제하거나 덮어쓰지 않는다.
@@ -304,9 +317,9 @@ ls -lh \
 cat "$EX/meta.json"
 ```
 
-metadata의 prompt가 `A person is casually walking forward slowly`인지 확인한다. 공식 원본 NPZ에는 `root_positions`와 `global_root_heading`이 없을 수 있으며, V7은 job-local 파일을 만들 때 이를 자동으로 생성한다. 공식 파일 자체를 수정하지 않는다.
+metadata의 prompt가 `A person is casually walking forward slowly`인지 확인한다. 공식 원본 NPZ에는 `root_positions`와 `global_root_heading`이 없을 수 있으며, V8은 job-local 파일을 만들 때 이를 자동으로 생성한다. 공식 파일 자체를 수정하지 않는다.
 
-V7 핵심 코드와 버전 확인:
+V8 핵심 코드와 버전 확인:
 
 ```bash
 cd /workspace/sprite-pipeline
@@ -316,28 +329,28 @@ grep -n -E "ADAPTER_VERSION|cardinal|heading" adapter/service.py
 grep -n -E "PIPELINE_VERSION|motion_source|official_example" server/app/pipeline.py
 ```
 
-버전은 `7.0.0`이어야 한다.
+버전은 `8.0.0`이어야 한다.
 
-## V7 코드 검사
+## V8 코드 검사
 
-One-to-All을 로드하기 전에 실행한다. 기존 V5 Pod처럼 `server/.venv`가 이미 있으면 바로 실행한다. 새 Pod라면 먼저 이 문서의 **15. FastAPI venv**까지 설치한 뒤 이 단계로 돌아온다.
+One-to-All 서비스를 로드하기 전에 실행한다. V8 테스트에는 `workers/ota_worker.py`를 import하는 항목이 있어 `torch`와 `imageio`가 설치된 One-to-All venv를 사용한다. 새 Pod라면 먼저 이 문서의 **9. One-to-All venv 설치**까지 완료한 뒤 이 단계로 돌아온다.
 
 ```bash
 cd /workspace/sprite-pipeline
 
-server/.venv/bin/python \
+one-to-all/.venv/bin/python \
   -m unittest discover \
   -s tests \
   -p 'test_*.py' \
   -v
 ```
 
-`Ran 14 tests`와 `OK`로 끝나야 한다.
+`Ran 17 tests`와 `OK`로 끝나야 한다.
 
-## V7 핵심 변경
+## V8 핵심 변경
 
 - 기본 `KIMODO_MOTION_SOURCE=official_example`
-- 공식 NPZ를 원본 수정 없이 job-local V7 스키마로 정규화
+- 공식 NPZ를 원본 수정 없이 job-local V8 스키마로 정규화
 - fixture 모드에서는 Kimodo diffusion 모델과 LLM stack을 VRAM에 올리지 않음
 - heading을 `delta = -heading`으로 정규화하고 canonical hip 평균 오차를 검사
 - 자연스러운 canonical motion은 `left/right`에 사용
@@ -349,7 +362,9 @@ server/.venv/bin/python \
 - 렌더 이미지의 골반 중심과 발 기준선을 control 위치에 맞춰 평행이동
 - `even_start`, `odd`, `even_end` 후보 중 네 방향 공통 8-frame phase 선택
 - `1→2`부터 `8→1`까지 loop QC 수행
-- loop QC 실패 시 Kimodo와 Adapter는 유지하고 One-to-All만 다른 seed로 재시도
+- 네 방향 입력에서 공통 CIE Lab 팔레트를 만들고 OTA 17프레임의 색조·채도와 밝기 흔들림을 제한적으로 보정
+- 최종 PNG의 전경 centroid, 발 기준선, 높이와 색상 `8→1` seam을 추가 검사
+- appearance 또는 loop QC 실패 시 Kimodo와 Adapter는 유지하고 One-to-All만 다른 seed로 재시도
 
 클라이언트 `prompt`와 `seed`는 downstream 렌더링과 작업 이력에는 남지만, 기본 fixture 모드에서 gait를 새로 생성하는 데 사용하지 않는다. 새 Kimodo motion 생성 실험을 다시 할 때만 `KIMODO_MOTION_SOURCE=generated`로 명시적으로 전환한다.
 
@@ -476,7 +491,7 @@ print("Llama access OK:", p)
 
 # 8. 공식 Kimodo walk fixture 확인
 
-기본 V7 검증에서는 새 motion을 생성하지 않는다. 공식 example 세 파일과 NPZ 배열부터 확인한다.
+기본 V8 검증에서는 새 motion을 생성하지 않는다. 공식 example 세 파일과 NPZ 배열부터 확인한다.
 
 ```bash
 cd /workspace/sprite-pipeline
@@ -508,7 +523,7 @@ with np.load(p, allow_pickle=False) as data:
 PY
 ```
 
-공식 `05_root_path/motion.npz`의 정상 key는 `posed_joints`, `global_rot_mats`, `foot_contacts`다. `root_positions`가 없다는 이유로 실패시키면 안 된다. V7 `workers/fixture_io.py`가 작업용 NPZ를 만들 때 `posed_joints[:, 0, :]`의 Hips 좌표에서 `root_positions`를 만들고 heading도 보완한다.
+공식 `05_root_path/motion.npz`의 정상 key는 `posed_joints`, `global_rot_mats`, `foot_contacts`다. `root_positions`가 없다는 이유로 실패시키면 안 된다. V8 `workers/fixture_io.py`가 작업용 NPZ를 만들 때 `posed_joints[:, 0, :]`의 Hips 좌표에서 `root_positions`를 만들고 heading도 보완한다.
 
 새 motion 생성 경로를 별도로 시험할 때만 다음을 실행한다. 48GB GPU에서는 CPU offload를 사용하지 않는다.
 
@@ -851,7 +866,7 @@ rm -rf .venv
 uv venv --python 3.12 .venv
 ```
 
-복사한 V7 requirements로 설치:
+복사한 V8 requirements로 설치:
 
 ```bash
 uv pip install \
@@ -892,7 +907,7 @@ one-to-all/.venv/bin/python \
   workers/ota_worker.py
 ```
 
-## 15-B. One-to-All 없이 공식 motion과 V7 Adapter 검사
+## 15-B. One-to-All 없이 공식 motion과 V8 Adapter 검사
 
 첫 검증에서는 OTA worker를 호출하지 않는다.
 
@@ -906,10 +921,10 @@ PYTHON_BIN=/workspace/sprite-pipeline/server/.venv/bin/python \
 검수 대상:
 
 ```text
-/tmp/sprite-v7-official-check/pose_preview.png
-/tmp/sprite-v7-official-check/adapter_meta.json
-/tmp/sprite-v7-official-check/adapter_validation.json
-/tmp/sprite-v7-official-check/v7_validation_summary.json
+/tmp/sprite-v8-official-check/pose_preview.png
+/tmp/sprite-v8-official-check/adapter_meta.json
+/tmp/sprite-v8-official-check/adapter_validation.json
+/tmp/sprite-v8-official-check/v8_validation_summary.json
 ```
 
 다음 hard gate가 모두 통과해야 한다.
@@ -962,7 +977,7 @@ PYTHONUNBUFFERED=1 \
 정상 마지막:
 
 ```text
-[kimodo-worker] V7 source=official_example fixture=...
+[kimodo-worker] V8 source=official_example fixture=...
 [kimodo-worker] Kimodo diffusion model is NOT loaded in fixture mode
 [kimodo-worker] listening http://127.0.0.1:9101
 ```
@@ -974,13 +989,13 @@ curl \
   http://127.0.0.1:9101/health
 ```
 
-V7 기본 기준:
+V8 기본 기준:
 
 ```json
 {
   "status": "ready",
   "model": "official-demo:kimodo-soma-rp/05_root_path",
-  "worker_version": "7.0.0",
+  "worker_version": "8.0.0",
   "motion_source": "official_example",
   "fixture": "/workspace/sprite-pipeline/kimodo/kimodo/assets/demo/examples/kimodo-soma-rp/05_root_path/motion.npz",
   "allocated_gib": 0.0
@@ -1065,12 +1080,29 @@ export OTA_FRONT_BACK_POSE_GUIDANCE_SCALE=1.5
 export OTA_SIDE_IMAGE_GUIDANCE_SCALE=2.5
 export OTA_SIDE_POSE_GUIDANCE_SCALE=1.5
 
+export SPRITE_APPEARANCE_STABILIZE=true
+export SPRITE_APPEARANCE_QC_STRICT=true
+export SPRITE_APPEARANCE_PALETTE_SIZE=12
+export SPRITE_APPEARANCE_CHROMA_STRENGTH=0.55
+export SPRITE_APPEARANCE_BRIGHTNESS_STRENGTH=0.18
+export SPRITE_APPEARANCE_CONTRAST_STRENGTH=0.16
+export SPRITE_APPEARANCE_MAX_DELTA_E=14.0
+export SPRITE_APPEARANCE_TEMPORAL_CHROMA_STRENGTH=0.38
+export SPRITE_APPEARANCE_TEMPORAL_LUMA_STRENGTH=0.16
+export SPRITE_APPEARANCE_MAX_TEMPORAL_CHROMA_SPREAD=13.0
+export SPRITE_APPEARANCE_MAX_TEMPORAL_LUMA_SPREAD=12.0
+export SPRITE_APPEARANCE_MAX_MEAN_CORRECTION_DELTA_E=9.0
+
 export OTA_LOOP_MAX_ATTEMPTS=2
 export OTA_LOOP_SEED_STRIDE=100003
 export SPRITE_LOOP_QC_STRICT=true
-export SPRITE_LOOP_MAX_SEAM_RATIO=1.65
-export SPRITE_LOOP_MAX_MEAN_SEAM_RATIO=1.40
+export SPRITE_LOOP_MAX_SEAM_RATIO=1.45
+export SPRITE_LOOP_MAX_MEAN_SEAM_RATIO=1.20
 export SPRITE_LOOP_MAX_TRANSITION_RATIO=2.25
+export SPRITE_LOOP_MAX_FRONT_BACK_CENTROID_SEAM_RATIO=0.011
+export SPRITE_LOOP_MAX_FRONT_BACK_GROUND_SEAM_RATIO=0.011
+export SPRITE_LOOP_MAX_FRONT_BACK_HEIGHT_SEAM_RATIO=0.025
+export SPRITE_LOOP_MAX_COLOR_SEAM_DELTA_E=12.0
 ```
 
 `API_TOKEN`에는 영문, 숫자와 일반 ASCII 기호만 사용한다. 이전 셸에 잘못된 값이 남아 있다면 `unset API_TOKEN` 후 다시 설정하고 FastAPI를 재시작한다.
@@ -1230,6 +1262,8 @@ render_left_attempt_1
 ↓
 render_right_attempt_1
 ↓
+appearance_attempt_1
+↓
 loop_qc_attempt_1
 ↓
 succeeded 또는 One-to-All attempt_2
@@ -1272,17 +1306,25 @@ debug/
   adapter_meta.json
   adapter_validation.json
   pose_preview.png
+  appearance_qc.json
   loop_qc.json
+  front/appearance_meta.json
   front/render_meta.json
+  back/appearance_meta.json
   back/render_meta.json
+  left/appearance_meta.json
   left/render_meta.json
+  right/appearance_meta.json
   right/render_meta.json
 ```
 
-서버 내부의 최종 loop 판정은 다음 파일에서 확인한다.
+서버 내부의 최종 appearance와 loop 판정은 다음 파일에서 확인한다.
 
 ```bash
 JOB_ID='<실제_JOB_ID>'
+
+cat \
+  "/workspace/sprite-pipeline/jobs/${JOB_ID}/result/appearance_qc.json"
 
 cat \
   "/workspace/sprite-pipeline/jobs/${JOB_ID}/result/loop_qc.json"
@@ -1291,7 +1333,8 @@ cat \
 다음 필드를 우선 확인한다.
 
 ```text
-ok: true
+appearance_qc.json -> ok: true
+loop_qc.json       -> ok: true
 selected_attempt
 selected_render_seed
 selected_candidate
@@ -1301,9 +1344,9 @@ selected_metrics.mean_seam_ratio
 selected_metrics.worst_transition_ratio
 ```
 
-두 렌더가 모두 strict loop QC를 통과하지 못하면 작업은 `LOOP_QC_FAILED`로 종료되고 전체 보고서는 `jobs/<JOB_ID>/loop_qc_failed.json`에 남는다. 이때 cardinal 보정이나 8-frame 후보 선택을 제거하지 않는다. 필요하면 `OTA_LOOP_MAX_ATTEMPTS=3`으로 올린 뒤 FastAPI만 재시작해 다시 요청한다.
+두 렌더가 모두 strict appearance·loop QC를 통과하지 못하면 작업은 `LOOP_QC_FAILED`로 종료되고 전체 보고서는 `jobs/<JOB_ID>/loop_qc_failed.json`에 남는다. 이때 cardinal 보정, appearance strict QC나 8-frame 후보 선택을 제거하지 않는다. 같은 캐릭터가 반복해서 경계선에서 실패할 때만 `OTA_LOOP_MAX_ATTEMPTS=3`으로 올린 뒤 FastAPI를 재시작해 다시 요청한다.
 
-V7 결과에서 `front/back`의 `keypoints.json`은 다음 geometry source를 가져야 한다.
+V8 결과에서 `front/back`의 `keypoints.json`은 다음 geometry source를 가져야 한다.
 
 ```json
 "geometry_source": "front_back_cardinal_lock"
@@ -1345,13 +1388,15 @@ rendered/
   attempt_00/
     front/
       frame_000.png ... frame_016.png
-      raw/
+      preappearance/
+      appearance_meta.json
       render_meta.json
     back/
     left/
     right/
+    appearance_qc.json
     loop_qc.json
-  attempt_01/  # 첫 시도의 loop QC 실패 시에만 생성
+  attempt_01/  # 첫 시도의 appearance 또는 loop QC 실패 시에만 생성
 
 result/
   front/0.png ... 7.png
@@ -1360,6 +1405,7 @@ result/
   right/0.png ... 7.png
   sprite_sheet.png
   metadata.json
+  appearance_qc.json
   loop_qc.json
   result.zip
 
@@ -1371,7 +1417,7 @@ status.json
 
 # 22. Production 걷기 fixture 생성
 
-공식 `05_root_path`는 회귀 기준으로 계속 유지한다. 최종 production fixture는 Kimodo generated 모드에서 직선 root 경로와 고정 heading을 사용해 후보를 만들고, V7 hard gate를 통과한 결과만 동결한다.
+공식 `05_root_path`는 회귀 기준으로 계속 유지한다. 최종 production fixture는 Kimodo generated 모드에서 직선 root 경로와 고정 heading을 사용해 후보를 만들고, V8 hard gate를 통과한 결과만 동결한다.
 
 먼저 세션 1의 기존 Motion worker만 종료하고 generated 모드로 다시 실행한다.
 
@@ -1396,7 +1442,7 @@ cd /workspace/sprite-pipeline
 
 PYTHON_BIN=/workspace/sprite-pipeline/server/.venv/bin/python \
 KIMODO_WORKER_URL=http://127.0.0.1:9101 \
-./scripts/generate_v7_candidate.sh 42
+./scripts/generate_v8_candidate.sh 42
 ```
 
 통과하면 다음 파일이 함께 만들어진다.
@@ -1404,15 +1450,15 @@ KIMODO_WORKER_URL=http://127.0.0.1:9101 \
 ```text
 neutral_walk_seed_42.npz
 neutral_walk_seed_42.meta.json
-neutral_walk_seed_42_v7_validation/
+neutral_walk_seed_42_v8_validation/
 ```
 
-다른 seed도 같은 방식으로 검사하고, V7 gait·cardinal gate를 모두 통과한 후보만 fixture로 고정한다.
+다른 seed도 같은 방식으로 검사하고, V8 gait·cardinal gate를 모두 통과한 후보만 fixture로 고정한다. Adapter 통과만으로 최종 렌더 품질이 보장되지는 않으므로 V8 종단 요청의 `appearance_qc.json`과 `loop_qc.json`도 모두 통과해야 한다.
 
 ```bash
-./scripts/generate_v7_candidate.sh 104771
-./scripts/generate_v7_candidate.sh 209500
-./scripts/generate_v7_candidate.sh 314229
+./scripts/generate_v8_candidate.sh 104771
+./scripts/generate_v8_candidate.sh 209500
+./scripts/generate_v8_candidate.sh 314229
 ```
 
 고정 예시:
@@ -1420,8 +1466,8 @@ neutral_walk_seed_42_v7_validation/
 ```bash
 export KIMODO_MOTION_SOURCE=fixture
 export KIMODO_FIXTURE_LABEL=generated-neutral-walk-seed-42
-export KIMODO_FIXTURE_MOTION=/workspace/sprite-pipeline/fixtures/v7/neutral_walk_seed_42.npz
-export KIMODO_FIXTURE_META=/workspace/sprite-pipeline/fixtures/v7/neutral_walk_seed_42.meta.json
+export KIMODO_FIXTURE_MOTION=/workspace/sprite-pipeline/fixtures/v8/neutral_walk_seed_42.npz
+export KIMODO_FIXTURE_META=/workspace/sprite-pipeline/fixtures/v8/neutral_walk_seed_42.meta.json
 ```
 
 공식 원본 fixture는 수정하지 않는다. 생성 후보의 prompt, seed, model, repository revision, constraints와 SHA-256은 `.meta.json`에 보존한다.
@@ -1445,10 +1491,10 @@ Motion worker:
 kimodo/.venv
 기본 KIMODO_MOTION_SOURCE=official_example
 공식 05_root_path/motion.npz 사용
-공식 NPZ는 job-local V7 스키마로 자동 정규화
+공식 NPZ는 job-local V8 스키마로 자동 정규화
 기본 모드에서는 Kimodo diffusion 모델을 VRAM에 올리지 않음
 
-V7 Adapter:
+V8 Adapter:
 heading delta = -heading
 front/back = cardinal-lock geometry
 left/right = natural canonical geometry
@@ -1460,12 +1506,13 @@ one-to-all/.venv
 torch cu124
 onnxruntime-gpu 1.26.0
 pose-anchor translation stabilization
+V8 공통 팔레트 appearance stabilization
 
 Server:
 server/.venv
 GPU 패키지 없음
 even/odd/end 8-frame 후보 선택
-8→1 포함 loop QC
+8→1 포함 appearance·geometry·color loop QC
 실패 시 One-to-All만 seed를 바꿔 재시도
 
 실행:
@@ -1474,7 +1521,7 @@ even/odd/end 8-frame 후보 선택
 세션3 API           :8000
 ```
 
-이 문서가 V3 실패 motion 분석, V5 공식 fixture 종단 성공, V6 cardinal 보정과 V7 loop 안정화를 모두 반영한 **현재 단일 3세션 설치·운영 가이드**입니다.
+이 문서가 V3 실패 motion 분석, V5 공식 fixture 종단 성공, V6 cardinal 보정, V7 loop 안정화와 V8 appearance·최종 PNG QC를 모두 반영한 **현재 단일 3세션 설치·운영 가이드**입니다.
 
 [1]: https://docs.runpod.io/pods/configuration/expose-ports "Expose ports - Runpod Documentation"
 [2]: https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html "NVIDIA - CUDA | onnxruntime"
