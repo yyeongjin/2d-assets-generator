@@ -59,8 +59,9 @@
 
 ## 8. 모델과 라이선스
 
-- 새 모델, LoRA, VAE, text encoder, pose detector, segmenter 또는 upscaler를 추가하기 전에 기존 [`docs/THIRD_PARTY_MODEL_LICENSES.md`](docs/THIRD_PARTY_MODEL_LICENSES.md)를 갱신한다.
+- 새 모델, LoRA, VAE, text encoder, pose detector, segmenter 또는 upscaler를 추가하기 전에 공식 [`docs/THIRD_PARTY_MODELS.spdx`](docs/THIRD_PARTY_MODELS.spdx)와 사람이 읽는 [`docs/THIRD_PARTY_MODEL_LICENSES.md`](docs/THIRD_PARTY_MODEL_LICENSES.md)를 함께 갱신한다.
 - 코드 라이선스와 모델 가중치 라이선스를 분리해서 기록한다. aggregate 모델 저장소의 license tag가 포함된 모든 제3자 체크포인트의 조건을 덮어쓴다고 가정하지 않는다.
 - 정확한 repository ID, revision, 실제 파일명, 기반 모델, 상업 사용, 가중치 재배포, NOTICE·attribution과 gated/AUP 조건을 기록한다.
 - 라이선스가 없거나 상충하거나 불명확하면 `재배포 보류`로 표시하고 저장소 ZIP, release asset과 container image에 가중치를 포함하지 않는다.
 - 모델 파일을 실행 시 원 출처에서 다운로드하는 현재 경계를 유지한다. 사용자가 명시적으로 승인하고 모든 조건을 충족하지 않으면 모델 가중치를 이 저장소나 배포 ZIP에 커밋하지 않는다.
+- SPDX 문서를 수정하면 `Created`와 고유한 `DocumentNamespace`를 갱신하고 공식 `spdx-tools` 검증을 통과시킨다.

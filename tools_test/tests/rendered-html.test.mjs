@@ -15,6 +15,7 @@ const [
   debugRoute,
   guide,
   readme,
+  modelSpdx,
   assetRoute,
   directionSplitRoute,
   characterRoute,
@@ -31,6 +32,7 @@ const [
   source("../app/api/motion-pipeline/jobs/[jobId]/debug/route.ts"),
   source("../../docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md"),
   source("../../README.md"),
+  source("../../docs/THIRD_PARTY_MODELS.spdx"),
   source("../app/api/runpod/asset/route.ts"),
   source("../app/api/assets/split-directions/route.ts"),
   source("../app/api/runpod/character/route.ts"),
@@ -187,6 +189,20 @@ test("새 가이드는 RunPod와 로컬의 경계·48GB 상주 전략·API 계�
   assert.doesNotMatch(guide, /github\.com\/yyeongjin\/2d-assets-generator\.git/);
   assert.doesNotMatch(guide, /\bscp\b/);
   assert.doesNotMatch(guide, /\bS3\b/);
+});
+
+test("사용 모델 등록부는 SPDX 2.3 공식 Tag/Value 형식을 유지한다", () => {
+  assert.match(modelSpdx, /^SPDXVersion: SPDX-2\.3$/m);
+  assert.match(modelSpdx, /^DataLicense: CC0-1\.0$/m);
+  assert.match(modelSpdx, /^SPDXID: SPDXRef-DOCUMENT$/m);
+  assert.match(modelSpdx, /^DocumentNamespace: https:\/\//m);
+  assert.match(modelSpdx, /^FilesAnalyzed: false$/m);
+  assert.match(modelSpdx, /PackageName: NVIDIA Kimodo source code/);
+  assert.match(modelSpdx, /PackageName: NVIDIA Kimodo-SOMA-RP-v1\.1 model/);
+  assert.match(modelSpdx, /LicenseRef-NVIDIA-Open-Model-License/);
+  assert.match(modelSpdx, /LicenseRef-Meta-Llama-3-Community/);
+  assert.match(modelSpdx, /PackageName: yolov10m\.onnx checkpoint[\s\S]*?PackageLicenseConcluded: NOASSERTION/);
+  assert.match(readme, /docs\/THIRD_PARTY_MODELS\.spdx/);
 });
 
 test("기존 8대 에셋 카탈로그와 타일·오브젝트 목록표를 유지한다", () => {

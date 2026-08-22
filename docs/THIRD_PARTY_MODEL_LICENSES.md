@@ -1,9 +1,33 @@
-# 사용 모델·보조 체크포인트 라이선스 등록부
+# 사용 모델·보조 체크포인트 라이선스 안내
 
-> 최종 확인: 2026-08-22  
+> 최종 확인: 2026-08-23
 > 범위: 이 저장소에서 실제로 다운로드·실행했거나 현재 RunPod 파이프라인이 요구하는 모델과 보조 체크포인트
 
-이 문서는 법률 자문이 아니라 배포 전 확인용 등록부다. 모델 코드의 라이선스와 가중치의 라이선스가 다르면 반드시 따로 기록한다. 모델 카드의 단일 `license` 태그가 그 안에 묶인 모든 제3자 구성 요소의 조건을 덮어쓴다고 가정하지 않는다.
+공식 등록 원본은 [SPDX 2.3 Tag/Value 모델 SBOM](THIRD_PARTY_MODELS.spdx)이다. 이 Markdown 문서는 SPDX 레코드에 적힌 판정을 사람이 배포 전에 확인하기 쉽게 설명한 보조 문서이며 법률 자문이 아니다.
+
+SPDX 원본은 [SPDX 2.3 명세](https://spdx.github.io/spdx-spec/v2.3/)와 [SPDX Lite 필드 구성](https://spdx.github.io/spdx-spec/v2.3/SPDX-Lite/)을 따른다.
+
+- 표준 라이선스는 SPDX License List의 `Apache-2.0`, `MIT` 같은 정식 식별자를 쓴다.
+- SPDX 목록에 없는 NVIDIA·Meta Llama·SAM 약관은 공식 규격에 따라 `LicenseRef-*`, 원문에서 확인한 표기, 공식 약관 URL을 함께 기록한다.
+- 코드와 모델 가중치는 별도 `Package`로 등록한다.
+- 정확한 가중치 라이선스를 결론 내릴 수 없는 `yolov10m.onnx`와 NLF weights는 추측하지 않고 `NOASSERTION`과 배포 보류 사유를 기록한다.
+- 현재 배포물은 가중치를 포함하지 않으므로 각 외부 package의 `FilesAnalyzed`는 `false`다.
+
+모델 카드의 단일 `license` 태그가 그 안에 묶인 모든 제3자 구성 요소의 조건을 덮어쓴다고 가정하지 않는다.
+
+SPDX 원본은 공식 [`spdx/tools-python`](https://github.com/spdx/tools-python) 검증기로 확인한다.
+
+```bash
+python3 -m venv /tmp/model-spdx-validator
+
+/tmp/model-spdx-validator/bin/pip install \
+  spdx-tools==0.8.5
+
+/tmp/model-spdx-validator/bin/pyspdxtools \
+  -i docs/THIRD_PARTY_MODELS.spdx
+```
+
+출력 없이 종료 코드가 `0`이면 파싱과 SPDX 2.3 검증을 통과한 것이다. 모델이나 라이선스를 바꾸면 `Created`, 고유한 `DocumentNamespace`, 해당 `Package`와 `Relationship`을 함께 갱신한다.
 
 ## 현재 배포 상태
 

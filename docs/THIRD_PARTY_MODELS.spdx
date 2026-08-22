@@ -1,0 +1,239 @@
+SPDXVersion: SPDX-2.3
+DataLicense: CC0-1.0
+SPDXID: SPDXRef-DOCUMENT
+DocumentName: 2d-assets-generator-third-party-models
+DocumentNamespace: https://github.com/yyeongjin/2d-assets-generator/spdx/third-party-models/2026-08-23
+Creator: Tool: Codex license audit
+Created: 2026-08-22T15:19:05Z
+LicenseListVersion: 3.28
+CreatorComment: <text>This SPDX document records model code, model weights, and auxiliary checkpoints separately. It is an inventory and not legal advice.</text>
+DocumentComment: <text>No third-party model weight is distributed in this repository or its current ZIP archives. FilesAnalyzed is false because each package is downloaded at runtime from its listed upstream location. PackageVersion is omitted when the repository does not pin an immutable revision.</text>
+
+PackageName: NVIDIA Kimodo source code
+SPDXID: SPDXRef-Package-Kimodo-Code
+PackageDownloadLocation: https://github.com/nv-tlabs/kimodo
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Current human motion source implementation. Code and model weights are separate packages.</text>
+
+PackageName: NVIDIA Kimodo-SOMA-RP-v1.1 model
+SPDXID: SPDXRef-Package-Kimodo-SOMA-RP-v1.1
+PackageVersion: 1.1
+PackageDownloadLocation: https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1.1
+FilesAnalyzed: false
+PackageLicenseConcluded: LicenseRef-NVIDIA-Open-Model-License
+PackageLicenseDeclared: LicenseRef-NVIDIA-Open-Model-License
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Used by generated motion mode and supplies the official 05_root_path motion fixture. Redistribution of the model or a derivative requires the official license copy and NVIDIA's required attribution notice.</text>
+
+PackageName: One-to-All Animation source code
+SPDXID: SPDXRef-Package-One-to-All-Code
+PackageDownloadLocation: https://github.com/ssj9596/One-to-All-Animation
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Current four-direction RGB renderer implementation.</text>
+
+PackageName: One-to-All-1.3b_2 model
+SPDXID: SPDXRef-Package-One-to-All-1.3b-2
+PackageVersion: 1.3b_2
+PackageDownloadLocation: https://huggingface.co/MochunniaN1/One-to-All-1.3b_2
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Current four-direction RGB rendering checkpoint.</text>
+
+PackageName: Wan2.1-T2V-1.3B-Diffusers model
+SPDXID: SPDXRef-Package-Wan2.1-T2V-1.3B
+PackageVersion: 2.1
+PackageDownloadLocation: https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-Diffusers
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Base model used by One-to-All-1.3b_2.</text>
+
+PackageName: LLM2Vec-Meta-Llama-3-8B-Instruct-mntp adapter
+SPDXID: SPDXRef-Package-LLM2Vec-MNTP
+PackageDownloadLocation: https://huggingface.co/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp
+FilesAnalyzed: false
+PackageLicenseConcluded: MIT
+PackageLicenseDeclared: MIT
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Loaded only by Kimodo generated motion mode. The Meta Llama base package remains subject to its separate license.</text>
+
+PackageName: LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised adapter
+SPDXID: SPDXRef-Package-LLM2Vec-MNTP-Supervised
+PackageDownloadLocation: https://huggingface.co/McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-supervised
+FilesAnalyzed: false
+PackageLicenseConcluded: MIT
+PackageLicenseDeclared: MIT
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Loaded only by Kimodo generated motion mode. The Meta Llama base package remains subject to its separate license.</text>
+
+PackageName: Meta-Llama-3-8B-Instruct model
+SPDXID: SPDXRef-Package-Meta-Llama-3-8B-Instruct
+PackageVersion: 3
+PackageDownloadLocation: https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct
+FilesAnalyzed: false
+PackageLicenseConcluded: LicenseRef-Meta-Llama-3-Community
+PackageLicenseDeclared: LicenseRef-Meta-Llama-3-Community
+PackageCopyrightText: Copyright (c) Meta Platforms, Inc. All Rights Reserved.
+PackageComment: <text>Loaded only by Kimodo generated motion mode. Gated access, the Acceptable Use Policy, product attribution, NOTICE, model naming, 700 million MAU, and use-of-output restrictions apply as stated in the official agreement.</text>
+
+PackageName: vitpose_h_wholebody.onnx checkpoint
+SPDXID: SPDXRef-Package-ViTPose-WholeBody-ONNX
+PackageDownloadLocation: https://huggingface.co/Wan-AI/Wan2.2-Animate-14B/tree/main/process_checkpoint/pose2d
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>One-to-All preprocessing checkpoint. Upstream implementation: https://github.com/ViTAE-Transformer/ViTPose</text>
+
+PackageName: dw-ll_ucoco_384.onnx checkpoint
+SPDXID: SPDXRef-Package-DWPose-ONNX
+PackageDownloadLocation: https://huggingface.co/FrancisRing/StableAnimator
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>One-to-All preprocessing checkpoint. Upstream implementation: https://github.com/IDEA-Research/DWPose</text>
+
+PackageName: yolox_l.onnx checkpoint
+SPDXID: SPDXRef-Package-YOLOX-L-ONNX
+PackageDownloadLocation: https://huggingface.co/FrancisRing/StableAnimator
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>One-to-All preprocessing checkpoint. Upstream implementation: https://github.com/Megvii-BaseDetection/YOLOX</text>
+
+PackageName: yolov10m.onnx checkpoint
+SPDXID: SPDXRef-Package-YOLOv10m-ONNX
+PackageDownloadLocation: https://huggingface.co/Wan-AI/Wan2.2-Animate-14B/tree/main/process_checkpoint/det
+FilesAnalyzed: false
+PackageLicenseConcluded: NOASSERTION
+PackageLicenseDeclared: NOASSERTION
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>REDISTRIBUTION HOLD. The aggregate model repository is marked Apache-2.0, while the upstream YOLOv10 repository is AGPL-3.0. The exact checkpoint license has not been confirmed by the copyright holder.</text>
+
+PackageName: Qwen-Image-Edit-2511 model
+SPDXID: SPDXRef-Package-Qwen-Image-Edit-2511
+PackageVersion: 2511
+PackageDownloadLocation: https://huggingface.co/Qwen/Qwen-Image-Edit-2511
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Historical rejected image generation path; retained for audit history only.</text>
+
+PackageName: Wan2.2-TI2V-5B-Diffusers model
+SPDXID: SPDXRef-Package-Wan2.2-TI2V-5B
+PackageVersion: 2.2
+PackageDownloadLocation: https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Historical rejected image-to-video walking path; retained for audit history only.</text>
+
+PackageName: SCAIL-2 model
+SPDXID: SPDXRef-Package-SCAIL-2-Model
+PackageVersion: 2
+PackageDownloadLocation: https://huggingface.co/zai-org/SCAIL-2
+FilesAnalyzed: false
+PackageLicenseConcluded: MIT
+PackageLicenseDeclared: MIT
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Historical rejected motion-transfer path. Bundled or downloaded Wan VAE, T5, and other components require separate records when redistributed.</text>
+
+PackageName: SCAIL-2 inference source code
+SPDXID: SPDXRef-Package-SCAIL-2-Code
+PackageVersion: 2
+PackageDownloadLocation: https://github.com/zai-org/SCAIL-2
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Historical rejected motion-transfer implementation.</text>
+
+PackageName: SCAIL-Pose source code
+SPDXID: SPDXRef-Package-SCAIL-Pose-Code
+PackageDownloadLocation: https://github.com/zai-org/SCAIL-Pose
+FilesAnalyzed: false
+PackageLicenseConcluded: Apache-2.0
+PackageLicenseDeclared: Apache-2.0
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Conditional historical preprocessing path. Its external model weights are separate packages.</text>
+
+PackageName: NLF source code
+SPDXID: SPDXRef-Package-NLF-Code
+PackageDownloadLocation: https://github.com/isarandi/nlf
+FilesAnalyzed: false
+PackageLicenseConcluded: MIT
+PackageLicenseDeclared: MIT
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>Conditional SCAIL-Pose preprocessing implementation. Code and released model weights have different terms.</text>
+
+PackageName: NLF released model weights
+SPDXID: SPDXRef-Package-NLF-Model-Weights
+PackageDownloadLocation: https://github.com/isarandi/nlf
+FilesAnalyzed: false
+PackageLicenseConcluded: NOASSERTION
+PackageLicenseDeclared: NOASSERTION
+PackageCopyrightText: NOASSERTION
+PackageComment: <text>COMMERCIAL USE HOLD. The official repository states that released models may only be used for academic research. No separate SPDX-listed model-weight license was identified.</text>
+
+PackageName: SAM 3 model
+SPDXID: SPDXRef-Package-SAM-3-Model
+PackageVersion: 3
+PackageDownloadLocation: https://huggingface.co/facebook/sam3
+FilesAnalyzed: false
+PackageLicenseConcluded: LicenseRef-SAM-License
+PackageLicenseDeclared: LicenseRef-SAM-License
+PackageCopyrightText: Copyright (c) Meta Platforms, Inc.
+PackageComment: <text>Conditional SCAIL preprocessing path. The model is gated. Redistribution must use the same agreement and include a copy of the agreement.</text>
+
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-Kimodo-Code
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-Kimodo-SOMA-RP-v1.1
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-One-to-All-Code
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-One-to-All-1.3b-2
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-Wan2.1-T2V-1.3B
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-LLM2Vec-MNTP
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-LLM2Vec-MNTP-Supervised
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-Meta-Llama-3-8B-Instruct
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-ViTPose-WholeBody-ONNX
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-DWPose-ONNX
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-YOLOX-L-ONNX
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-YOLOv10m-ONNX
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-Qwen-Image-Edit-2511
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-Wan2.2-TI2V-5B
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-SCAIL-2-Model
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-SCAIL-2-Code
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-SCAIL-Pose-Code
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-NLF-Code
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-NLF-Model-Weights
+Relationship: SPDXRef-DOCUMENT DESCRIBES SPDXRef-Package-SAM-3-Model
+
+LicenseID: LicenseRef-NVIDIA-Open-Model-License
+ExtractedText: <text>License: nvidia-open-model-license</text>
+LicenseName: NVIDIA Open Model License
+LicenseCrossReference: https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/
+LicenseCrossReference: https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1.1/blob/main/LICENSE
+LicenseComment: <text>The model repository declares this non-SPDX-list license. The official license text at the cross-reference is controlling.</text>
+
+LicenseID: LicenseRef-Meta-Llama-3-Community
+ExtractedText: <text>License: llama3</text>
+LicenseName: Meta Llama 3 Community License Agreement
+LicenseCrossReference: https://huggingface.co/meta-llama/Meta-Llama-3-8B-Instruct/blob/main/LICENSE
+LicenseComment: <text>The model repository declares this non-SPDX-list license. The official agreement and incorporated Acceptable Use Policy are controlling.</text>
+
+LicenseID: LicenseRef-SAM-License
+ExtractedText: <text>SAM License</text>
+LicenseName: SAM License
+LicenseCrossReference: https://huggingface.co/facebook/sam3/blob/main/LICENSE
+LicenseComment: <text>The model repository declares this non-SPDX-list license. The official agreement at the cross-reference is controlling.</text>
