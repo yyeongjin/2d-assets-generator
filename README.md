@@ -64,7 +64,7 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 V8은 V7의 16개 고유 걷기 phase와 첫 control을 복사한 17번째 control을 그대로 사용합니다. One-to-All 렌더 뒤 네 방향 원본에서 얻은 공통 팔레트로 프레임별 색상과 밝기 흔들림을 제한적으로 보정하고, `even_start`, `odd`, `even_end` 후보의 `8→1` 실루엣 위치·발 기준선·높이·색상 seam까지 검사합니다. Appearance 또는 loop QC가 실패하면 Kimodo와 Motion Adapter는 유지하고 One-to-All만 다른 seed로 재시도합니다.
 
-패키지 설치, 사람·동물 routing, `animal-motion-v1` NPZ 계약과 GPU 판정 조건은 [V9 RunPod Kimodo + One-to-All 실행 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 통합했습니다. 기존 V8 가이드는 [`docs/archive/`](docs/archive/)에 보존했습니다. 실제 캐릭터 네 종의 V8 성공·거부 결과와 QC 수치는 [V8 다른 캐릭터 종단 검증 기록](docs/test-records/V8_OTHER_CHARACTERS_2026-08-20.md)에 정리했습니다. V7 결과와 색상·loop·재현성 검토도 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 그대로 보존합니다.
+패키지 설치, 사람·동물 routing, `animal-motion-v1` NPZ 계약과 GPU 판정 조건은 [V9 RunPod Kimodo + One-to-All 실행 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 통합했습니다. 실패한 접근과 결과는 기존 [`docs/failures/`](docs/failures/) 구조에만 보존합니다. 실제 캐릭터 네 종의 V8 성공·거부 결과와 QC 수치는 [V8 다른 캐릭터 종단 검증 기록](docs/test-records/V8_OTHER_CHARACTERS_2026-08-20.md)에 정리했습니다. V7 결과와 색상·loop·재현성 검토도 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 그대로 보존합니다.
 
 ### V8 실제 4방향 걷기 결과
 
