@@ -58,7 +58,7 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 현재 검증 중인 구조는 준비된 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고, 하나의 3D 보행 cycle을 Motion Adapter가 네 방향 pose로 변환한 뒤 One-to-All이 각 방향 원본에 적용하는 방식입니다. 첫 종단 테스트에서는 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했지만 제작 품질은 통과하지 못했습니다. V3 결과의 `latest_motion.npz`를 분석한 결과, 선택된 phase의 41%에서 발이 몸 중심선을 넘고 최대 13.4cm crossover, 약 67cm 측면 drift와 30.5° heading 변화가 확인되어 원본 생성 모션 자체가 neutral straight walk가 아니었던 것으로 판정했습니다. 이 실패 기록은 그대로 보존합니다.
 
-현재 V9 서버 후보는 [sprite_pipeline_fastapi_full_v9.zip](sprite_pipeline_fastapi_full_v9.zip)입니다. SHA-256은 `f4d655a6779dbaf091e53ab581c2c254b5e18e64459b2bd5fe0c105406a6d35e`입니다. V9의 목적은 사람 파이프라인을 다시 만드는 것이 아니라, **V8 사람·캐릭터 경로를 그대로 유지하면서 동물만 독립 motion 경로로 분기하는 것**입니다. API가 `subject_profile=character|quadruped|biped_animal|auto`와 `motion_backend=kimodo|animal_procedural|animal_npz|auto`를 받아 사람은 기존 Kimodo adapter를, 사족·이족동물은 동물 전용 adapter를 선택합니다. 외부 동물 모델·수동 rig·motion library가 준비되면 `animal-motion-v1` NPZ를 첨부해 사람 코드 수정 없이 motion 공급자를 교체할 수 있습니다. 패키지에는 사족·이족 계약 fixture와 생성·검증 스크립트도 포함되어 있지만, 이 fixture는 학습 모델의 생성 품질 표본이 아니라 API 배선 검증용입니다. Python 66개, 프론트 source contract 11개, API lifecycle, TypeScript syntax와 lockfile 검증은 통과했습니다. Next.js와 eslint-config-next는 `16.3.2`, sharp는 `0.35.3`으로 잠갔으며 clean `npm ci`, production build, lint와 `npm audit`(취약점 0개)도 통과했습니다. 다만 신규 V9 동물 경로의 실제 L40S + One-to-All 종단 생성은 남아 있으므로 현재 표시는 **스테이징 후보**입니다. V8 ZIP과 실제 사람·동물 실패 기록은 회귀 기준으로 그대로 보존합니다. 모델 소스와 실패 원인 조사는 [V9 동물 routing 소스 감사](docs/V9_ANIMAL_ROUTING_SOURCE_AUDIT.md)에 정리했습니다.
+현재 V9 서버 후보는 [sprite_pipeline_fastapi_full_v9.zip](sprite_pipeline_fastapi_full_v9.zip)입니다. SHA-256은 `f4d655a6779dbaf091e53ab581c2c254b5e18e64459b2bd5fe0c105406a6d35e`입니다. V9의 목적은 사람 파이프라인을 다시 만드는 것이 아니라, **V8 사람·캐릭터 경로를 그대로 유지하면서 동물만 독립 motion 경로로 분기하는 것**입니다. API가 `subject_profile=character|quadruped|biped_animal|auto`와 `motion_backend=kimodo|animal_procedural|animal_npz|auto`를 받아 사람은 기존 Kimodo adapter를, 사족·이족동물은 동물 전용 adapter를 선택합니다. 외부 동물 모델·수동 rig·motion library가 준비되면 `animal-motion-v1` NPZ를 첨부해 사람 코드 수정 없이 motion 공급자를 교체할 수 있습니다. 패키지에는 사족·이족 계약 fixture와 생성·검증 스크립트도 포함되어 있지만, 이 fixture는 학습 모델의 생성 품질 표본이 아니라 API 배선 검증용입니다. Python 66개, 프론트 source contract 11개, API lifecycle, TypeScript syntax와 lockfile 검증은 통과했습니다. Next.js와 eslint-config-next는 `16.3.2`, sharp는 `0.35.3`으로 잠갔으며 clean `npm ci`, production build, lint와 `npm audit`(취약점 0개)도 통과했습니다. 다만 신규 V9 동물 경로의 실제 L40S + One-to-All 종단 생성은 남아 있으므로 현재 표시는 **스테이징 후보**입니다. V8 ZIP과 실제 사람·동물 실패 기록은 회귀 기준으로 그대로 보존합니다.
 
 ### V8 appearance·loop QC 오버레이
 
@@ -180,8 +180,6 @@ MOTION_PIPELINE_API_TOKEN=
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
 - [현재 V9 스테이징 서버 ZIP](sprite_pipeline_fastapi_full_v9.zip)
-- [V9 동물 routing 소스·실패 기록 감사](docs/V9_ANIMAL_ROUTING_SOURCE_AUDIT.md)
-- [V9 animal-motion-v1 NPZ 계약](docs/ANIMAL_MOTION_NPZ_V1.md)
 - [현재 V8 서버 소스 ZIP](sprite_pipeline_fastapi_full_v8.zip)
 - [V8 다른 캐릭터 종단 검증 기록](docs/test-records/V8_OTHER_CHARACTERS_2026-08-20.md)
 - [V8 동물·생물 8종 종단 검증 기록](docs/test-records/V8_CREATURES_2026-08-20.md)

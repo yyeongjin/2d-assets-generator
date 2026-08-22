@@ -1,7 +1,0 @@
-fastapi==0.128.2
-uvicorn[standard]==0.48.0
-python-multipart==0.0.29
-aiofiles==24.1.0
-pillow==12.3.0
-numpy==2.3.5
-httpx==0.28.1

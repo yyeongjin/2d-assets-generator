@@ -221,7 +221,7 @@ curl --fail-with-body -X POST "${BASE_URL}/v1/jobs" \
 
 ## 8. animal-motion-v1 NPZ 계약
 
-자세한 사양은 [`ANIMAL_MOTION_NPZ_V1.md`](ANIMAL_MOTION_NPZ_V1.md)에 있다.
+V9에서 사용하는 계약은 아래와 같다.
 
 필수 배열:
 
@@ -291,4 +291,4 @@ curl --fail -X DELETE -H "Authorization: Bearer ${API_TOKEN}" \
 
 1. 실제 L40S에서 새 V9 경로로 사족·이족동물을 생성한다. 최소한 개·돼지·고양이·소와 공룡·조류형 캐릭터를 `animal_procedural` 및 대표 외부 NPZ로 실행하고, 원본·control preview·render attempts·result/debug ZIP을 함께 보존한다.
 
-모델 소스와 V8 실패 기록을 조사한 근거는 [`V9_ANIMAL_ROUTING_SOURCE_AUDIT.md`](V9_ANIMAL_ROUTING_SOURCE_AUDIT.md)에 정리했다.
+V8 동물 경로의 실제 실패 결과와 판정 근거는 [`test-records/V8_CREATURES_2026-08-20.md`](test-records/V8_CREATURES_2026-08-20.md)에 보존한다.
