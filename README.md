@@ -3,6 +3,7 @@
 ![Kimodo, Motion Adapter, One-to-All 4방향 에셋 생성 파이프라인](docs/assets/v7-pipeline-architecture.png)
 
 - [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)
+- [사용 모델·보조 체크포인트 라이선스 등록부](docs/THIRD_PARTY_MODEL_LICENSES.md)
 
 농장 생활 RPG에 필요한 타일, 오브젝트, 캐릭터, 생명체, 아이템, VFX와 UI 에셋을 항목별로 생성하고 보관하기 위한 로컬 작업 도구입니다.
 
@@ -179,6 +180,7 @@ MOTION_PIPELINE_API_TOKEN=
 - [타일 카탈로그](docs/TILE_CATALOG.md)
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
+- [사용 모델·보조 체크포인트 라이선스 등록부](docs/THIRD_PARTY_MODEL_LICENSES.md)
 - [현재 V9 스테이징 서버 ZIP](sprite_pipeline_fastapi_full_v9.zip)
 - [현재 V8 서버 소스 ZIP](sprite_pipeline_fastapi_full_v8.zip)
 - [V8 다른 캐릭터 종단 검증 기록](docs/test-records/V8_OTHER_CHARACTERS_2026-08-20.md)
