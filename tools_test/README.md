@@ -10,6 +10,20 @@ RunPod 이미지 모델로 농장 RPG의 캐릭터·타일·오브젝트·생명
 
 SCAIL-2 동작 전이도 현재 제작 경로에서 기각했습니다. SCAIL-2는 정지 캐릭터와 동작 이름에서 걷기 phase를 만드는 모델이 아니라, 이미 동작이 완성된 Driving RGB video를 Reference 캐릭터로 전이하는 모델입니다. 화면의 Reference/Driving RGB·mask와 job 제어 영역은 성공한 기능이 아니라 endpoint 구성 실험 기록으로만 남아 있습니다. 자세한 구조적 이유는 [SCAIL-2 동작 생성 경로 기각 기록](../docs/failures/SCAIL2_WALK_CYCLE_STRATEGY.md)을 확인합니다.
 
+## V9 동작 라우팅
+
+현재 동작 화면은 사람과 동물을 같은 motion pipeline으로 강제하지 않습니다.
+
+```text
+사람·캐릭터 → V8 Kimodo 경로
+사족동물     → 동물 기본 cycle 또는 animal-motion-v1 NPZ
+이족동물     → 동물 기본 cycle 또는 animal-motion-v1 NPZ
+```
+
+화면에서 `PROFILE`과 `MOTION`을 선택하며 외부 동물 motion은 NPZ로 첨부합니다. Kimodo가 내려가도 One-to-All이 준비돼 있으면 동물 route는 계속 활성화됩니다. 성공 작업은 `result.zip`, 실패 작업은 `failure_debug.zip`을 로컬로 내려받은 뒤 RunPod 임시 job을 삭제할 수 있습니다.
+
+V9는 사람 경로를 재작성하지 않고 동물 요청만 독립 backend로 분리한 스테이징 후보입니다. 실제 L40S 동물 종단 생성 검증 전에는 프로덕션 확정본으로 취급하지 않습니다.
+
 ## 실행
 
 ```bash

@@ -58,13 +58,13 @@ SCAIL-2를 4방향 걷기 생성 모델로 사용하는 계획은 기각했습�
 
 현재 검증 중인 구조는 준비된 `front`, `back`, `left`, `right` 네 이미지를 한 작업으로 보내고, 하나의 3D 보행 cycle을 Motion Adapter가 네 방향 pose로 변환한 뒤 One-to-All이 각 방향 원본에 적용하는 방식입니다. 첫 종단 테스트에서는 방향별 8장, 총 32 PNG와 `sprite_sheet.png`, `metadata.json`이 든 `result.zip` 생성까지 성공했지만 제작 품질은 통과하지 못했습니다. V3 결과의 `latest_motion.npz`를 분석한 결과, 선택된 phase의 41%에서 발이 몸 중심선을 넘고 최대 13.4cm crossover, 약 67cm 측면 drift와 30.5° heading 변화가 확인되어 원본 생성 모션 자체가 neutral straight walk가 아니었던 것으로 판정했습니다. 이 실패 기록은 그대로 보존합니다.
 
-현재 적용 대상 서버 소스 묶음은 [sprite_pipeline_fastapi_full_v8.zip](sprite_pipeline_fastapi_full_v8.zip)입니다. SHA-256은 `d56eabb1b71eb097f266686d636b5840f99739878726bc3020ebd14cfb01d917`입니다. V8은 V7의 공식 Kimodo fixture, closed control loop와 3서비스 구조를 유지하면서 One-to-All 렌더 이후의 공통 CIE Lab 팔레트 안정화와 최종 PNG의 위치·발 기준선·높이·색상 loop QC를 추가한 오버레이입니다. 패키지의 결정론적 테스트 17개와 V7 결과 오프라인 backtest를 통과했고, 실제 L40S에서 사람 캐릭터 네 종을 새로 종단 실행한 결과 두 종은 결과 ZIP 생성과 appearance·loop QC를 통과했으며 두 종은 2차 렌더 뒤 hard gate가 거부했습니다. 추가 동물·생물 8종 테스트에서는 API상 3건 통과·5건 거절이었지만 통과 결과도 모두 사람형 변형 또는 개체 복제로 실제 에셋 품질은 `0/8`이었습니다. V2·V3·V5·V6·V7 ZIP은 [이전 버전 보관소](archives/pipeline-versions/)로 옮겼고, 관련 결과 문서는 `docs/test-records/`에 그대로 유지합니다. V1 ZIP은 [`failures/artifacts/`](failures/artifacts/)에 보존하며 V4는 배포하지 않았습니다.
+현재 V9 서버 후보는 [sprite_pipeline_fastapi_full_v9.zip](sprite_pipeline_fastapi_full_v9.zip)입니다. SHA-256은 `f4d655a6779dbaf091e53ab581c2c254b5e18e64459b2bd5fe0c105406a6d35e`입니다. V9의 목적은 사람 파이프라인을 다시 만드는 것이 아니라, **V8 사람·캐릭터 경로를 그대로 유지하면서 동물만 독립 motion 경로로 분기하는 것**입니다. API가 `subject_profile=character|quadruped|biped_animal|auto`와 `motion_backend=kimodo|animal_procedural|animal_npz|auto`를 받아 사람은 기존 Kimodo adapter를, 사족·이족동물은 동물 전용 adapter를 선택합니다. 외부 동물 모델·수동 rig·motion library가 준비되면 `animal-motion-v1` NPZ를 첨부해 사람 코드 수정 없이 motion 공급자를 교체할 수 있습니다. 패키지에는 사족·이족 계약 fixture와 생성·검증 스크립트도 포함되어 있지만, 이 fixture는 학습 모델의 생성 품질 표본이 아니라 API 배선 검증용입니다. Python 66개, 프론트 source contract 11개, API lifecycle, TypeScript syntax와 lockfile 검증은 통과했습니다. Next.js와 eslint-config-next는 `16.3.2`, sharp는 `0.35.3`으로 잠갔으며 clean `npm ci`, production build, lint와 `npm audit`(취약점 0개)도 통과했습니다. 다만 신규 V9 동물 경로의 실제 L40S + One-to-All 종단 생성은 남아 있으므로 현재 표시는 **스테이징 후보**입니다. V8 ZIP과 실제 사람·동물 실패 기록은 회귀 기준으로 그대로 보존합니다. 모델 소스와 실패 원인 조사는 [V9 동물 routing 소스 감사](docs/V9_ANIMAL_ROUTING_SOURCE_AUDIT.md)에 정리했습니다.
 
 ### V8 appearance·loop QC 오버레이
 
 V8은 V7의 16개 고유 걷기 phase와 첫 control을 복사한 17번째 control을 그대로 사용합니다. One-to-All 렌더 뒤 네 방향 원본에서 얻은 공통 팔레트로 프레임별 색상과 밝기 흔들림을 제한적으로 보정하고, `even_start`, `odd`, `even_end` 후보의 `8→1` 실루엣 위치·발 기준선·높이·색상 seam까지 검사합니다. Appearance 또는 loop QC가 실패하면 Kimodo와 Motion Adapter는 유지하고 One-to-All만 다른 seed로 재시도합니다.
 
-패키지 설치, 세 서비스 실행과 GPU 판정 조건은 기존 단일 문서인 [RunPod Kimodo + One-to-All 4방향 동작 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 V8 기준으로 통합했습니다. 실제 캐릭터 네 종의 V8 성공·거부 결과와 QC 수치는 [V8 다른 캐릭터 종단 검증 기록](docs/test-records/V8_OTHER_CHARACTERS_2026-08-20.md)에 정리했습니다. V7 결과와 색상·loop·재현성 검토도 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 그대로 보존합니다.
+패키지 설치, 사람·동물 routing, `animal-motion-v1` NPZ 계약과 GPU 판정 조건은 [V9 RunPod Kimodo + One-to-All 실행 가이드](docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md)에 통합했습니다. 기존 V8 가이드는 [`docs/archive/`](docs/archive/)에 보존했습니다. 실제 캐릭터 네 종의 V8 성공·거부 결과와 QC 수치는 [V8 다른 캐릭터 종단 검증 기록](docs/test-records/V8_OTHER_CHARACTERS_2026-08-20.md)에 정리했습니다. V7 결과와 색상·loop·재현성 검토도 [V7 다른 캐릭터 3종 종단 검증 기록](docs/test-records/V7_OTHER_CHARACTERS_2026-08-19.md)에 그대로 보존합니다.
 
 ### V8 실제 4방향 걷기 결과
 
@@ -100,7 +100,7 @@ V8은 V7의 16개 고유 걷기 phase와 첫 control을 복사한 17번째 contr
 
 ![V8 공룡 동물 테스트](docs/test-records/v8-creatures/dinosaur/walk-cycle.gif)
 
-현재 V8 QC는 루프·색상·위치 수치를 검사하지만 종, 사족 형태와 개체 수를 검사하지 않습니다. 따라서 사람용 motion fixture와 adapter를 동물에 그대로 적용하는 경로는 기각하고, 동물용 motion·skeleton·projection과 의미 보존 QC를 별도로 설계해야 합니다. 성공 ZIP 3건, 거절 상태 5건, 체크섬과 상세 판정은 [V8 동물·생물 8종 종단 검증 기록](docs/test-records/V8_CREATURES_2026-08-20.md)에 보존했습니다. 현재 API는 실패 작업의 `/result`를 HTTP 409로 차단하므로, 거절 렌더 원본은 RunPod의 `jobs/<JOB_ID>/rendered/attempt_00`, `attempt_01`에만 남습니다.
+V8 QC는 루프·색상·위치 수치를 검사하지만 종, 사족 형태와 개체 수를 검사하지 않습니다. 따라서 사람용 motion fixture와 adapter를 동물에 그대로 적용하는 경로는 기각하고, 동물용 motion·skeleton·projection과 의미 보존 QC를 별도로 설계했습니다. 성공 ZIP 3건, 거절 상태 5건, 체크섬과 상세 판정은 [V8 동물·생물 8종 종단 검증 기록](docs/test-records/V8_CREATURES_2026-08-20.md)에 보존했습니다. V8 당시 실패 작업의 `/result`는 HTTP 409로 차단되고 렌더 원본은 RunPod job 디렉터리에만 남았지만, V9는 `/v1/jobs/<JOB_ID>/debug`로 실패 입력·상태·렌더 artifact를 ZIP으로 제공합니다.
 
 ### V7 실제 4방향 걷기 결과
 
@@ -139,11 +139,13 @@ V8은 V7의 16개 고유 걷기 phase와 첫 control을 복사한 17번째 contr
                          ▼
 RunPod On-Demand Pod
   ├─ 기준 이미지·4방향 시트·아이템 착용 이미지 생성 endpoint
-  └─ 공식 Kimodo walk fixture → Motion Adapter → One-to-All 동작 pipeline endpoint
-       └─ V8 closed control loop·cardinal hard gate·위치/팔레트 안정화·appearance/loop QC
+  └─ V9 motion routing API
+       ├─ character → V8 Kimodo → V8 Motion Adapter → One-to-All → V8 QC
+       ├─ quadruped → procedural 또는 animal-motion-v1 NPZ → V9 animal adapter → One-to-All → animal QC
+       └─ biped_animal → procedural 또는 animal-motion-v1 NPZ → V9 animal adapter → One-to-All → animal QC
 ```
 
-SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화했고, V7은 실제 L40S에서 캐릭터 3종의 종단 결과와 이번 표본의 색상 일관성·동일 seed 재현성을 확인했습니다. V8은 V7 결과의 색상·위치 경계 사례를 추가로 보정하고 거부하는 현재 적용 대상입니다. 실제 L40S 신규 표본 네 종 중 두 종의 결과 ZIP 생성과 두 종의 hard gate 거부를 확인했으며, 거부된 체형과 밝기 변동 사례의 성공률 개선이 다음 과제입니다.
+SCAIL-2 API adapter와 RunPod 가이드는 성공한 생성 기능이 아니라 `docs/failures/`와 `failures/runpod/`의 실험 기록으로 남깁니다. Kimodo + Motion Adapter + One-to-All V5 파이프라인은 공식 motion 기준 gait/방향 validation과 32 PNG 패킹까지 성공했습니다. V6는 정면·후면의 실제 3D 방향 보정을 강화했고, V7은 실제 L40S에서 캐릭터 3종의 종단 결과와 이번 표본의 색상 일관성·동일 seed 재현성을 확인했습니다. V8은 사람·사람형 캐릭터의 현재 검증 경로이며 실제 L40S 신규 표본 네 종 중 두 종의 결과 ZIP 생성과 두 종의 hard gate 거부를 확인했습니다. V9는 이 사람 경로를 그대로 유지하고 동물 요청만 별도 backend로 분리한 스테이징 후보입니다.
 
 ## 로컬 실행
 
@@ -177,6 +179,9 @@ MOTION_PIPELINE_API_TOKEN=
 - [타일 카탈로그](docs/TILE_CATALOG.md)
 - [오브젝트 카탈로그](docs/OBJECT_CATALOG.md)
 - [캐릭터·오브젝트 상대 크기 규격](docs/SCALE_SYSTEM.md)
+- [현재 V9 스테이징 서버 ZIP](sprite_pipeline_fastapi_full_v9.zip)
+- [V9 동물 routing 소스·실패 기록 감사](docs/V9_ANIMAL_ROUTING_SOURCE_AUDIT.md)
+- [V9 animal-motion-v1 NPZ 계약](docs/ANIMAL_MOTION_NPZ_V1.md)
 - [현재 V8 서버 소스 ZIP](sprite_pipeline_fastapi_full_v8.zip)
 - [V8 다른 캐릭터 종단 검증 기록](docs/test-records/V8_OTHER_CHARACTERS_2026-08-20.md)
 - [V8 동물·생물 8종 종단 검증 기록](docs/test-records/V8_CREATURES_2026-08-20.md)

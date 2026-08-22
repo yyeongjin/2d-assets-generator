@@ -1,0 +1,250 @@
+{
+  "adapter_version": "9.0.0-animal",
+  "adapter_kind": "animal_synthetic_control",
+  "subject_profile": "quadruped",
+  "target_frames": 17,
+  "unique_cycle_frames": 16,
+  "control_endpoint_duplicates_phase_zero": true,
+  "kimodo_bypassed": true,
+  "human_reference_pose_detector_bypassed": true,
+  "classification": {
+    "requested_profile": "quadruped",
+    "resolved_profile": "quadruped",
+    "reason": "explicit_profile",
+    "prompt_matches": {
+      "quadruped": [
+        "dog",
+        "four-legged"
+      ],
+      "biped_animal": [],
+      "generic_animal": []
+    },
+    "aggregate_geometry": {
+      "side_aspect": 1.0264900662251655,
+      "front_back_aspect": 0.980220158238734
+    },
+    "reference_geometry": {
+      "front": {
+        "width": 192.0,
+        "height": 192.0,
+        "bbox": [
+          19,
+          26,
+          162,
+          177
+        ],
+        "bbox_width": 144.0,
+        "bbox_height": 152.0,
+        "aspect": 0.9473684210526315,
+        "coverage": 0.2876519097222222,
+        "occupancy": 0.48446637426900585,
+        "center": [
+          0.4713541666666667,
+          0.5286458333333334
+        ],
+        "ground": 0.9267015706806283
+      },
+      "back": {
+        "width": 192.0,
+        "height": 192.0,
+        "bbox": [
+          18,
+          25,
+          172,
+          177
+        ],
+        "bbox_width": 155.0,
+        "bbox_height": 153.0,
+        "aspect": 1.0130718954248366,
+        "coverage": 0.2828776041666667,
+        "occupancy": 0.43972169512966475,
+        "center": [
+          0.4947916666666667,
+          0.5260416666666666
+        ],
+        "ground": 0.9267015706806283
+      },
+      "left": {
+        "width": 192.0,
+        "height": 192.0,
+        "bbox": [
+          18,
+          16,
+          172,
+          166
+        ],
+        "bbox_width": 155.0,
+        "bbox_height": 151.0,
+        "aspect": 1.0264900662251655,
+        "coverage": 0.2777506510416667,
+        "occupancy": 0.4374706259346294,
+        "center": [
+          0.4947916666666667,
+          0.4739583333333333
+        ],
+        "ground": 0.8691099476439791
+      },
+      "right": {
+        "width": 192.0,
+        "height": 192.0,
+        "bbox": [
+          19,
+          16,
+          173,
+          166
+        ],
+        "bbox_width": 155.0,
+        "bbox_height": 151.0,
+        "aspect": 1.0264900662251655,
+        "coverage": 0.2784830729166667,
+        "occupancy": 0.43862422559282205,
+        "center": [
+          0.5,
+          0.4739583333333333
+        ],
+        "ground": 0.8691099476439791
+      }
+    }
+  },
+  "directions": [
+    "front",
+    "back",
+    "left",
+    "right"
+  ],
+  "reference_boxes": {
+    "front": [
+      0.09895833333333333,
+      0.13541666666666666,
+      0.8489583333333334,
+      0.9270833333333334
+    ],
+    "back": [
+      0.09375,
+      0.13020833333333334,
+      0.9010416666666666,
+      0.9270833333333334
+    ],
+    "left": [
+      0.09375,
+      0.08333333333333333,
+      0.9010416666666666,
+      0.8697916666666666
+    ],
+    "right": [
+      0.09895833333333333,
+      0.08333333333333333,
+      0.90625,
+      0.8697916666666666
+    ]
+  },
+  "validation": {
+    "version": "9.0.0-animal",
+    "ok": true,
+    "subject_profile": "quadruped",
+    "errors": [],
+    "directions": {
+      "front": {
+        "endpoint_exact": true,
+        "finite": true,
+        "in_bounds": true,
+        "active_feet": 4,
+        "side_body_ratio": null,
+        "foot_travel": [
+          [
+            0.052499979734420776,
+            0.07916665077209473
+          ],
+          [
+            0.05249994993209839,
+            0.07916665077209473
+          ],
+          [
+            0.052500009536743164,
+            0.07916665077209473
+          ],
+          [
+            0.052500009536743164,
+            0.07916665077209473
+          ]
+        ]
+      },
+      "back": {
+        "endpoint_exact": true,
+        "finite": true,
+        "in_bounds": true,
+        "active_feet": 4,
+        "side_body_ratio": null,
+        "foot_travel": [
+          [
+            0.05651041865348816,
+            0.07968747615814209
+          ],
+          [
+            0.05651044845581055,
+            0.07968747615814209
+          ],
+          [
+            0.05651041865348816,
+            0.07968747615814209
+          ],
+          [
+            0.05651044845581055,
+            0.07968747615814209
+          ]
+        ]
+      },
+      "left": {
+        "endpoint_exact": true,
+        "finite": true,
+        "in_bounds": true,
+        "active_feet": 4,
+        "side_body_ratio": 45.20833194255829,
+        "foot_travel": [
+          [
+            0.1695312261581421,
+            0.08257812261581421
+          ],
+          [
+            0.16953128576278687,
+            0.08257812261581421
+          ],
+          [
+            0.16953124105930328,
+            0.08257812261581421
+          ],
+          [
+            0.16953125596046448,
+            0.08257812261581421
+          ]
+        ]
+      },
+      "right": {
+        "endpoint_exact": true,
+        "finite": true,
+        "in_bounds": true,
+        "active_feet": 4,
+        "side_body_ratio": 45.20833492279053,
+        "foot_travel": [
+          [
+            0.16953125596046448,
+            0.08257812261581421
+          ],
+          [
+            0.16953124105930328,
+            0.08257812261581421
+          ],
+          [
+            0.16953128576278687,
+            0.08257812261581421
+          ],
+          [
+            0.1695312261581421,
+            0.08257812261581421
+          ]
+        ]
+      }
+    }
+  },
+  "preview": "V9_VALIDATION/adapter_previews/dog/pose_preview.png"
+}

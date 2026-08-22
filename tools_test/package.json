@@ -13,10 +13,10 @@
     "lint": "eslint . --ignore-pattern .next --ignore-pattern dist --ignore-pattern .vinext"
   },
   "dependencies": {
-    "next": "16.2.6",
+    "next": "16.3.2",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "sharp": "^0.34.5"
+    "sharp": "0.35.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.2.1",
@@ -24,7 +24,7 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.4",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.3.2",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3"
   },

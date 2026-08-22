@@ -12,6 +12,7 @@ const [
   jobsRoute,
   jobRoute,
   outputRoute,
+  debugRoute,
   guide,
   readme,
   assetRoute,
@@ -27,6 +28,7 @@ const [
   source("../app/api/motion-pipeline/jobs/route.ts"),
   source("../app/api/motion-pipeline/jobs/[jobId]/route.ts"),
   source("../app/api/motion-pipeline/jobs/[jobId]/output/route.ts"),
+  source("../app/api/motion-pipeline/jobs/[jobId]/debug/route.ts"),
   source("../../docs/RUNPOD_KIMODO_ONE_TO_ALL_GUIDE.md"),
   source("../../README.md"),
   source("../app/api/runpod/asset/route.ts"),
@@ -41,7 +43,13 @@ test("활성 동작 화면은 네 방향 RGB를 단일 작업으로 전송한다
   assert.match(page, /for \(const direction of DIRECTIONS\) form\.set\(direction\.id, await resolveDirectionImage\(direction\.id\)\)/);
   assert.match(page, /form\.set\("action", "walk"\)/);
   assert.match(page, /form\.set\("prompt", motionPrompt\)/);
+  assert.match(page, /form\.set\("subject_profile", motionProfile\)/);
+  assert.match(page, /form\.set\("motion_backend", motionBackend\)/);
+  assert.match(page, /if \(motionNpzFile\) form\.set\("motion_npz", motionNpzFile\)/);
   assert.match(page, /form\.set\("seed", String\(seed\)\)/);
+  assert.match(page, /data-testid="motion-subject-profile"/);
+  assert.match(page, /data-testid="motion-backend"/);
+  assert.match(page, /data-testid="motion-animal-npz"/);
   assert.match(page, /data-testid={`motion-image-\${direction\.id}`}/);
   assert.match(page, /data-testid="queue-motion-job"/);
   for (const key of ["front", "back", "left", "right"]) assert.match(page, new RegExp(`id: "${key}"`));
@@ -51,7 +59,10 @@ test("활성 동작 화면은 네 방향 RGB를 단일 작업으로 전송한다
 });
 
 test("동작 pipeline 단계와 result.zip 구조를 화면에 표시한다", () => {
-  for (const label of ["4방향 RGB", "Kimodo Motion", "Motion Adapter", "One-to-All \\+ Pack"]) assert.match(page, new RegExp(label));
+  for (const label of ["4방향 RGB", "Motion Source", "Profile Adapter", "One-to-All"]) assert.match(page, new RegExp(label));
+  assert.match(page, /animal NPZ/);
+  assert.match(page, /animal cycle/);
+  assert.match(page, /Kimodo/);
   assert.match(page, /data-testid="architecture-map"/);
   assert.match(page, /Kimodo \+ One-to-All resident/);
   assert.match(page, /GPU concurrency 1/);
@@ -103,6 +114,12 @@ test("Next proxy는 네 이미지 multipart를 검사하고 단일 job을 중계
   assert.match(jobsRoute, /const DIRECTIONS = \["front", "back", "left", "right"\]/);
   assert.match(jobsRoute, /file instanceof File/);
   assert.match(jobsRoute, /file\.type\.startsWith\("image\/"\)/);
+  assert.match(jobsRoute, /const SUBJECT_PROFILES = new Set/);
+  assert.match(jobsRoute, /const MOTION_BACKENDS = new Set/);
+  assert.match(jobsRoute, /MAX_ANIMAL_NPZ_BYTES = 64 \* 1024 \* 1024/);
+  assert.match(jobsRoute, /animal_npz backend에는 motion_npz 파일이 필요합니다/);
+  assert.match(jobsRoute, /사람·캐릭터 요청은 기존 Kimodo 경로만 사용합니다/);
+  assert.match(jobsRoute, /동물 요청에는 Kimodo를 사용할 수 없습니다/);
   assert.match(jobsRoute, /requestMotionPipeline\("\/v1\/jobs"/);
   assert.match(jobsRoute, /status: 202/);
   assert.match(jobRoute, /encodeURIComponent\(jobId\)/);
@@ -110,6 +127,24 @@ test("Next proxy는 네 이미지 multipart를 검사하고 단일 job을 중계
   assert.match(outputRoute, /application\/zip/);
   assert.match(outputRoute, /result\.zip/);
   assert.match(outputRoute, /new Response\(response\.body/);
+  assert.match(debugRoute, /\/v1\/jobs\/\$\{encodeURIComponent\(jobId\)\}\/debug/);
+  assert.match(debugRoute, /application\/zip/);
+  assert.match(page, /data-testid="download-motion-debug"/);
+  assert.match(page, /failure_debug\.zip 저장/);
+  assert.match(page, /typeof body\.error === "string"/);
+  assert.match(jobRoute, /\^\[a-f0-9\]\{32\}\$/);
+  assert.match(outputRoute, /\^\[a-f0-9\]\{32\}\$/);
+});
+
+test("동물 route는 Kimodo 장애와 독립적으로 readiness를 판정한다", () => {
+  assert.match(healthRoute, /characterReady/);
+  assert.match(healthRoute, /animalReady/);
+  assert.match(healthRoute, /characterReady \|\| animalReady/);
+  assert.doesNotMatch(healthRoute, /&& kimodoState !== "down"/);
+  assert.match(page, /selectedRouteReady/);
+  assert.match(page, /endpoint\.animalReady/);
+  assert.match(page, /endpoint\.characterReady/);
+  assert.match(page, /Motion Routing/);
 });
 
 test("endpoint와 token은 새 환경변수에서만 읽는다", () => {
@@ -122,7 +157,7 @@ test("endpoint와 token은 새 환경변수에서만 읽는다", () => {
   assert.match(healthRoute, /one_to_all_state/);
   const realRunPodProxy = /https:\/\/[a-z0-9]+-8000\.proxy\.runpod\.net/i;
   const secret = /rpa_[A-Za-z0-9]+/;
-  for (const checked of [page, envExample, motionServer, healthRoute, jobsRoute, jobRoute, outputRoute, guide, readme]) {
+  for (const checked of [page, envExample, motionServer, healthRoute, jobsRoute, jobRoute, outputRoute, debugRoute, guide, readme]) {
     assert.doesNotMatch(checked, realRunPodProxy);
     assert.doesNotMatch(checked, secret);
   }
@@ -140,6 +175,11 @@ test("새 가이드는 RunPod와 로컬의 경계·48GB 상주 전략·API 계�
   assert.match(guide, /One-to-All-1\.3b_2/);
   assert.match(guide, /KIMODO_MOTION_SOURCE=official_example/);
   assert.match(guide, /Kimodo diffusion 모델을 VRAM에 올리지 않음/);
+  assert.match(guide, /subject_profile/);
+  assert.match(guide, /motion_backend/);
+  assert.match(guide, /animal_npz/);
+  assert.match(guide, /animal-motion-v1/);
+  assert.match(guide, /사람 경로.*V8/);
   assert.match(guide, /\/v1\/jobs/);
   for (const field of ["front=@front.png", "back=@back.png", "left=@left.png", "right=@right.png"]) assert.match(guide, new RegExp(field.replace(".", "\\.")));
   assert.match(guide, /\/v1\/jobs\/\$\{JOB_ID\}\/result/);

@@ -1,0 +1,124 @@
+Sprite Pipeline V9 build report
+================================
+
+Version: 9.0.0
+Build status: staging candidate
+Build date: 2026-08-22
+
+Purpose
+-------
+V9 does not replace the working V8 human/character path. It separates animal
+requests from the human-only motion assumptions that caused quadruped and
+biped-animal failures.
+
+Routing matrix
+--------------
+character      -> kimodo            -> V8 human adapter  -> One-to-All -> V8 QC
+quadruped      -> animal_procedural -> V9 animal adapter -> One-to-All -> animal QC
+quadruped      -> animal_npz        -> V9 animal adapter -> One-to-All -> animal QC
+biped_animal   -> animal_procedural -> V9 animal adapter -> One-to-All -> animal QC
+biped_animal   -> animal_npz        -> V9 animal adapter -> One-to-All -> animal QC
+
+The API accepts subject_profile and motion_backend independently. Invalid
+human/animal backend combinations are rejected before queue and job-directory
+creation. Kimodo availability gates only character jobs; animal jobs require
+One-to-All but do not require Kimodo.
+
+Upstream source audit
+---------------------
+1. One-to-All infer_utils.py loads YOLOv10m and ViTPose whole-body, converts
+   detections to DWPose, and performs human reference/driving alignment.
+2. One-to-All infer_preprocess.py builds pose/control inputs around that
+   human-pose preprocessing contract.
+3. Kimodo's official scope is human/humanoid kinematic motion generation.
+
+V9 therefore preserves those components for character requests and bypasses
+Kimodo plus human reference-pose detection/alignment for animal requests.
+The animal branch still uses One-to-All as the renderer; it is not represented
+as a newly trained animal diffusion model.
+
+Implemented
+-----------
+- subject_profile: auto, character, quadruped, biped_animal
+- motion_backend: auto, kimodo, animal_procedural, animal_npz
+- animal-motion-v1 NPZ upload contract with schema/profile/shape/range checks
+- compressed-size, uncompressed-size, member-count, duplicate/path, corrupt ZIP,
+  non-finite value, and pickle/object-array protections
+- quadruped control with four independently phased limb chains
+- compact biped-animal control with non-human geometry
+- periodic resampling to 16 unique phases plus an exact 17th endpoint closure
+- animal-only retargeting, prompts, stabilization, topology/identity/duplicate/
+  component/palette/baseline/loop QC
+- failed-job debug ZIP containing inputs, status, controls, and retained artifacts
+- fail-closed bearer authentication
+- queued/processing restart recovery and finite worker read timeout
+- strict 32-character job IDs and completed/failed job deletion
+- route-specific health: character_ready and animal_ready
+- real start/stop/status launchers with optional START_KIMODO=false mode
+- frontend profile/backend selectors, NPZ upload, route-specific readiness,
+  failure-error normalization, and failure_debug.zip proxy
+- pinned runtime/test dependencies, Next.js and eslint-config-next 16.3.2,
+  and sharp 0.35.3 lock updates
+- UTF-8 bearer-token comparison so non-ASCII credentials return 401, not 500
+- lazy job-root creation so importing the server does not write to /workspace
+- bundled quadruped and biped-animal animal-motion-v1 contract fixtures
+- fixture generation and validation scripts
+
+Bundled NPZ contract fixtures
+-----------------------------
+- examples/animal-motion-v1/quadruped_walk_contract_example.npz
+  SHA-256: c083fe2665db41cf8aa9be8bf51f68b3f8d57a83a109e0f7055f1974135fe6ec
+- examples/animal-motion-v1/biped_animal_walk_contract_example.npz
+  SHA-256: 956fef6a051f33bc4ef3cbd053ef2dbed1970518ae3f77b1f3db8e5f93e384b2
+
+These files are contract/routing fixtures generated from the procedural
+scaffold. They are not quality examples from a trained animal motion model.
+
+Human-path preservation
+-----------------------
+The following V8 human-path files are byte-identical in V9 and are locked by
+regression tests:
+- adapter/service.py
+  SHA-256: 94c53bfda7e283247e94495874ee4af569c7b35d0b6ea0c531193e723441dd18
+- workers/kimodo_worker.py
+  SHA-256: 1b3ef5e103a938ea84f154777470d905032da3aa189d59a4cc007e72ef67d532
+
+Verification executed
+---------------------
+Python unit/API HTTP tests: 66 passed, 0 failed
+Frontend source-contract tests: 11 passed, 0 failed
+TypeScript syntax transpile: 26 files, 0 errors
+Python compileall: passed
+Shell syntax: passed
+Package-lock root dependency/version consistency: passed
+Clean npm ci: passed
+Next.js production build: passed
+ESLint: passed
+npm audit: 0 vulnerabilities
+Bundled NPZ validation: quadruped and biped-animal passed
+Locked Next.js and eslint-config-next version: 16.3.2
+Locked sharp version: 0.35.3
+V8 real animal failure replay: pig/dog/dinosaur rejected, 3/3
+Animal adapter reference checks: pig/dog/dinosaur passed, 3/3
+Strong secret/file scan: no real RunPod API key, private key, .env, PEM,
+or concrete RunPod endpoint bundled
+
+The API tests exercise fail-closed authentication (including non-ASCII invalid
+credentials), job creation/routing,
+character V8 routing, animal operation while Kimodo is unavailable, invalid
+cross-profile/backend rejection, queue recovery, failed-job debug ZIP,
+result/debug lifecycle, and completed/failed job deletion.
+
+Not executed in this build environment
+--------------------------------------
+- fresh L40S/RunPod One-to-All render through the new quadruped path
+- fresh L40S/RunPod One-to-All render through the new biped-animal path
+- end-to-end render using NPZ produced by an external animal motion model
+
+Release decision
+----------------
+This package is a valid V9 staging candidate, not a production-confirmed animal
+pipeline. Production promotion requires retained successful L40S results for
+representative quadruped, biped-animal,
+and external-NPZ jobs. The routing isolation and failure handling are tested;
+new animal diffusion output quality is not claimed without those GPU runs.

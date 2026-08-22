@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function validJobId(jobId: string) {
-  return /^[a-zA-Z0-9_-]{8,80}$/.test(jobId);
+  return /^[a-f0-9]{32}$/.test(jobId);
 }
 
 export async function GET(_request: Request, context: { params: Promise<{ jobId: string }> }) {

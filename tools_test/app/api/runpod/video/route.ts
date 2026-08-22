@@ -128,7 +128,7 @@ async function extractFrames(videoPath: string, framesDirectory: string, sampleF
 
   console.info("[WalkVideo][FRAME_EXTRACTION_START]", { videoPath, framesDirectory, sampleFps, maxFrames, ffmpeg });
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(ffmpeg, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn(/* turbopackIgnore: true */ ffmpeg, args, { stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
     child.on("error", reject);

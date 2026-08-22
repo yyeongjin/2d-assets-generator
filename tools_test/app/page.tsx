@@ -8,12 +8,15 @@ type Direction = "front" | "back" | "left" | "right";
 type AssetCatalogId = "tile" | "object" | "character" | "creature" | "item" | "vfx" | "ui" | "guide";
 type EndpointStatus = "꺼짐" | "확인 중" | "연결됨" | "오류";
 type JobStatus = "입력 준비" | "대기열" | "처리 중" | "완료" | "실패";
+type MotionProfile = "auto" | "character" | "quadruped" | "biped_animal";
+type MotionBackend = "auto" | "kimodo" | "animal_procedural" | "animal_npz";
 type DirectionUploadFiles = Partial<Record<Direction, File>>;
 
 type JobState = {
   status: JobStatus;
   jobId?: string;
   outputUrl?: string;
+  debugUrl?: string;
   runtimeSeconds?: number;
   error?: string;
 };
@@ -23,6 +26,8 @@ type EndpointState = {
   kimodoState?: string;
   oneToAllState?: string;
   queueDepth?: number;
+  characterReady?: boolean;
+  animalReady?: boolean;
   message?: string;
 };
 
@@ -224,6 +229,9 @@ export default function Home() {
   const [directionUploadPreviewUrls, setDirectionUploadPreviewUrls] = useState<Partial<Record<Direction, string>>>({});
   const directionPreviewUrlsRef = useRef<Partial<Record<Direction, string>>>({});
   const [motionPrompt, setMotionPrompt] = useState(DEFAULT_MOTION_PROMPT);
+  const [motionProfile, setMotionProfile] = useState<MotionProfile>("auto");
+  const [motionBackend, setMotionBackend] = useState<MotionBackend>("auto");
+  const [motionNpzFile, setMotionNpzFile] = useState<File | null>(null);
   const [job, setJob] = useState<JobState>({ status: "입력 준비" });
   const [endpoint, setEndpoint] = useState<EndpointState>({ status: "꺼짐" });
   const [imageEndpoint, setImageEndpoint] = useState<ImageEndpointState>({ status: "꺼짐" });
@@ -594,8 +602,9 @@ export default function Home() {
     directionPreviewUrlsRef.current = {};
     setDirectionUploadFiles({});
     setDirectionUploadPreviewUrls({});
+    setMotionNpzFile(null);
     setJob({ status: "입력 준비" });
-    setNotice(`${projectId || "CHARACTER_ID"} 명시적 업로드를 초기화했습니다. 분할된 네 방향 이미지는 계속 사용할 수 있습니다.`);
+    setNotice(`${projectId || "CHARACTER_ID"} 명시적 업로드와 동물 NPZ를 초기화했습니다. 분할된 네 방향 이미지는 계속 사용할 수 있습니다.`);
   }
 
   function updateDirectionUpload(direction: Direction, file: File | null) {
@@ -634,13 +643,20 @@ export default function Home() {
 
   async function checkHealth() {
     setEndpoint({ status: "확인 중" });
-    setNotice("Kimodo·One-to-All 상주 worker와 단일 GPU queue 상태를 확인 중입니다.");
+    setNotice("V9 동물·캐릭터 motion worker와 One-to-All GPU queue 상태를 확인 중입니다.");
     try {
       const response = await fetch("/api/motion-pipeline/health", { cache: "no-store" });
-      const body = await response.json() as { ok?: boolean; kimodo_state?: string; one_to_all_state?: string; queue_depth?: number; message?: string };
+      const body = await response.json() as { ok?: boolean; kimodo_state?: string; one_to_all_state?: string; character_ready?: boolean; animal_ready?: boolean; queue_depth?: number; message?: string };
       if (!response.ok || !body.ok) throw new Error(body.message || `HTTP ${response.status}`);
-      setEndpoint({ status: "연결됨", kimodoState: body.kimodo_state, oneToAllState: body.one_to_all_state, queueDepth: body.queue_depth });
-      setNotice(`Pod 연결 완료 · Kimodo ${body.kimodo_state ?? "unknown"} · One-to-All ${body.one_to_all_state ?? "unknown"} · queue ${body.queue_depth ?? 0}`);
+      setEndpoint({
+        status: "연결됨",
+        kimodoState: body.kimodo_state,
+        oneToAllState: body.one_to_all_state,
+        characterReady: Boolean(body.character_ready),
+        animalReady: Boolean(body.animal_ready),
+        queueDepth: body.queue_depth,
+      });
+      setNotice(`Pod 연결 완료 · 사람 ${body.character_ready ? "ready" : "down"} · 동물 ${body.animal_ready ? "ready" : "down"} · queue ${body.queue_depth ?? 0}`);
       console.info("[MOTION_PIPELINE][HEALTH_OK]", body);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Pod 연결 실패";
@@ -655,8 +671,19 @@ export default function Home() {
       await new Promise((resolve) => window.setTimeout(resolve, 3000));
       try {
         const response = await fetch(`/api/motion-pipeline/jobs/${jobId}`, { cache: "no-store" });
-        const body = await response.json() as { status?: string; stage?: string; output_url?: string; result_url?: string; runtime_seconds?: number; error?: string };
-        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+        const body = await response.json() as {
+          status?: string;
+          stage?: string;
+          output_url?: string;
+          result_url?: string;
+          debug_url?: string;
+          runtime_seconds?: number;
+          error?: string | { code?: string; message?: string };
+        };
+        const apiError = typeof body.error === "string"
+          ? body.error
+          : body.error?.message || body.error?.code;
+        if (!response.ok) throw new Error(apiError || `HTTP ${response.status}`);
         const status: JobStatus = body.status === "completed" || body.status === "succeeded"
           ? "완료"
           : body.status === "failed"
@@ -670,8 +697,11 @@ export default function Home() {
           outputUrl: body.status === "completed" || body.status === "succeeded"
             ? `/api/motion-pipeline/jobs/${jobId}/output`
             : undefined,
+          debugUrl: body.status === "failed" && body.debug_url
+            ? `/api/motion-pipeline/jobs/${jobId}/debug`
+            : undefined,
           runtimeSeconds: body.runtime_seconds,
-          error: body.error,
+          error: apiError,
         }));
         if (status === "처리 중" && body.stage) setNotice(`${jobId} · ${body.stage}`);
         if (status === "완료" || status === "실패") {
@@ -697,6 +727,9 @@ export default function Home() {
       for (const direction of DIRECTIONS) form.set(direction.id, await resolveDirectionImage(direction.id));
       form.set("action", "walk");
       form.set("prompt", motionPrompt);
+      form.set("subject_profile", motionProfile);
+      form.set("motion_backend", motionBackend);
+      if (motionNpzFile) form.set("motion_npz", motionNpzFile);
       form.set("seed", String(seed));
       const response = await fetch("/api/motion-pipeline/jobs", {
         method: "POST",
@@ -741,7 +774,14 @@ export default function Home() {
       inputs: Object.fromEntries(DIRECTIONS.map((direction) => [direction.id,
         directionSplit?.directions[direction.id].localClientPath ?? `inputs/${projectId}/${direction.id}.png`,
       ])),
-      request: { action: "walk", prompt: motionPrompt, seed },
+      request: {
+        action: "walk",
+        subject_profile: motionProfile,
+        motion_backend: motionBackend,
+        motion_npz: motionNpzFile?.name ?? null,
+        prompt: motionPrompt,
+        seed,
+      },
       expected_output: { archive: "result.zip", directions: 4, frames_per_direction: 8, total_png: 32 },
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
@@ -752,7 +792,24 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }
 
-  const canSubmit = Boolean(motionPrompt.trim() && DIRECTIONS.every((direction) => directionUploadFiles[direction.id] || directionSplit?.directions[direction.id]));
+  const profileBackendCompatible = motionProfile === "character"
+    ? ["auto", "kimodo"].includes(motionBackend) && !motionNpzFile
+    : motionProfile === "auto"
+      ? motionBackend !== "kimodo" || !motionNpzFile
+      : motionBackend !== "kimodo";
+  const npzRequirementMet = motionBackend !== "animal_npz" || Boolean(motionNpzFile);
+  const selectedRouteReady = motionProfile === "character" || motionBackend === "kimodo"
+    ? Boolean(endpoint.characterReady)
+    : ["quadruped", "biped_animal"].includes(motionProfile) || ["animal_procedural", "animal_npz"].includes(motionBackend)
+      ? Boolean(endpoint.animalReady)
+      : Boolean(endpoint.characterReady || endpoint.animalReady);
+  const canSubmit = Boolean(
+    motionPrompt.trim()
+    && profileBackendCompatible
+    && npzRequirementMet
+    && selectedRouteReady
+    && DIRECTIONS.every((direction) => directionUploadFiles[direction.id] || directionSplit?.directions[direction.id]),
+  );
   const selectedItemInventory = assetInventory.filter((result) => result.assetName === assetCatalogItem);
   const storedCharacterSheets = directionSheetInventory.filter((item) => item.category === "character" && item.imageUrl.startsWith("/generated/character-sheets/"));
   const selectedInventoryDirectionSheet = directionSheetInventory.find((item) => item.generationId === directionSheetInventoryId) ?? null;
@@ -770,8 +827,8 @@ export default function Home() {
 
       <nav className="phase-rail" aria-label="production stages">
         <div className="phase is-ready"><span>01</span><div><strong>4방향 RGB</strong><small>front · back · left · right</small></div></div>
-        <div className="phase is-active"><span>02</span><div><strong>Kimodo Motion</strong><small>자연스러운 동작 1개</small></div></div>
-        <div className="phase"><span>03</span><div><strong>Motion Adapter</strong><small>체형 · 4방향 · 기준선</small></div></div>
+        <div className="phase is-active"><span>02</span><div><strong>Motion Routing</strong><small>Kimodo · animal NPZ</small></div></div>
+        <div className="phase"><span>03</span><div><strong>Profile Adapter</strong><small>V8 human · V9 animal</small></div></div>
         <div className="phase"><span>04</span><div><strong>One-to-All + Pack</strong><small>4×8 = 32 PNG</small></div></div>
       </nav>
 
@@ -869,7 +926,7 @@ export default function Home() {
           <button type="button" onClick={resetMotionRequest} data-testid="reset-motion-inputs">방향별 업로드 초기화</button>
           <button type="button" onClick={downloadManifest} data-testid="download-motion-manifest">요청 manifest 저장</button>
           <div className="input-rule"><strong>입력은 RGB 네 장</strong><p>정면·후면·왼쪽·오른쪽 이미지만 보냅니다. mask와 driving video는 클라이언트 입력이 아닙니다.</p></div>
-          <div className="input-rule"><strong>서버 내부 처리</strong><p>Kimodo 동작 생성 → Motion Adapter 4방향 변환 → One-to-All 순차 작화 → 32 PNG 패킹 순서입니다.</p></div>
+          <div className="input-rule"><strong>서버 내부 처리</strong><p>사람·캐릭터는 기존 V8 Kimodo 경로를 그대로 유지합니다. 동물은 사람 motion을 금지하고 기본 동물 cycle 또는 독립 animal-motion-v1 NPZ를 선택해 V9 adapter와 animal QC를 거칩니다.</p></div>
           <div className="input-rule"><strong>결과 수신</strong><p>서버가 만든 result.zip을 로컬 클라이언트가 직접 내려받습니다.</p></div>
           <div className="notice-box"><i />{notice}</div>
         </aside>
@@ -891,24 +948,31 @@ export default function Home() {
               })}
             </div>
             <label className="prompt-editor"><span>동작 설명 · 직접 수정 가능</span><textarea rows={5} value={motionPrompt} onChange={(event) => setMotionPrompt(event.target.value)} data-testid="motion-prompt" /></label>
-            <div className="scail-params motion-params"><span><small>ACTION</small><strong>walk</strong></span><span><small>INPUT</small><strong>4 RGB</strong></span><span><small>OUTPUT</small><strong>result.zip</strong></span><span><small>FRAMES</small><strong>4 × 8 PNG</strong></span><label><small>SEED</small><input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label></div>
+            <div className="scail-params motion-params">
+              <label><small>PROFILE</small><select value={motionProfile} onChange={(event) => { const next = event.target.value as MotionProfile; setMotionProfile(next); if (next === "character") { setMotionBackend("auto"); setMotionNpzFile(null); } }} data-testid="motion-subject-profile"><option value="auto">자동 분류</option><option value="character">사람·캐릭터</option><option value="quadruped">동물·사족</option><option value="biped_animal">동물·이족</option></select></label>
+              <label><small>MOTION</small><select value={motionBackend} onChange={(event) => { const next = event.target.value as MotionBackend; setMotionBackend(next); if (next === "kimodo" || next === "animal_procedural") setMotionNpzFile(null); }} data-testid="motion-backend"><option value="auto">자동 라우팅</option><option value="kimodo">Kimodo · 사람 전용</option><option value="animal_procedural">동물 기본 cycle</option><option value="animal_npz">동물 NPZ</option></select></label>
+              <label><small>ANIMAL NPZ</small><input type="file" accept=".npz,application/octet-stream,application/zip" disabled={motionProfile === "character" || !["auto", "animal_npz"].includes(motionBackend)} onChange={(event) => setMotionNpzFile(event.target.files?.[0] ?? null)} data-testid="motion-animal-npz" /><strong>{motionNpzFile?.name ?? "선택 없음"}</strong></label>
+              <span><small>ACTION</small><strong>walk</strong></span><span><small>INPUT</small><strong>4 RGB</strong></span><span><small>OUTPUT</small><strong>result.zip</strong></span><span><small>FRAMES</small><strong>4 × 8 PNG</strong></span><label><small>SEED</small><input type="number" value={seed} onChange={(event) => setSeed(Number(event.target.value))} /></label>
+            </div>
             <div className="job-actions motion-job-actions"><div><strong>{job.status}</strong><small>{job.jobId ?? "job_id 대기"}</small></div><button type="button" onClick={submitMotionJob} disabled={endpoint.status !== "연결됨" || submitting || !canSubmit} data-testid="queue-motion-job">{submitting ? "전송 중…" : "4방향 동작 생성 요청"}</button></div>
           </div>
         </section>
       </section>
 
       <section className="job-board motion-job-board" data-testid="motion-job-board">
-        <header><div><small>POD PIPELINE JOB</small><h2>단일 작업 상태와 결과</h2></div><span>Kimodo {endpoint.kimodoState ?? "unknown"} · One-to-All {endpoint.oneToAllState ?? "unknown"} · queue {endpoint.queueDepth ?? 0}</span></header>
+        <header><div><small>POD PIPELINE JOB</small><h2>단일 작업 상태와 결과</h2></div><span>사람 {endpoint.characterReady ? "ready" : "down"} · 동물 {endpoint.animalReady ? "ready" : "down"} · One-to-All {endpoint.oneToAllState ?? "unknown"} · queue {endpoint.queueDepth ?? 0}</span></header>
         <div className="motion-job-flow">
           <article><span>01</span><strong>4 RGB upload</strong><small>front · back · left · right</small></article><b>→</b>
-          <article><span>02</span><strong>Kimodo</strong><small>motion.npz</small></article><b>→</b>
-          <article><span>03</span><strong>Motion Adapter</strong><small>4-direction pose</small></article><b>→</b>
+          <article><span>02</span><strong>Motion Source</strong><small>{motionBackend === "animal_npz" ? "animal NPZ" : motionBackend === "animal_procedural" ? "animal cycle" : motionBackend === "kimodo" ? "Kimodo" : "auto route"}</small></article><b>→</b>
+          <article><span>03</span><strong>Profile Adapter</strong><small>V8 human · V9 animal</small></article><b>→</b>
           <article><span>04</span><strong>One-to-All</strong><small>serial render</small></article><b>→</b>
           <article className={job.status === "완료" ? "is-ready" : ""}><span>05</span><strong>result.zip</strong><small>32 PNG + sheet + metadata</small></article>
         </div>
         <div className="motion-job-result">
           <div><strong>{job.jobId ?? "작업 미등록"}</strong><span>{job.status}</span>{job.runtimeSeconds ? <small>runtime {job.runtimeSeconds.toFixed(1)}s</small> : null}{job.error ? <small className="job-error">{job.error}</small> : null}</div>
-          {job.outputUrl ? <a href={job.outputUrl} download={`${projectId || "motion"}-result.zip`} data-testid="download-motion-result">result.zip 로컬 저장</a> : <small>완료 후 result.zip 다운로드가 활성화됩니다.</small>}
+          {job.outputUrl ? <a href={job.outputUrl} download={`${projectId || "motion"}-result.zip`} data-testid="download-motion-result">result.zip 로컬 저장</a> : null}
+          {job.debugUrl ? <a href={job.debugUrl} download={`${projectId || "motion"}-failure-debug.zip`} data-testid="download-motion-debug">failure_debug.zip 저장</a> : null}
+          {!job.outputUrl && !job.debugUrl ? <small>완료 또는 실패 판정 뒤 다운로드가 활성화됩니다.</small> : null}
           {job.jobId && ["완료", "실패"].includes(job.status) ? <button type="button" onClick={deleteRemoteJob} data-testid="delete-motion-job">RunPod 임시 파일 삭제</button> : null}
         </div>
       </section>
@@ -917,7 +981,7 @@ export default function Home() {
         <header><div><small>RESULT.ZIP CONTENTS</small><h2>4방향 · 방향당 8프레임</h2><p>프레임 추출과 패킹까지 서버 작업에 포함하고, 로컬은 완성된 archive를 내려받습니다.</p></div><code>front / back / left / right</code></header>
         <div className="phase-header"><span>VIEW</span>{PHASES.map((phase, index) => <span key={phase}><b>{index + 1}</b><small>{phase}</small><em>{index}.png</em></span>)}</div>
         {DIRECTIONS.map((direction) => <div className="phase-row" key={direction.id}><strong>{direction.code}<small>{direction.label}</small></strong>{EXTRACT_INDICES.map((frame, index) => <span key={frame} className={job.status === "완료" ? "is-download-ready" : ""}><b>{index}.png</b><small>phase {index + 1}</small></span>)}</div>)}
-        <footer><strong>총 32 PNG</strong><span>sprite_sheet.png과 metadata.json도 같은 result.zip에 포함</span><code>GET /v1/jobs/JOB_ID/output</code></footer>
+        <footer><strong>총 32 PNG</strong><span>sprite_sheet.png과 metadata.json도 같은 result.zip에 포함</span><code>GET /v1/jobs/JOB_ID/result</code></footer>
       </section>
 
       <section className="catalog-workbench asset-catalog-workbench" data-testid="asset-catalog">

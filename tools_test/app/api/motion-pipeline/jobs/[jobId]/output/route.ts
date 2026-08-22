@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, context: { params: Promise<{ jobId: string }> }) {
   const { jobId } = await context.params;
-  if (!/^[a-zA-Z0-9_-]{8,80}$/.test(jobId)) return new Response("잘못된 job_id입니다.", { status: 400 });
+  if (!/^[a-f0-9]{32}$/.test(jobId)) return new Response("잘못된 job_id입니다.", { status: 400 });
 
   try {
     const response = await requestMotionPipeline(`/v1/jobs/${encodeURIComponent(jobId)}/result`);

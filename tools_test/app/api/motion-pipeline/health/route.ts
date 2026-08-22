@@ -18,16 +18,24 @@ export async function GET() {
     const kimodoState = String(body.kimodo_state ?? kimodoWorker?.status ?? "unknown");
     const oneToAllState = String(body.one_to_all_state ?? otaWorker?.status ?? "unknown");
     const queueDepth = Number(body.queue_depth ?? body.queue_size ?? 0);
-    const healthy = body.ok !== false
-      && body.status !== "degraded"
-      && kimodoState !== "failed"
-      && kimodoState !== "down"
-      && oneToAllState !== "failed"
-      && oneToAllState !== "down";
-    const message = healthy ? undefined : body.error ?? "resident worker load failed";
+    const characterReady = Boolean(
+      body.character_ready
+      ?? (kimodoState === "ready" && oneToAllState === "ready"),
+    );
+    const animalReady = Boolean(
+      body.animal_ready
+      ?? oneToAllState === "ready",
+    );
+    // V9 deliberately allows the animal route to remain usable while Kimodo is
+    // unavailable. The proxy is healthy when at least one advertised route is
+    // ready; per-request compatibility is enforced by the API and UI.
+    const healthy = body.ok !== false && (characterReady || animalReady);
+    const message = healthy ? undefined : body.error ?? "no motion route is ready";
     console[healthy ? "info" : "error"](healthy ? "[MOTION_PIPELINE][HEALTH_OK]" : "[MOTION_PIPELINE][WORKER_FAILED]", {
       kimodoState,
       oneToAllState,
+      characterReady,
+      animalReady,
       queueDepth,
       message,
       elapsedMs: Date.now() - startedAt,
@@ -37,6 +45,8 @@ export async function GET() {
       ok: healthy,
       kimodo_state: kimodoState,
       one_to_all_state: oneToAllState,
+      character_ready: characterReady,
+      animal_ready: animalReady,
       queue_depth: queueDepth,
       message,
       latency_ms: Date.now() - startedAt,
